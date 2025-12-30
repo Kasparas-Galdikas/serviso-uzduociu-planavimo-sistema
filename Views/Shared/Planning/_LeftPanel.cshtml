@@ -11,9 +11,8 @@
     <div class="panel-section">
         <div class="section-title">Rodinys</div>
         <div class="btn-group w-100">
-            <button class="btn btn-outline-primary btn-sm active">Savaitė</button>
-            <button class="btn btn-outline-secondary btn-sm">Diena</button>
-            <button class="btn btn-outline-secondary btn-sm">Mėnuo</button>
+            <button class="btn btn-outline-primary btn-sm active">Diena</button>
+            <button class="btn btn-outline-secondary btn-sm">Savaite</button>
         </div>
     </div>
 
@@ -29,37 +28,37 @@
             <option>Visi</option>
             <option>Vilnius</option>
             <option>Kaunas</option>
-            <option>Šiauliai</option>
+            <option>Siauliai</option>
         </select>
         <label class="form-label small mb-1">Lokacija</label>
         <select class="form-select form-select-sm mb-2">
             <option>Visos</option>
             <option>Vilnius</option>
             <option>Kaunas</option>
-            <option>Šiauliai</option>
-            <option>Klaipėda</option>
+            <option>Siauliai</option>
+            <option>Klaipeda</option>
         </select>
         <label class="form-label small mb-1">Statusas / prioritetas</label>
         <select class="form-select form-select-sm">
             <option>Visi</option>
-            <option>Aukštas</option>
+            <option>Aukstas</option>
             <option>Vidutinis</option>
-            <option>Žemas</option>
+            <option>Zemas</option>
         </select>
     </div>
 
     <div class="panel-section">
         <div class="section-title">Veiksmai</div>
         <div class="d-grid gap-2">
-            <button class="btn btn-outline-secondary btn-sm">Greita užduotis</button>
+            <button class="btn btn-outline-secondary btn-sm">Greita uzduotis</button>
             <button class="btn btn-outline-secondary btn-sm">Matyti konfliktus</button>
             @if (Model.IsManager)
             {
-                <button class="btn btn-primary btn-sm">+ Pridėti užduotį</button>
+                <button class="btn btn-primary btn-sm">+ Prideti uzduoti</button>
             }
             else
             {
-                <button class="btn btn-outline-secondary btn-sm" disabled title="Režimas: tik peržiūra">+ Pridėti užduotį</button>
+                <button class="btn btn-outline-secondary btn-sm" disabled title="Rezim as: tik perziura">+ Prideti uzduoti</button>
             }
         </div>
     </div>

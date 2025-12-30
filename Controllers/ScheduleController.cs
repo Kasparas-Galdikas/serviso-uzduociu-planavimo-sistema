@@ -6,10 +6,16 @@ namespace ServiceTaskPlanningSystem.Controllers
     public class ScheduleController : Controller
     {
         [HttpGet]
-        public IActionResult Index()
+        public IActionResult Index(string view = "day", string? date = null)
         {
             var selectedDate = DateTime.Today;
+            if (!string.IsNullOrWhiteSpace(date) && DateTime.TryParse(date, out var parsedDate))
+            {
+                selectedDate = parsedDate.Date;
+            }
+
             var weekStart = selectedDate.AddDays(-(int)selectedDate.DayOfWeek + (int)DayOfWeek.Monday);
+            var viewMode = string.Equals(view, "week", StringComparison.OrdinalIgnoreCase) ? "week" : "day";
 
             var technicians = new List<Technician>
             {
@@ -44,6 +50,7 @@ namespace ServiceTaskPlanningSystem.Controllers
                 WeekStart = weekStart,
                 SelectedDate = selectedDate,
                 IsManager = true,
+                ViewMode = viewMode,
                 Technicians = technicians,
                 Tasks = tasks,
                 DecisionOptions = decisions

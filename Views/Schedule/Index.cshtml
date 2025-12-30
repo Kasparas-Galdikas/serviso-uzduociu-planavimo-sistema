@@ -1,16 +1,19 @@
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
 @{
     ViewData["Title"] = "Tvarkarastis";
-    var issues = new (string Id, string Title, string Detail, IEnumerable<ServiceTaskPlanningSystem.Models.Planning.DecisionOption> Decisions)[] {
-        ("task-3", "?? Austeja J. ú " + Model.SelectedDate.ToString("dddd") + " 16:00-18:00", "Klaipedos perjungimas persidengia su Vilniaus darbu", Model.DecisionOptions),
-        ("task-5", "?? Dovydas K. ú " + Model.SelectedDate.ToString("dddd") + " 12:00-15:00", "Kaunas virsija dienos limita +1h", Model.DecisionOptions),
-        ("task-8", "?? Gabija P. ú " + Model.SelectedDate.ToString("dddd") + " 14:00-17:00", "Papildoma kelione - perjungimas Klaipedoje", Model.DecisionOptions)
+    var issues = new (string Id, string Title, string Detail, IEnumerable<ServiceTaskPlanningSystem.Models.Planning.DecisionOption> Decisions)[]
+    {
+        ("task-3", $"[!] Austeja J. @Model.SelectedDate:dddd 16:00-18:00", "Klaipedos perjungimas persidengia su Vilniaus darbu", Model.DecisionOptions),
+        ("task-5", $"[!] Dovydas K. @Model.SelectedDate:dddd 12:00-15:00", "Kaunas virsija dienos limita +1h", Model.DecisionOptions),
+        ("task-8", $"[!] Gabija P. @Model.SelectedDate:dddd 14:00-17:00", "Papildoma kelione - perjungimas Klaipedoje", Model.DecisionOptions)
     };
+    var isWeekly = string.Equals(Model.ViewMode, "week", StringComparison.OrdinalIgnoreCase);
 }
+
 <div class="page-header d-flex align-items-center mb-2 @(Model.IsManager ? "edit-mode" : string.Empty)">
     <div>
-        <p class="text-muted small mb-1">Mock demonstracija ú 20-30% apimtis</p>
-        <h1 class="h4 mb-0">Dienos grafikas</h1>
+        <p class="text-muted small mb-1">Mock demonstracija ~20-30% apimtis</p>
+        <h1 class="h4 mb-0">@((isWeekly ? "Savaites grafikas" : "Dienos grafikas"))</h1>
     </div>
     <div class="ms-auto d-flex align-items-center gap-2">
         <span class="badge bg-secondary">Role: @(Model.IsManager ? "Vadovas" : "Technikas")</span>
@@ -23,7 +26,7 @@
 </div>
 
 <div class="alert-strip d-flex align-items-center mb-2">
-    <div class="flex-grow-1">?? Aptikta @issues.Length problemu sia diena</div>
+    <div class="flex-grow-1">[!] Aptikta @issues.Length problemu sia diena</div>
     <button class="btn btn-link btn-sm" data-bs-toggle="modal" data-bs-target="#issuesModal">Perziureti</button>
 </div>
 
@@ -40,12 +43,20 @@
     </button>
 </div>
 
-@await Html.PartialAsync("~/Views/Shared/Planning/_Legend.cshtml")
-@await Html.PartialAsync("~/Views/Shared/Planning/_ScheduleGrid.cshtml", Model)
+@if (isWeekly)
+{
+    @await Html.PartialAsync("~/Views/Shared/Planning/_WeeklyGrid.cshtml", Model)
+}
+else
+{
+    @await Html.PartialAsync("~/Views/Shared/Planning/_ScheduleGrid.cshtml", Model)
+}
 @await Html.PartialAsync("~/Views/Shared/Planning/_IssuesModal.cshtml", issues)
 @await Html.PartialAsync("~/Views/Shared/Planning/_FilterConsole.cshtml", Model)
 
+
 @section Scripts {
+    <script src="~/js/filter-console.js"></script>
     <script>
         // scroll highlight for issues from modal
         document.querySelectorAll('.issue-scroll').forEach(btn => {

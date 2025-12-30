@@ -1,0 +1,18 @@
+@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+@using System.Globalization
+@{
+    var isWeekly = string.Equals(Model.ViewMode, "week", StringComparison.OrdinalIgnoreCase);
+    var baseDate = isWeekly ? Model.WeekStart.Date : Model.SelectedDate.Date;
+    var culture = CultureInfo.GetCultureInfo("lt-LT");
+
+    var prevDate = baseDate.AddDays(isWeekly ? -7 : -1);
+    var nextDate = baseDate.AddDays(isWeekly ? 7 : 1);
+
+    var prevUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = prevDate.ToString("yyyy-MM-dd") }) ?? "#";
+    var nextUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = nextDate.ToString("yyyy-MM-dd") }) ?? "#";
+}
+
+<div class="d-flex align-items-center mb-2 justify-content-between">
+    <a class="btn btn-secondary btn-sm btn-rounded" href="@prevUrl" aria-label="Ankstesnis @(isWeekly ? "savaite" : "diena")"> < Ankstesnis</a>
+    <a class="btn btn-secondary btn-sm" href="@nextUrl" aria-label="Kitas @(isWeekly ? "savaite" : "diena")">Kitas ></a>
+</div>

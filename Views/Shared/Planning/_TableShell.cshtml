@@ -1,0 +1,40 @@
+@model ServiceTaskPlanningSystem.Models.Planning.TableShellModel
+
+<div class="table-responsive">
+    <table class="table table-bordered @Model.TableCssClass">
+        <thead class="table-light">
+            <tr>
+                <th style="width:@Model.FirstColumnWidth">@Model.FirstColumnTitle</th>
+                @foreach (var col in Model.Columns)
+                {
+                    <th class="text-center time-header" style="@(string.IsNullOrEmpty(col.Width) ? string.Empty : $"width:{col.Width}")">
+                        @col.Title
+                    </th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in Model.Rows)
+            {
+                <tr>
+                    <th class="align-top tech-cell">@Html.Raw(row.HeaderHtml)</th>
+                    @foreach (var cell in row.Cells)
+                    {
+                        <td class="@cell.CssClass" colspan="@cell.ColSpan">@Html.Raw(cell.ContentHtml)</td>
+                    }
+                </tr>
+            }
+        </tbody>
+        <thead class="table-light">
+            <tr>
+                <th style="width:@Model.FirstColumnWidth">@Model.FirstColumnTitle</th>
+                @foreach (var col in Model.Columns)
+                {
+                    <th class="text-center time-header" style="@(string.IsNullOrEmpty(col.Width) ? string.Empty : $"width:{col.Width}")">
+                        @col.Title
+                    </th>
+                }
+            </tr>
+        </thead>
+    </table>
+</div>

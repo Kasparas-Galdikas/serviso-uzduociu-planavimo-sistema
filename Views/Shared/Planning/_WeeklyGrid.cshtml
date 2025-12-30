@@ -1,0 +1,109 @@
+@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+@using ServiceTaskPlanningSystem.Models.Planning
+@using System.Globalization
+@using System.Net
+
+@{
+    var lt = CultureInfo.GetCultureInfo("lt-LT");
+    var days = Enumerable.Range(0, 7)
+        .Select(i => Model.WeekStart.Date.AddDays(i))
+        .ToList();
+
+    string GetStateClass(double hours, int dailyLimit)
+    {
+        if (hours > dailyLimit) return "task-conflict";
+        if (hours >= dailyLimit * 0.8) return "task-load";
+        return "task-normal";
+    }
+
+    string GetDotClass(string state)
+    {
+        return state switch
+        {
+            "task-conflict" => "is-conflict",
+            "task-load" => "is-load",
+            _ => "is-normal"
+        };
+    }
+
+    var columns = days
+        .Select(d =>
+        {
+            var label = lt.TextInfo.ToTitleCase(d.ToString("dddd yyyy-MM-dd", lt));
+            return new TableColumn { Title = label };
+        })
+        .ToList();
+
+    var rows = new List<TableRow>();
+
+    foreach (var tech in Model.Technicians)
+    {
+        var cells = new List<TableCell>();
+
+        foreach (var day in days)
+        {
+            var dailyUrl = Url.Action("Index", "Schedule", new { view = "day", date = day.ToString("yyyy-MM-dd") }) ?? "#";
+            var tasks = Model.Tasks
+                .Where(t => t.TechnicianId == tech.Id && t.Start.Date == day.Date)
+                .ToList();
+
+            var totalHours = tasks.Sum(t => (t.End - t.Start).TotalHours);
+            var taskCount = tasks.Count;
+            var hasConflicts = tasks.Any(t => t.IsConflict);
+
+            var stateClass = GetStateClass(totalHours, tech.DailyLimit > 0 ? tech.DailyLimit : 8);
+            var dotClass = GetDotClass(stateClass);
+            var warning = hasConflicts ? @"<span class=""ms-1 text-danger"" aria-label=""Konfliktas"">!</span>" : string.Empty;
+            var taskInfo = taskCount > 0 ? $"{taskCount} uzduotys" : "Nera uzduociu";
+
+            var content = $@"
+<a href=""{dailyUrl}"" class=""text-decoration-none d-block"">
+    <div class=""task-card {stateClass} p-2"">
+        <div class=""d-flex align-items-center gap-2"">
+            <div class=""fw-bold"">{totalHours:0.#}h</div>
+            <div class=""state-dot-only {dotClass}""></div>
+            {warning}
+        </div>
+        <div class=""small text-muted"">{WebUtility.HtmlEncode(taskInfo)}</div>
+    </div>
+</a>";
+
+            cells.Add(new TableCell
+            {
+                CssClass = "schedule-cell",
+                ColSpan = 1,
+                ContentHtml = content
+            });
+        }
+
+        rows.Add(new TableRow
+        {
+            HeaderHtml = $@"<div class=""fw-semibold"">{WebUtility.HtmlEncode(tech.Name)}</div><div class=""text-muted small"">{WebUtility.HtmlEncode(tech.Location)}</div>",
+            Cells = cells
+        });
+    }
+
+    var tableModel = new TableShellModel
+    {
+        FirstColumnTitle = "Technikai",
+        FirstColumnWidth = "180px",
+        TableCssClass = "schedule-table",
+        Columns = columns,
+        Rows = rows
+    };
+
+    var headerLabel = $"Savaite: {Model.WeekStart:yyyy-MM-dd} - {Model.WeekStart.AddDays(6):yyyy-MM-dd}";
+}
+
+<div class="card p-3 mb-4">
+    <div class="d-flex align-items-center mb-3">
+        <div class="fw-semibold">@headerLabel</div>
+        <h5 class="mb-0 flex-grow-1 text-center">Savaites grafikas</h5>
+        <div class="d-flex align-items-center gap-2">
+            @await Html.PartialAsync("~/Views/Shared/Planning/_ViewNavigation.cshtml", Model)
+            <span class="badge bg-info text-dark">Mock duomenys</span>
+        </div>
+    </div>
+
+    @await Html.PartialAsync("~/Views/Shared/Planning/_TableShell.cshtml", tableModel)
+</div>

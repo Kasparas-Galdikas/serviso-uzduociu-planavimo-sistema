@@ -8,6 +8,7 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public DateTime WeekStart { get; set; }
         public DateTime SelectedDate { get; set; }
         public bool IsManager { get; set; }
+        public string ViewMode { get; set; } = "day"; // "day" or "week"
         public List<Technician> Technicians { get; set; } = new();
         public List<TaskItem> Tasks { get; set; } = new();
         public List<DecisionOption> DecisionOptions { get; set; } = new();
