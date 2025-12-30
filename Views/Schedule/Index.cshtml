@@ -45,14 +45,14 @@
 
 @if (isWeekly)
 {
-    @await Html.PartialAsync("~/Views/Shared/Planning/_WeeklyGrid.cshtml", Model)
+    @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_WeeklyTable.cshtml", Model)
 }
 else
 {
-    @await Html.PartialAsync("~/Views/Shared/Planning/_ScheduleGrid.cshtml", Model)
+    @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_DailyTable.cshtml", Model)
 }
-@await Html.PartialAsync("~/Views/Shared/Planning/_IssuesModal.cshtml", issues)
-@await Html.PartialAsync("~/Views/Shared/Planning/_FilterConsole.cshtml", Model)
+@await Html.PartialAsync("~/Views/Schedule/Partials/Issues/_IssuesModal.cshtml", issues)
+@await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsole.cshtml", Model)
 
 
 @section Scripts {

@@ -100,10 +100,10 @@
         <div class="fw-semibold">@headerLabel</div>
         <h5 class="mb-0 flex-grow-1 text-center">Savaites grafikas</h5>
         <div class="d-flex align-items-center gap-2">
-            @await Html.PartialAsync("~/Views/Shared/Planning/_ViewNavigation.cshtml", Model)
+            @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml", Model)
             <span class="badge bg-info text-dark">Mock duomenys</span>
         </div>
     </div>
 
-    @await Html.PartialAsync("~/Views/Shared/Planning/_TableShell.cshtml", tableModel)
+    @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TableShell.cshtml", tableModel)
 </div>
