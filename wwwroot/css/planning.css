@@ -27,6 +27,18 @@ body { background: var(--base-100); color: #1f2933; }
 .edit-mode .page-header { background: linear-gradient(90deg, #f2f7ff, #fff); border-radius: 10px; padding: 8px 12px; }
 .filter-bar .form-control-sm, .filter-bar .form-select-sm { min-width: 140px; }
 .alert-strip { background: #fff4e5; border: 1px solid #f1c98a; border-radius: 8px; padding: 6px 10px; }
+.console-banner { border-color: #b6e3bd; background: #f3f9f5; color: #1f2933; }
+.filter-console-trigger { position: fixed; bottom: 20px; right: 20px; z-index: 1080; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.filter-console-btn { width: 58px; height: 58px; display: inline-flex; align-items: center; justify-content: center; background: var(--base-900); color: #fff; border: 0; box-shadow: 0 10px 24px rgba(15,48,87,0.25); transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease; }
+.filter-console-btn:hover { background: var(--base-700); transform: translateY(-1px); box-shadow: 0 14px 28px rgba(15,48,87,0.28); }
+.filter-console-btn:focus { outline: 3px solid rgba(29,79,139,0.25); }
+.filter-console-hint { background: rgba(255,255,255,0.98); padding: 6px 10px; border-radius: 12px; border: 1px solid var(--border); font-size: 0.85rem; color: var(--text-muted); }
+.filter-console-modal .modal-content { border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(0,0,0,0.12); }
+.filter-console-modal .modal-body { background: #f9fbff; }
+.filter-console-modal .form-label { color: var(--base-900); font-weight: 600; }
+.filter-console-modal .btn-group .btn { flex: 1; }
+.filter-console-actions .btn { white-space: nowrap; }
+.filter-console-actions .dropdown-menu { min-width: 180px; }
 
 .decision-card { background: #fff; border: 1px solid var(--border); }
 .decision-card.recommended { border-color: var(--base-700); box-shadow: 0 2px 6px rgba(15,48,87,0.12); }
@@ -84,6 +96,11 @@ body { background: var(--base-100); color: #1f2933; }
     .schedule-grid .grid-header, .schedule-grid .grid-row { grid-template-columns: 1fr; }
     .schedule-grid .grid-day { text-align: left; }
     .day-cell { min-height: auto; }
+}
+
+@media (max-width: 576px) {
+    .filter-console-trigger { bottom: 14px; right: 14px; }
+    .filter-console-btn { width: 52px; height: 52px; }
 }
 
 /* Form layout reuse */

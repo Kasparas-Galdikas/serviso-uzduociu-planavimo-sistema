@@ -1,72 +1,49 @@
-﻿@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
 @{
-    ViewData["Title"] = "Tvarkaraštis";
+    ViewData["Title"] = "Tvarkarastis";
     var issues = new (string Id, string Title, string Detail, IEnumerable<ServiceTaskPlanningSystem.Models.Planning.DecisionOption> Decisions)[] {
-        ("task-3", "🔴 Austėja J. · " + Model.SelectedDate.ToString("dddd") + " 16:00–18:00", "Klaipėdos perjungimas persidengia su Vilniaus darbu", Model.DecisionOptions),
-        ("task-5", "🟠 Dovydas K. · " + Model.SelectedDate.ToString("dddd") + " 12:00–15:00", "Kaunas viršija dienos limitą +1h", Model.DecisionOptions),
-        ("task-8", "🔵 Gabija P. · " + Model.SelectedDate.ToString("dddd") + " 14:00–17:00", "Papildoma kelionė – perjungimas Klaipėdoje", Model.DecisionOptions)
+        ("task-3", "?? Austeja J. ú " + Model.SelectedDate.ToString("dddd") + " 16:00-18:00", "Klaipedos perjungimas persidengia su Vilniaus darbu", Model.DecisionOptions),
+        ("task-5", "?? Dovydas K. ú " + Model.SelectedDate.ToString("dddd") + " 12:00-15:00", "Kaunas virsija dienos limita +1h", Model.DecisionOptions),
+        ("task-8", "?? Gabija P. ú " + Model.SelectedDate.ToString("dddd") + " 14:00-17:00", "Papildoma kelione - perjungimas Klaipedoje", Model.DecisionOptions)
     };
 }
 <div class="page-header d-flex align-items-center mb-2 @(Model.IsManager ? "edit-mode" : string.Empty)">
     <div>
-        <p class="text-muted small mb-1">Mock demonstracija · 20-30% apimtis</p>
+        <p class="text-muted small mb-1">Mock demonstracija ú 20-30% apimtis</p>
         <h1 class="h4 mb-0">Dienos grafikas</h1>
     </div>
     <div class="ms-auto d-flex align-items-center gap-2">
-        <span class="badge bg-secondary">Rolė: @(Model.IsManager ? "Vadovas" : "Technikas")</span>
+        <span class="badge bg-secondary">Role: @(Model.IsManager ? "Vadovas" : "Technikas")</span>
         @if (Model.IsManager)
         {
-            <span class="badge bg-primary-subtle text-dark">Redagavimo režimas įjungtas (mock)</span>
+            <span class="badge bg-primary-subtle text-dark">Redagavimo rezimas ijungtas (mock)</span>
         }
         <span class="badge bg-info text-dark">Beta</span>
     </div>
 </div>
 
 <div class="alert-strip d-flex align-items-center mb-2">
-    <div class="flex-grow-1">⚠️ Aptikta @issues.Length problemų šią dieną</div>
-    <button class="btn btn-link btn-sm" data-bs-toggle="modal" data-bs-target="#issuesModal">Peržiūrėti</button>
+    <div class="flex-grow-1">?? Aptikta @issues.Length problemu sia diena</div>
+    <button class="btn btn-link btn-sm" data-bs-toggle="modal" data-bs-target="#issuesModal">Perziureti</button>
 </div>
 
-<div class="filter-bar card p-2 mb-3">
-    <div class="d-flex flex-wrap align-items-center gap-2">
-        <input type="date" class="form-control form-control-sm" value="@Model.SelectedDate.ToString("yyyy-MM-dd")" />
-        <select class="form-select form-select-sm">
-            <option>Visi technikai</option>
-            <option>Vilnius</option>
-            <option>Kaunas</option>
-            <option>Šiauliai</option>
-        </select>
-        <select class="form-select form-select-sm">
-            <option>Visos lokacijos</option>
-            <option>Vilnius</option>
-            <option>Kaunas</option>
-            <option>Šiauliai</option>
-            <option>Klaipėda</option>
-        </select>
-        <select class="form-select form-select-sm">
-            <option>Statusas/prioritetas</option>
-            <option>Aukštas</option>
-            <option>Vidutinis</option>
-            <option>Žemas</option>
-        </select>
-        <div class="ms-auto d-flex align-items-center gap-2">
-            @if (Model.IsManager)
-            {
-                <button class="btn btn-outline-secondary btn-sm">Greita užduotis</button>
-                <button class="btn btn-primary btn-sm">+ Pridėti</button>
-            }
-            else
-            {
-                <button class="btn btn-outline-secondary btn-sm" disabled title="Peržiūros režimas">Greita užduotis</button>
-                <button class="btn btn-outline-secondary btn-sm" disabled title="Peržiūros režimas">+ Pridėti</button>
-            }
+<div class="console-banner alert alert-info d-flex align-items-center justify-content-between mb-3">
+    <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-sliders2-vertical"></i>
+        <div>
+            <div class="fw-semibold">Filtrai perkelti i konsole</div>
+            <div class="small mb-0 text-muted">Paspausk apatinio desinio kampo mygtuka, kad atidarytum valdymus.</div>
         </div>
     </div>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#filterConsoleModal">
+        Atidaryti konsole
+    </button>
 </div>
 
 @await Html.PartialAsync("~/Views/Shared/Planning/_Legend.cshtml")
 @await Html.PartialAsync("~/Views/Shared/Planning/_ScheduleGrid.cshtml", Model)
 @await Html.PartialAsync("~/Views/Shared/Planning/_IssuesModal.cshtml", issues)
+@await Html.PartialAsync("~/Views/Shared/Planning/_FilterConsole.cshtml", Model)
 
 @section Scripts {
     <script>

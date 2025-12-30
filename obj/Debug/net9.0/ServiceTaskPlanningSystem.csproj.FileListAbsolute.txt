@@ -94,4 +94,5 @@ C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlan
 C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\ServiceTaskPlanningSystem.pdb
 C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\ServiceTaskPlanningSystem.genruntimeconfig.cache
 C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\ref\ServiceTaskPlanningSystem.dll
-C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\4jbtjdf4iz-84q2tkiu1w.gz
+C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\ServiceTaskPlanningSystem.sourcelink.json
+C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\4jbtjdf4iz-ek1kdc3ejc.gz
