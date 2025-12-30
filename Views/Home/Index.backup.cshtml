@@ -17,11 +17,11 @@
     </div>
 </div>
 
-@await Html.PartialAsync("~/Views/Shared/Planning/_Alerts.cshtml", alerts)
-@await Html.PartialAsync("~/Views/Shared/Planning/_Filters.cshtml", (Model.IsManager, Model.WeekStart))
-@await Html.PartialAsync("~/Views/Shared/Planning/_Legend.cshtml")
-@await Html.PartialAsync("~/Views/Shared/Planning/_ScheduleGrid.cshtml", Model)
-@await Html.PartialAsync("~/Views/Shared/Planning/_DecisionOptions.cshtml", Model.DecisionOptions)
+@await Html.PartialAsync("~/Views/Schedule/Partials/Shell/_Alerts.cshtml", alerts)
+@await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_Filters.cshtml", (Model.IsManager, Model.WeekStart))
+@await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_Legend.cshtml")
+@await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_DailyTable.cshtml", Model)
+@await Html.PartialAsync("~/Views/Schedule/Partials/Decisions/_DecisionOptions.cshtml", Model.DecisionOptions)
 
 <!-- Modal placeholder (mock content) -->
 @await Html.PartialAsync("~/Views/Shared/Planning/_Modal.cshtml", (

@@ -1,0 +1,57 @@
+# Build outputs
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+artifacts/
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vspscc
+
+# ReSharper / Rider
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+*.nuget.props
+*.nuget.targets
+
+# Logs and test results
+*.log
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+
+# Publish artifacts
+app.publish/
+**/Properties/PublishProfiles/*.pubxml
+**/Properties/PublishProfiles/*.pubxml.user
+
+# Secrets and local config
+.env
+.env.*
+*.secret
+secrets.json
+appsettings.Development.json
+appsettings.Local*.json
+
+# Frontend/build caches
+node_modules/
+dist/
+
+# Misc
+*.dbmdl
+*.jfm

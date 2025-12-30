@@ -1,0 +1,137 @@
+@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+@using ServiceTaskPlanningSystem.Models.Planning
+@using System.Net
+
+@{
+    var day = Model.SelectedDate != default
+    ? Model.SelectedDate
+    : Model.WeekStart;
+
+    var startMinutes = 8 * 60; // 08:00
+    var endMinutes = 20 * 60; // 20:00
+    var slotSize = 30; // 30 min
+
+    // Ticks every 30 minutes, including the end tick (20:00) for the header ruler
+    var slots = Enumerable
+    .Range(0, (endMinutes - startMinutes) / slotSize + 1) // 25 ticks from 08:00 to 20:00
+    .Select(i => startMinutes + i * slotSize)
+    .ToList();
+    var columns = slots
+    .Select(t => new TableColumn
+    {
+        Title = TimeSpan.FromMinutes(t).ToString(@"hh\:mm")
+    })
+    .ToList();
+
+    var rows = new List<TableRow>();
+
+    foreach (var tech in Model.Technicians)
+    {
+        var tasks = Model.Tasks
+        .Where(t => t.TechnicianId == tech.Id && t.Start.Date == day.Date)
+        .OrderBy(t => t.Start)
+        .ToList();
+
+        var techName = WebUtility.HtmlEncode(tech.Name);
+        var techLocation = WebUtility.HtmlEncode(tech.Location);
+
+        var cells = new List<TableCell>();
+        var slotIndex = 0;
+
+        // Use intervals (ticks - 1) for task placement; keep the last tick for the header label
+        while (slotIndex < slots.Count - 1)
+        {
+            var slotStart = startMinutes + slotIndex * slotSize;
+
+            var task = tasks.FirstOrDefault(t =>
+            (int)t.Start.TimeOfDay.TotalMinutes == slotStart);
+
+            if (task != null)
+            {
+                var durationMinutes = (task.End - task.Start).TotalMinutes;
+                var durationSlots = (int)Math.Ceiling(durationMinutes / slotSize);
+                var remainingSlots = (slots.Count - 1) - slotIndex;
+                var colspan = Math.Max(1, Math.Min(durationSlots, remainingSlots));
+
+                var stateClass =
+                task.IsConflict ? "task-conflict" :
+                task.IsLoad ? "task-load" :
+                task.IsTravelSwitch ? "task-travel" :
+                "task-normal";
+
+                var contentHtml = $@"
+<div class=""task-card {stateClass}"">
+<div class=""task-time"">{task.Start:HH:mm} - {task.End:HH:mm}</div>
+<div class=""task-title"">{WebUtility.HtmlEncode(task.Title)}</div>
+<div class=""task-location"">{WebUtility.HtmlEncode(task.Location)}</div>
+</div>";
+
+                cells.Add(new TableCell
+                {
+                    CssClass = "schedule-cell",
+                    ColSpan = colspan,
+                    ContentHtml = contentHtml
+                });
+
+                slotIndex += colspan;
+            }
+            else
+            {
+                cells.Add(new TableCell
+                {
+                    CssClass = "schedule-cell empty-slot",
+                    ContentHtml = string.Empty
+                });
+                slotIndex++;
+            }
+        }
+
+        // Pad the final tick to align with header
+        cells.Add(new TableCell
+        {
+            CssClass = "schedule-cell empty-slot",
+            ContentHtml = string.Empty
+        });
+
+        rows.Add(new TableRow
+        {
+            HeaderHtml = $@"<div class=""fw-semibold"">{techName}</div><div class=""text-muted small"">{techLocation}</div>",
+            Cells = cells
+        });
+    }
+
+    var tableModel = new TableShellModel
+    {
+        FirstColumnTitle = "Technikai",
+        FirstColumnWidth = "180px",
+        TableCssClass = "schedule-table",
+        Columns = columns,
+        Rows = rows
+    };
+       var headerLabel = $"Diena: {day:yyyy-MM-dd} ({day.ToString("dddd", System.Globalization.CultureInfo.GetCultureInfo("lt-LT"))})";
+}
+
+<div class="card p-3 mb-4">
+
+    <!-- HEADER -->
+    <div class="d-flex align-items-center mb-3">
+         <div class="fw-semibold">@headerLabel</div>
+        <h5 class="mb-0 flex-grow-1 text-center">Dienos grafikas</h5>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-info text-dark">Mock duomenys</span>
+        </div>
+    </div>
+
+    @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_Legend.cshtml")
+    
+    <div class="mt-2">
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml", Model)
+    </div>
+
+    <!-- SCHEDULE TABLE -->
+    @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TableShell.cshtml", tableModel)
+
+    <div>
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml", Model)
+    </div>
+</div>
