@@ -1,0 +1,17 @@
+﻿@model IEnumerable<(string Title, string Detail, string? TargetId)>
+@if (Model != null)
+{
+    foreach (var alert in Model)
+    {
+        <div class="alert alert-warning planning-alert d-flex align-items-center" role="alert">
+            <div class="flex-grow-1">
+                <div class="fw-bold">@alert.Title</div>
+                <div class="small text-muted">@alert.Detail</div>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(alert.TargetId))
+            {
+                <a class="btn btn-link btn-sm" href="#@alert.TargetId">Rodyti grafike</a>
+            }
+        </div>
+    }
+}

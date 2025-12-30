@@ -1,0 +1,47 @@
+﻿@model (bool IsManager, DateTime WeekStart)
+<div class="filters card p-3 mb-3">
+    <div class="d-flex flex-wrap gap-3 align-items-center">
+        <div>
+            <label class="form-label small mb-1">Savaitė nuo</label>
+            <input type="date" class="form-control" value="@Model.WeekStart.ToString("yyyy-MM-dd")" />
+        </div>
+        <div>
+            <label class="form-label small mb-1">Technikas</label>
+            <select class="form-select">
+                <option>Visi</option>
+                <option>Vilnius</option>
+                <option>Kaunas</option>
+                <option>Šiauliai</option>
+            </select>
+        </div>
+        <div>
+            <label class="form-label small mb-1">Lokacija / regionas</label>
+            <select class="form-select">
+                <option>Visi</option>
+                <option>Vilnius</option>
+                <option>Kaunas</option>
+                <option>Šiauliai</option>
+                <option>Klaipėda</option>
+            </select>
+        </div>
+        <div>
+            <label class="form-label small mb-1">Prioritetas / statusas</label>
+            <select class="form-select">
+                <option>Visi</option>
+                <option>Aukštas</option>
+                <option>Vidutinis</option>
+                <option>Žemas</option>
+            </select>
+        </div>
+        @if (Model.IsManager)
+        {
+            <div class="ms-auto text-end edit-mode-hint">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="editModeSwitch" checked>
+                    <label class="form-check-label" for="editModeSwitch">Redagavimo režimas</label>
+                </div>
+                <div class="small text-muted">Įjungtas: matysi +Pridėti ir kortelių veiksmus (mock).</div>
+            </div>
+        }
+    </div>
+</div>

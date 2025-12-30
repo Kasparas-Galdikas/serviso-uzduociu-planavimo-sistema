@@ -1,0 +1,91 @@
+﻿@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+@{
+    ViewData["Title"] = "Tvarkaraštis";
+    var issues = new (string Id, string Title, string Detail, IEnumerable<ServiceTaskPlanningSystem.Models.Planning.DecisionOption> Decisions)[] {
+        ("task-3", "🔴 Austėja J. · " + Model.SelectedDate.ToString("dddd") + " 16:00–18:00", "Klaipėdos perjungimas persidengia su Vilniaus darbu", Model.DecisionOptions),
+        ("task-5", "🟠 Dovydas K. · " + Model.SelectedDate.ToString("dddd") + " 12:00–15:00", "Kaunas viršija dienos limitą +1h", Model.DecisionOptions),
+        ("task-8", "🔵 Gabija P. · " + Model.SelectedDate.ToString("dddd") + " 14:00–17:00", "Papildoma kelionė – perjungimas Klaipėdoje", Model.DecisionOptions)
+    };
+}
+<div class="page-header d-flex align-items-center mb-2 @(Model.IsManager ? "edit-mode" : string.Empty)">
+    <div>
+        <p class="text-muted small mb-1">Mock demonstracija · 20-30% apimtis</p>
+        <h1 class="h4 mb-0">Dienos grafikas</h1>
+    </div>
+    <div class="ms-auto d-flex align-items-center gap-2">
+        <span class="badge bg-secondary">Rolė: @(Model.IsManager ? "Vadovas" : "Technikas")</span>
+        @if (Model.IsManager)
+        {
+            <span class="badge bg-primary-subtle text-dark">Redagavimo režimas įjungtas (mock)</span>
+        }
+        <span class="badge bg-info text-dark">Beta</span>
+    </div>
+</div>
+
+<div class="alert-strip d-flex align-items-center mb-2">
+    <div class="flex-grow-1">⚠️ Aptikta @issues.Length problemų šią dieną</div>
+    <button class="btn btn-link btn-sm" data-bs-toggle="modal" data-bs-target="#issuesModal">Peržiūrėti</button>
+</div>
+
+<div class="filter-bar card p-2 mb-3">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <input type="date" class="form-control form-control-sm" value="@Model.SelectedDate.ToString("yyyy-MM-dd")" />
+        <select class="form-select form-select-sm">
+            <option>Visi technikai</option>
+            <option>Vilnius</option>
+            <option>Kaunas</option>
+            <option>Šiauliai</option>
+        </select>
+        <select class="form-select form-select-sm">
+            <option>Visos lokacijos</option>
+            <option>Vilnius</option>
+            <option>Kaunas</option>
+            <option>Šiauliai</option>
+            <option>Klaipėda</option>
+        </select>
+        <select class="form-select form-select-sm">
+            <option>Statusas/prioritetas</option>
+            <option>Aukštas</option>
+            <option>Vidutinis</option>
+            <option>Žemas</option>
+        </select>
+        <div class="ms-auto d-flex align-items-center gap-2">
+            @if (Model.IsManager)
+            {
+                <button class="btn btn-outline-secondary btn-sm">Greita užduotis</button>
+                <button class="btn btn-primary btn-sm">+ Pridėti</button>
+            }
+            else
+            {
+                <button class="btn btn-outline-secondary btn-sm" disabled title="Peržiūros režimas">Greita užduotis</button>
+                <button class="btn btn-outline-secondary btn-sm" disabled title="Peržiūros režimas">+ Pridėti</button>
+            }
+        </div>
+    </div>
+</div>
+
+@await Html.PartialAsync("~/Views/Shared/Planning/_Legend.cshtml")
+@await Html.PartialAsync("~/Views/Shared/Planning/_ScheduleGrid.cshtml", Model)
+@await Html.PartialAsync("~/Views/Shared/Planning/_IssuesModal.cshtml", issues)
+
+@section Scripts {
+    <script>
+        // scroll highlight for issues from modal
+        document.querySelectorAll('.issue-scroll').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const targetId = btn.getAttribute('data-target');
+                const el = document.getElementById(targetId);
+                if (!el) return;
+                const modal = document.getElementById('issuesModal');
+                const bsModal = bootstrap.Modal.getInstance(modal);
+                bsModal?.hide();
+                setTimeout(() => {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.classList.add('highlight');
+                    setTimeout(() => el.classList.remove('highlight'), 1500);
+                }, 200);
+            });
+        });
+    </script>
+}

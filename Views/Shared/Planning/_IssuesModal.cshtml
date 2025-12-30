@@ -1,0 +1,36 @@
+﻿@model IEnumerable<(string Id, string Title, string Detail, IEnumerable<ServiceTaskPlanningSystem.Models.Planning.DecisionOption> Decisions)>
+<div class="modal fade" id="issuesModal" tabindex="-1" aria-labelledby="issuesModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="issuesModalLabel">Problemų sąrašas</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                @foreach (var issue in Model)
+                {
+                    <div class="issue-modal-card mb-3 p-3 border rounded">
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <div>
+                                <div class="fw-semibold">@issue.Title</div>
+                                <div class="text-muted small">@issue.Detail</div>
+                            </div>
+                            <button class="btn btn-link btn-sm issue-scroll" data-target="@issue.Id">Rodyti grafike</button>
+                        </div>
+                        <div class="small text-muted mb-1">Sprendimai (mock):</div>
+                        @foreach (var opt in issue.Decisions)
+                        {
+                            <div class="d-flex flex-wrap gap-2 small mb-1">
+                                <span class="pill pill-primary">@opt.Title</span>
+                                <span>@opt.Description</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Uždaryti</button>
+            </div>
+        </div>
+    </div>
+</div>

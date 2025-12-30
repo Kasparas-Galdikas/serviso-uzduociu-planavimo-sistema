@@ -1,0 +1,31 @@
+@model IEnumerable<ServiceTaskPlanningSystem.Models.Planning.DecisionOption>
+<div class="decision-options card p-3 mb-3">
+    <div class="d-flex align-items-center mb-2">
+        <h5 class="mb-0 flex-grow-1">Sprendimu opcijos</h5>
+        <span class="badge bg-info text-dark">Mock duomenys</span>
+    </div>
+    <div class="row g-3">
+        @foreach (var opt in Model)
+        {
+            <div class="col-md-4 col-sm-6">
+                <div class="decision-card h-100 border rounded p-3 @(opt.IsRecommended ? "recommended" : string.Empty)">
+                    <div class="d-flex align-items-center mb-2">
+                        <strong class="me-2">@opt.Title</strong>
+                        @if (opt.IsRecommended)
+                        {
+                            <span class="badge bg-success">Rekomenduojama</span>
+                        }
+                    </div>
+                    <p class="small text-muted mb-2">@opt.Description</p>
+                    <div class="d-flex flex-wrap gap-2 small">
+                        <span class="badge bg-danger">Rizika: @opt.RiskLevel</span>
+                        @if (!string.IsNullOrWhiteSpace(opt.LoadImpact))
+                        {
+                            <span class="badge bg-warning text-dark">Apkrova: @opt.LoadImpact</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>

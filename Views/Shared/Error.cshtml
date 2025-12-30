@@ -1,0 +1,13 @@
+@model ServiceTaskPlanningSystem.Models.ErrorViewModel
+@{
+    ViewData["Title"] = "Klaida";
+}
+
+<h1 class="text-danger">Ivyko klaida.</h1>
+@if (Model.ShowRequestId)
+{
+    <p>
+        <strong>Užklausos ID:</strong> <code>@Model.RequestId</code>
+    </p>
+}
+<p class="text-muted">Patikrinkite žurnalus arba bandykite dar karta.</p>

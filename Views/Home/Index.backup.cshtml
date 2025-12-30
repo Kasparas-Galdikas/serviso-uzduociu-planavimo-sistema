@@ -1,0 +1,38 @@
+@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+@{
+    ViewData["Title"] = "Tvarkaraštis";
+    var alerts = new List<string> {
+        "Konfliktas: Klaipedos perjungimas persidengia su Vilniaus darbu.",
+        "Apkrova: Kaunas viršija dienos limita +1h.",
+        "Kelione: papildomas perjungimas treciadieni." };
+}
+<div class="page-header d-flex align-items-center mb-3">
+    <div>
+        <p class="text-muted small mb-1">Mock demonstracija � 20-30% apimtis</p>
+        <h1 class="h4 mb-0">Savaites tvarkaraštis</h1>
+    </div>
+    <div class="ms-auto d-flex align-items-center gap-2">
+        <span class="badge bg-secondary">Role: @(Model.IsManager ? "Vadovas" : "Technikas")</span>
+        <span class="badge bg-info text-dark">Beta</span>
+    </div>
+</div>
+
+@await Html.PartialAsync("~/Views/Shared/Planning/_Alerts.cshtml", alerts)
+@await Html.PartialAsync("~/Views/Shared/Planning/_Filters.cshtml", (Model.IsManager, Model.WeekStart))
+@await Html.PartialAsync("~/Views/Shared/Planning/_Legend.cshtml")
+@await Html.PartialAsync("~/Views/Shared/Planning/_ScheduleGrid.cshtml", Model)
+@await Html.PartialAsync("~/Views/Shared/Planning/_DecisionOptions.cshtml", Model.DecisionOptions)
+
+<!-- Modal placeholder (mock content) -->
+@await Html.PartialAsync("~/Views/Shared/Planning/_Modal.cshtml", (
+    Title: "Konflikto analize",
+    Body: "<p>Perjungimas Klaipedoje persidengia su Vilniaus darbu. Rekomendacija: perkelti i kita diena.</p>",
+    PrimaryAction: "Tvirtinti",
+    SecondaryAction: "At�aukti"
+))
+
+@section Scripts {
+    <script>
+        // Mock: future hooks for filters/editing.
+    </script>
+}

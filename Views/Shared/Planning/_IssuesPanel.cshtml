@@ -1,0 +1,56 @@
+﻿@model IEnumerable<(string Id, string Title, string Detail, IEnumerable<ServiceTaskPlanningSystem.Models.Planning.DecisionOption> Decisions)>
+<div class="issues-panel" id="issuesPanel">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+        <div>
+            <div class="fw-bold">Problemų sąrašas</div>
+            <div class="small text-muted">Konfliktai, apkrovos</div>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm" id="togglePanel">Suskleisti</button>
+    </div>
+    <div class="issues-list">
+        @{
+            var index = 0;
+        }
+        @foreach (var issue in Model)
+        {
+            var decisionsId = $"issue-decisions-{index}";
+            <div class="issue-card" data-issue="@issue.Id">
+                <div class="d-flex justify-content-between align-items-start mb-1">
+                    <div>
+                        <div class="issue-title">@issue.Title</div>
+                        <div class="issue-detail">@issue.Detail</div>
+                    </div>
+                    <div class="d-flex flex-column gap-1 text-end">
+                        <button class="btn btn-link btn-sm px-0 issue-scroll" data-target="@issue.Id">Rodyti grafike</button>
+                        <button class="btn btn-link btn-sm px-0 issue-decisions-toggle" data-target="@decisionsId">Sprendimai</button>
+                    </div>
+                </div>
+                <div class="issue-decisions" id="@decisionsId">
+                    @foreach (var opt in issue.Decisions)
+                    {
+                        <div class="decision-pill @(opt.IsRecommended ? "recommended" : string.Empty)">
+                            <div class="fw-semibold">@opt.Title</div>
+                            <div class="small text-muted">@opt.Description</div>
+                            <div class="d-flex flex-wrap gap-2 small mt-1">
+                                <span class="pill risk-@opt.RiskLevel.ToLower()">Rizika: @opt.RiskLevel</span>
+                                @if (!string.IsNullOrWhiteSpace(opt.LoadImpact))
+                                {
+                                    <span class="pill pill-load">Apkrova: @opt.LoadImpact</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(opt.TravelImpact))
+                                {
+                                    <span class="pill pill-travel">Kelionė: @opt.TravelImpact</span>
+                                }
+                                @if (opt.IsRecommended)
+                                {
+                                    <span class="pill pill-primary">Rekomenduojama</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+            index++;
+        }
+    </div>
+</div>

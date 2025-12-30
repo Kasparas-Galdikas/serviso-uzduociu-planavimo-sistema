@@ -1,0 +1,93 @@
+is_global = true
+build_property.TargetFramework = net9.0
+build_property.TargetPlatformMinVersion = 
+build_property.UsingMicrosoftNETSdkWeb = true
+build_property.ProjectTypeGuids = 
+build_property.InvariantGlobalization = 
+build_property.PlatformNeutralAssembly = 
+build_property.EnforceExtendedAnalyzerRules = 
+build_property._SupportedPlatformList = Linux,macOS,Windows
+build_property.RootNamespace = ServiceTaskPlanningSystem
+build_property.RootNamespace = ServiceTaskPlanningSystem
+build_property.ProjectDir = C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
+build_property.RazorLangVersion = 9.0
+build_property.SupportLocalizedComponentNames = 
+build_property.GenerateRazorMetadataSourceChecksumAttributes = 
+build_property.MSBuildProjectDirectory = C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem
+build_property._RazorSourceGeneratorDebug = 
+build_property.EffectiveAnalysisLevelStyle = 9.0
+build_property.EnableCodeStyleSeverity = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Home/Index.backup.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSG9tZVxJbmRleC5iYWNrdXAuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Home/Privacy.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSG9tZVxQcml2YWN5LmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Schedule/Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcSW5kZXguY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/Error.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXEVycm9yLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/Planning/_Alerts.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXFBsYW5uaW5nXF9BbGVydHMuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/Planning/_DecisionOptions.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXFBsYW5uaW5nXF9EZWNpc2lvbk9wdGlvbnMuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/Planning/_Filters.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXFBsYW5uaW5nXF9GaWx0ZXJzLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/Planning/_FormLayout.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXFBsYW5uaW5nXF9Gb3JtTGF5b3V0LmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/Planning/_IssuesModal.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXFBsYW5uaW5nXF9Jc3N1ZXNNb2RhbC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/Planning/_IssuesPanel.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXFBsYW5uaW5nXF9Jc3N1ZXNQYW5lbC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/Planning/_LeftPanel.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXFBsYW5uaW5nXF9MZWZ0UGFuZWwuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/Planning/_Legend.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXFBsYW5uaW5nXF9MZWdlbmQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/Planning/_Modal.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXFBsYW5uaW5nXF9Nb2RhbC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/Planning/_ScheduleGrid.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXFBsYW5uaW5nXF9TY2hlZHVsZUdyaWQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/_ValidationScriptsPartial.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9WYWxpZGF0aW9uU2NyaXB0c1BhcnRpYWwuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/_ViewImports.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcX1ZpZXdJbXBvcnRzLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/_ViewStart.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcX1ZpZXdTdGFydC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/Užduočių planavimo sistema/ServiceTaskPlanningSystem/Views/Shared/_Layout.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9MYXlvdXQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = b-6pooskejzj
