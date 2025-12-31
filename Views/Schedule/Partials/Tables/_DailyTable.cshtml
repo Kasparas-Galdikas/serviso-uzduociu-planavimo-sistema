@@ -130,9 +130,12 @@
     </div>
 
     <!-- SCHEDULE TABLE -->
+    @{
+        ViewData["StickyTable"] = true;
+    }
     @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TableShell.cshtml", tableModel)
 
-    <div>
+    <div class="mt-2">
         @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml", Model)
     </div>
 </div>

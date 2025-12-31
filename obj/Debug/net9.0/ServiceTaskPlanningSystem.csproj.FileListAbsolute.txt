@@ -96,4 +96,4 @@ C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlan
 C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\ref\ServiceTaskPlanningSystem.dll
 C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\ServiceTaskPlanningSystem.sourcelink.json
 C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\cmvnren3at-ug4g61vk6z.gz
-C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\4jbtjdf4iz-jvvk301768.gz
+C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\4jbtjdf4iz-4pw6s8oua2.gz

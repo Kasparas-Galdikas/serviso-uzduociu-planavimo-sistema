@@ -1,8 +1,13 @@
 @model ServiceTaskPlanningSystem.Models.Planning.TableShellModel
 
-<div class="table-responsive">
+@{
+    var stickyTable = (ViewData["StickyTable"] as bool?) ?? false;
+    var wrapperClass = stickyTable ? "table-responsive table-fixed-head" : "table-responsive";
+}
+
+<div class="@wrapperClass">
     <table class="table table-bordered @Model.TableCssClass">
-        <thead class="table-light">
+        <thead class="table-light @(stickyTable ? "thead-top" : string.Empty)">
             <tr>
                 <th style="width:@Model.FirstColumnWidth">@Model.FirstColumnTitle</th>
                 @foreach (var col in Model.Columns)

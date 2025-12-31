@@ -16,16 +16,13 @@
         return "task-normal";
     }
 
-    string GetDotClass(string state)
+    string GetDotClass(string state) => state switch
     {
-        return state switch
-        {
-            "task-conflict" => "is-conflict",
-            "task-load" => "is-load",
-            _ => "is-normal"
-        };
-    }
-
+        "task-conflict" => "is-conflict",
+        "task-load" => "is-load",
+        _ => "is-normal"
+    };
+    
     var columns = days
     .Select(d =>
     {
@@ -55,21 +52,43 @@
             var totalHours = tasks.Sum(t => (t.End - t.Start).TotalHours);
             var taskCount = tasks.Count;
             var hasConflicts = tasks.Any(t => t.IsConflict);
+            var hasLoadFlags = tasks.Any(t => t.IsLoad);
+            var dailyLimit = tech.DailyLimit > 0 ? tech.DailyLimit : 8;
+            var freeHours = dailyLimit - totalHours;
 
-            var stateClass = GetStateClass(totalHours, tech.DailyLimit > 0 ? tech.DailyLimit : 8);
-            var dotClass = GetDotClass(stateClass);
-            var warning = hasConflicts ? @"<span class=""ms-1 text-danger"" aria-label=""Konfliktas"">!</span>" : string.Empty;
-            var taskInfo = taskCount > 0 ? $"{taskCount} uzduotys" : "Nera uzduociu";
+            // Conflict > flagged load > numeric load > normal
+            var stateClass = hasConflicts
+            ? "task-conflict"
+            : hasLoadFlags
+                ? "task-load"
+                : GetStateClass(totalHours, dailyLimit);
+            var loadLine = $"{totalHours:0.#}h / {dailyLimit:0.#}h";
+            var taskLine = taskCount > 0 ? $"{taskCount} uzduotys" : "Nera uzduociu";
+            var freeLine = freeHours >= 0
+            ? $"+{freeHours:0.#}h laisva"
+            : $"{Math.Abs(freeHours):0.#}h truksta";
+            var freeClass = freeHours >= 0 ? "text-success" : "text-danger";
+            var dotTitle = stateClass switch
+            {
+                "task-conflict" => "Perkrova",
+                "task-load" => "Apkrova",
+                _ => "Normali"
+            };
+            var statusDot = $@"<span class=""state-dot-only {GetDotClass(stateClass)}"" title=""{dotTitle}"" aria-label=""{dotTitle}""></span>";
 
             var content = $@"
 <a href=""{dailyUrl}"" class=""text-decoration-none d-block"">
-<div class=""task-card {stateClass} p-2"">
-<div class=""d-flex align-items-center gap-2"">
-<div class=""fw-bold"">{totalHours:0.#}h</div>
-<div class=""state-dot-only {dotClass}""></div>
-{warning}
-</div>
-<div class=""small text-muted"">{WebUtility.HtmlEncode(taskInfo)}</div>
+<div class=""task-card weekly-card p-2"">
+    <div class=""d-flex justify-content-between align-items-start gap-2 mb-1"">
+        <div class=""fact-line fw-semibold mb-0"">{loadLine}</div>
+        {statusDot}
+    </div>
+    <div class=""d-flex justify-content-between align-items-start gap-2"">
+        <div class=""weekly-facts"">
+            <div class=""fact-line text-muted"">{WebUtility.HtmlEncode(taskLine)}</div>
+            <div class=""fact-line {freeClass}"">{freeLine}</div>
+        </div>
+    </div>
 </div>
 </a>";
 
@@ -108,13 +127,19 @@
             <span class="badge bg-info text-dark">Mock duomenys</span>
         </div>
     </div>
+    @{
+        ViewData["CompactLegend"] = true;
+        ViewData["StickyTable"] = true;
+    }
+    <div class="mb-2">
+    </div>
     <div class="mt-2">
         @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml", Model)
     </div>
 
     @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TableShell.cshtml", tableModel)
 
-    <div>
+    <div class="mt-2">
         @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml", Model)
     </div>
 
