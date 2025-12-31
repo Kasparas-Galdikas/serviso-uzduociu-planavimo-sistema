@@ -1,0 +1,22 @@
+body { background: var(--base-100); color: #1f2933; }
+.card { border-color: var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.page-header h1 { color: var(--base-900); }
+
+.legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 1rem; }
+.legend-dot { width: 14px; height: 14px; border-radius: 999px; display: inline-block; margin-right: 6px; }
+.bg-base { background: var(--positive-500); }
+.bg-load { background: #fff3df; border: 1px solid #f1c98a; }
+.bg-conflict { background: #ffe1e1; border: 1px solid var(--conflict-500); }
+.bg-travel { background: #e5f0ff; border: 1px solid #9bbcf5; }
+
+.planning-alert { border: 1px solid #f1c98a; background: #fff8ec; }
+.edit-mode .page-header { background: linear-gradient(90deg, #f2f7ff, #fff); border-radius: 10px; padding: 8px 12px; }
+.alert-strip { background: #fff4e5; border: 1px solid #f1c98a; border-radius: 8px; padding: 6px 10px; }
+.console-banner { border-color: #b6e3bd; background: #f3f9f5; color: #1f2933; }
+
+.decision-card { background: #fff; border: 1px solid var(--border); }
+.decision-card.recommended { border-color: var(--base-700); box-shadow: 0 2px 6px rgba(15,48,87,0.12); }
+
+.form-layout .form-control,
+.form-layout .form-select,
+.form-layout textarea { border-radius: 10px; border-color: var(--border); }

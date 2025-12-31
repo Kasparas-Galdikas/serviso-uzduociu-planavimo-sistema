@@ -2,6 +2,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
+builder.Services.AddSingleton<ServiceTaskPlanningSystem.Services.Schedule.IScheduleProvider, ServiceTaskPlanningSystem.Services.Schedule.ScheduleProvider>();
+builder.Services.AddSingleton<ServiceTaskPlanningSystem.Services.Schedule.IScheduleLayoutBuilder, ServiceTaskPlanningSystem.Services.Schedule.ScheduleLayoutBuilder>();
 
 var app = builder.Build();
 

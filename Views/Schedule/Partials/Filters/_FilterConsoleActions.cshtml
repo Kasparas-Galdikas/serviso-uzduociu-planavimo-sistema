@@ -1,0 +1,25 @@
+@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+<div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mt-3">
+    <div class="d-flex flex-wrap gap-2 filter-console-actions">
+        <button class="btn btn-primary btn-sm d-flex align-items-center gap-1" data-edit-action data-bs-toggle="modal" data-bs-target="#createTaskModal">
+            <i class="bi bi-plus-lg"></i> Sukurti uzduoti
+        </button>
+        <button class="btn btn-secondary btn-sm d-flex align-items-center gap-1" data-edit-action data-bs-toggle="modal" data-bs-target="#editTasksModal">
+            <i class="bi bi-pencil-square"></i> Redaguoti uzduotis
+        </button>
+        <button class="btn btn-warning btn-sm d-flex align-items-center gap-1" data-edit-action data-bs-toggle="modal" data-bs-target="#consoleIssuesModal">
+            <i class="bi bi-exclamation-triangle"></i> Dienos problemos
+        </button>
+    </div>
+    @if (Model.IsManager)
+    {
+        <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="consoleEditMode" checked>
+            <label class="form-check-label" for="consoleEditMode">Redagavimo rezimas</label>
+        </div>
+    }
+    else
+    {
+        <div class="text-muted small">Perziuros rezimas</div>
+    }
+</div>

@@ -95,4 +95,10 @@ C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlan
 C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\ServiceTaskPlanningSystem.genruntimeconfig.cache
 C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\ref\ServiceTaskPlanningSystem.dll
 C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\ServiceTaskPlanningSystem.sourcelink.json
-C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\4jbtjdf4iz-5fzsqxsnp7.gz
+C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\y56li07vnw-othnx9y2fo.gz
+C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\vtbvp0gqgj-kjw2zcy7sk.gz
+C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\birbnqzcg8-2aex58oj9t.gz
+C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\dvi6cdeowx-vkmpy9dm73.gz
+C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\4s2dy8ui6k-f8g6wiqpec.gz
+C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\4cmh4r4pcx-o21stg5lij.gz
+C:\Users\Kasparas\OneDrive\Desktop\Užduočių planavimo sistema\ServiceTaskPlanningSystem\obj\Debug\net9.0\compressed\wc8qfvw3cy-v9dmwjxenc.gz
