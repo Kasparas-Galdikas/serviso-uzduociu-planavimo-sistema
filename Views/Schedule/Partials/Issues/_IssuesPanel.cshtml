@@ -1,8 +1,8 @@
-﻿@model IEnumerable<(string Id, string Title, string Detail, IEnumerable<ServiceTaskPlanningSystem.Models.Planning.DecisionOption> Decisions)>
+@model IEnumerable<ServiceTaskPlanningSystem.Models.Planning.IssueItem>
 <div class="issues-panel" id="issuesPanel">
     <div class="d-flex align-items-center justify-content-between mb-2">
         <div>
-            <div class="fw-bold">Problemų sąrašas</div>
+            <div class="fw-bold">Problemu sarasas</div>
             <div class="small text-muted">Konfliktai, apkrovos</div>
         </div>
         <button class="btn btn-outline-secondary btn-sm" id="togglePanel">Suskleisti</button>
@@ -39,7 +39,7 @@
                                 }
                                 @if (!string.IsNullOrWhiteSpace(opt.TravelImpact))
                                 {
-                                    <span class="pill pill-travel">Kelionė: @opt.TravelImpact</span>
+                                    <span class="pill pill-travel">Kelione: @opt.TravelImpact</span>
                                 }
                                 @if (opt.IsRecommended)
                                 {

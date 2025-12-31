@@ -1,9 +1,9 @@
-﻿@model IEnumerable<(string Id, string Title, string Detail, IEnumerable<ServiceTaskPlanningSystem.Models.Planning.DecisionOption> Decisions)>
+@model IEnumerable<ServiceTaskPlanningSystem.Models.Planning.IssueItem>
 <div class="modal fade" id="issuesModal" tabindex="-1" aria-labelledby="issuesModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="issuesModalLabel">Problemų sąrašas</h5>
+                <h5 class="modal-title" id="issuesModalLabel">Problemu sarasas</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -29,7 +29,7 @@
                 }
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Uždaryti</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Uzdaryti</button>
             </div>
         </div>
     </div>
