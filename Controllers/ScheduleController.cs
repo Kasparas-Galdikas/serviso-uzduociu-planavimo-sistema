@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Models.Planning;
 
@@ -6,7 +9,24 @@ namespace ServiceTaskPlanningSystem.Controllers
     public class ScheduleController : Controller
     {
         [HttpGet]
-        public IActionResult Index(string view = "day", string? date = null)
+        public IActionResult Index(string view = "day", string? date = null, string? location = null, string? status = null)
+        {
+            var vm = BuildViewModel(view, date, location, status);
+            return View(vm);
+        }
+
+        [HttpGet]
+        public IActionResult Table(string view = "day", string? date = null, string? location = null, string? status = null)
+        {
+            var vm = BuildViewModel(view, date, location, status);
+            var partial = string.Equals(vm.ViewMode, "week", StringComparison.OrdinalIgnoreCase)
+                ? "~/Views/Schedule/Partials/Tables/_WeeklyTable.cshtml"
+                : "~/Views/Schedule/Partials/Tables/_DailyTable.cshtml";
+
+            return PartialView(partial, vm);
+        }
+
+        private SchedulePageViewModel BuildViewModel(string view, string? date, string? location, string? status)
         {
             var selectedDate = DateTime.Today;
             if (!string.IsNullOrWhiteSpace(date) && DateTime.TryParse(date, out var parsedDate))
@@ -64,6 +84,34 @@ namespace ServiceTaskPlanningSystem.Controllers
                 new() { Id = 18, TechnicianId = 6, Title = "Vilniaus incidentas", Location = "Vilnius", Start = day(4).AddHours(11), End = day(4).AddHours(19), Priority = "aukstas", Status = "planuojama", IsLoad = true, IsConflict = true, IsTravelSwitch = false, Risk = "aukstas" }
             };
 
+            var availableLocations = technicians
+                .Select(t => t.Location)
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(l => l)
+                .ToList();
+            var availableStatuses = new List<string> { "Visi", "Normali apkrova", "Apkrova", "Perkrova" };
+
+            if (!string.IsNullOrWhiteSpace(location))
+            {
+                tasks = tasks.Where(t => string.Equals(t.Location, location, StringComparison.OrdinalIgnoreCase)).ToList();
+                technicians = technicians.Where(t => string.Equals(t.Location, location, StringComparison.OrdinalIgnoreCase) || tasks.Any(x => x.TechnicianId == t.Id)).ToList();
+            }
+
+            if (!string.IsNullOrWhiteSpace(status))
+            {
+                var statusKey = status.ToLowerInvariant();
+                tasks = statusKey switch
+                {
+                    "normali apkrova" => tasks.Where(t => !t.IsLoad && !t.IsConflict).ToList(),
+                    "apkrova" => tasks.Where(t => t.IsLoad && !t.IsConflict).ToList(),
+                    "perkrova" => tasks.Where(t => t.IsConflict || t.IsLoad).ToList(),
+                    _ => tasks
+                };
+
+                technicians = technicians.Where(t => tasks.Any(x => x.TechnicianId == t.Id)).ToList();
+            }
+
             var decisions = new List<DecisionOption>
             {
                 new() { Title = "Perkelti Klaipedos uzduoti", Description = "Atideti Klaipedos perjungima i ryto langa.", RiskLevel = "vidutinis", LoadImpact = "-2h Vilnius", TravelImpact = "+1 kelione", IsRecommended = true },
@@ -71,7 +119,7 @@ namespace ServiceTaskPlanningSystem.Controllers
                 new() { Title = "Palikti kaip yra", Description = "Jokiu pakeitimu - stebeti konfliktus.", RiskLevel = "aukstas", LoadImpact = "0", TravelImpact = "0", IsRecommended = false }
             };
 
-            var vm = new SchedulePageViewModel
+            return new SchedulePageViewModel
             {
                 WeekStart = weekStart,
                 SelectedDate = selectedDate,
@@ -79,10 +127,10 @@ namespace ServiceTaskPlanningSystem.Controllers
                 ViewMode = viewMode,
                 Technicians = technicians,
                 Tasks = tasks,
-                DecisionOptions = decisions
+                DecisionOptions = decisions,
+                AvailableLocations = availableLocations,
+                AvailableStatuses = availableStatuses
             };
-
-            return View(vm);
         }
     }
 }

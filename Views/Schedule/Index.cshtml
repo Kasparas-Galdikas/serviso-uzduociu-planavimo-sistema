@@ -43,20 +43,21 @@
     </button>
 </div>
 
-@if (isWeekly)
-{
-    @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_WeeklyTable.cshtml", Model)
-}
-else
-{
-    @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_DailyTable.cshtml", Model)
-}
+<div id="scheduleTables" data-current-view="@Model.ViewMode">
+    @if (isWeekly)
+    {
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_WeeklyTable.cshtml", Model)
+    }
+    else
+    {
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_DailyTable.cshtml", Model)
+    }
+</div>
 @await Html.PartialAsync("~/Views/Schedule/Partials/Issues/_IssuesModal.cshtml", issues)
 @await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsole.cshtml", Model)
 
 
 @section Scripts {
-    <script src="~/js/filter-console.js"></script>
     <script>
         // scroll highlight for issues from modal
         document.querySelectorAll('.issue-scroll').forEach(btn => {
