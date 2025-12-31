@@ -91,6 +91,8 @@ body { background: var(--base-100); color: #1f2933; }
 .state-dot-only.is-normal { background: var(--positive-100); border-color: var(--positive-500); }
 .highlight { box-shadow: 0 0 0 2px #1d4f8b inset, 0 0 0 2px #1d4f8b; }
 .edit-mode .empty-slot { border-style: solid; }
+.today-label { color: #32cd32; }
+.schedule-table .time-header.today-label { color: #32cd32; }
 
 @media (max-width: 992px) {
     .schedule-grid .grid-header, .schedule-grid .grid-row { grid-template-columns: 1fr; }

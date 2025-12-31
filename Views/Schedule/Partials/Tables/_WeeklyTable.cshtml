@@ -6,8 +6,8 @@
 @{
     var lt = CultureInfo.GetCultureInfo("lt-LT");
     var days = Enumerable.Range(0, 7)
-        .Select(i => Model.WeekStart.Date.AddDays(i))
-        .ToList();
+    .Select(i => Model.WeekStart.Date.AddDays(i))
+    .ToList();
 
     string GetStateClass(double hours, int dailyLimit)
     {
@@ -27,12 +27,17 @@
     }
 
     var columns = days
-        .Select(d =>
+    .Select(d =>
+    {
+        var label = lt.TextInfo.ToTitleCase(d.ToString("dddd yyyy-MM-dd", lt));
+        var isToday = d.Date == DateTime.Today;
+        return new TableColumn
         {
-            var label = lt.TextInfo.ToTitleCase(d.ToString("dddd yyyy-MM-dd", lt));
-            return new TableColumn { Title = label };
-        })
-        .ToList();
+            Title = label,
+            CssClass = isToday ? "today-label" : null
+        };
+    })
+    .ToList();
 
     var rows = new List<TableRow>();
 
@@ -44,8 +49,8 @@
         {
             var dailyUrl = Url.Action("Index", "Schedule", new { view = "day", date = day.ToString("yyyy-MM-dd") }) ?? "#";
             var tasks = Model.Tasks
-                .Where(t => t.TechnicianId == tech.Id && t.Start.Date == day.Date)
-                .ToList();
+            .Where(t => t.TechnicianId == tech.Id && t.Start.Date == day.Date)
+            .ToList();
 
             var totalHours = tasks.Sum(t => (t.End - t.Start).TotalHours);
             var taskCount = tasks.Count;
@@ -58,14 +63,14 @@
 
             var content = $@"
 <a href=""{dailyUrl}"" class=""text-decoration-none d-block"">
-    <div class=""task-card {stateClass} p-2"">
-        <div class=""d-flex align-items-center gap-2"">
-            <div class=""fw-bold"">{totalHours:0.#}h</div>
-            <div class=""state-dot-only {dotClass}""></div>
-            {warning}
-        </div>
-        <div class=""small text-muted"">{WebUtility.HtmlEncode(taskInfo)}</div>
-    </div>
+<div class=""task-card {stateClass} p-2"">
+<div class=""d-flex align-items-center gap-2"">
+<div class=""fw-bold"">{totalHours:0.#}h</div>
+<div class=""state-dot-only {dotClass}""></div>
+{warning}
+</div>
+<div class=""small text-muted"">{WebUtility.HtmlEncode(taskInfo)}</div>
+</div>
 </a>";
 
             cells.Add(new TableCell
@@ -100,10 +105,17 @@
         <div class="fw-semibold">@headerLabel</div>
         <h5 class="mb-0 flex-grow-1 text-center">Savaites grafikas</h5>
         <div class="d-flex align-items-center gap-2">
-            @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml", Model)
             <span class="badge bg-info text-dark">Mock duomenys</span>
         </div>
     </div>
+    <div class="mt-2">
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml", Model)
+    </div>
 
     @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TableShell.cshtml", tableModel)
+
+    <div>
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml", Model)
+    </div>
+
 </div>

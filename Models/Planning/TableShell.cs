@@ -15,6 +15,7 @@ namespace ServiceTaskPlanningSystem.Models.Planning
     {
         public string Title { get; set; } = string.Empty;
         public string? Width { get; set; }
+        public string? CssClass { get; set; }
     }
 
     public class TableRow
