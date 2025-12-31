@@ -108,14 +108,15 @@
         Columns = columns,
         Rows = rows
     };
-       var headerLabel = $"Diena: {day:yyyy-MM-dd} ({day.ToString("dddd", System.Globalization.CultureInfo.GetCultureInfo("lt-LT"))})";
+    var headerLabel = $"Diena: {day:yyyy-MM-dd} ({day.ToString("dddd", System.Globalization.CultureInfo.GetCultureInfo("lt-LT"))})";
+    var isToday = day.Date == DateTime.Today;
 }
 
 <div class="card p-3 mb-4">
 
     <!-- HEADER -->
     <div class="d-flex align-items-center mb-3">
-         <div class="fw-semibold">@headerLabel</div>
+         <div class="fw-semibold @(isToday ? "today-label" : string.Empty)">@headerLabel</div>
         <h5 class="mb-0 flex-grow-1 text-center">Dienos grafikas</h5>
         <div class="d-flex align-items-center gap-2">
             <span class="badge bg-info text-dark">Mock duomenys</span>
@@ -129,9 +130,12 @@
     </div>
 
     <!-- SCHEDULE TABLE -->
+    @{
+        ViewData["StickyTable"] = true;
+    }
     @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TableShell.cshtml", tableModel)
 
-    <div>
+    <div class="mt-2">
         @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml", Model)
     </div>
 </div>

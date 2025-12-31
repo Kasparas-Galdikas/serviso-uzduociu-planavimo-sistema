@@ -1,13 +1,19 @@
 @model ServiceTaskPlanningSystem.Models.Planning.TableShellModel
 
-<div class="table-responsive">
+@{
+    var stickyTable = (ViewData["StickyTable"] as bool?) ?? false;
+    var wrapperClass = stickyTable ? "table-responsive table-fixed-head" : "table-responsive";
+}
+
+<div class="@wrapperClass">
     <table class="table table-bordered @Model.TableCssClass">
-        <thead class="table-light">
+        <thead class="table-light @(stickyTable ? "thead-top" : string.Empty)">
             <tr>
                 <th style="width:@Model.FirstColumnWidth">@Model.FirstColumnTitle</th>
                 @foreach (var col in Model.Columns)
                 {
-                    <th class="text-center time-header" style="@(string.IsNullOrEmpty(col.Width) ? string.Empty : $"width:{col.Width}")">
+                    <th class="text-center time-header @(string.IsNullOrEmpty(col.CssClass) ? "" : col.CssClass)"
+                        style="@(string.IsNullOrEmpty(col.Width) ? string.Empty : $"width:{col.Width}")">
                         @col.Title
                     </th>
                 }
@@ -30,7 +36,8 @@
                 <th style="width:@Model.FirstColumnWidth">@Model.FirstColumnTitle</th>
                 @foreach (var col in Model.Columns)
                 {
-                    <th class="text-center time-header" style="@(string.IsNullOrEmpty(col.Width) ? string.Empty : $"width:{col.Width}")">
+                    <th class="text-center time-header @(string.IsNullOrEmpty(col.CssClass) ? "" : col.CssClass)"
+                        style="@(string.IsNullOrEmpty(col.Width) ? string.Empty : $"width:{col.Width}")">
                         @col.Title
                     </th>
                 }

@@ -1,8 +1,11 @@
+@using System.Linq
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
 @{
     var isWeek = string.Equals(Model.ViewMode, "week", StringComparison.OrdinalIgnoreCase);
     var dayBtnClass = isWeek ? "btn btn-outline-secondary btn-sm" : "btn btn-primary btn-sm active";
     var weekBtnClass = isWeek ? "btn btn-primary btn-sm active" : "btn btn-outline-secondary btn-sm";
+    var locationOptions = Model.AvailableLocations ?? new List<string>();
+    var statusOptions = Model.AvailableStatuses ?? new List<string>();
 }
 <div class="filter-console-trigger">
     <button type="button"
@@ -17,8 +20,8 @@
     </div>
 </div>
 
-<div class="modal fade filter-console-modal" id="filterConsoleModal" tabindex="-1" aria-labelledby="filterConsoleLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+<div class="modal fade filter-console-modal" id="filterConsoleModal" tabindex="-1" aria-labelledby="filterConsoleLabel" aria-hidden="true" data-initial-view="@Model.ViewMode">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header border-0 pb-1">
                 <div>
@@ -30,43 +33,34 @@
 
             <div class="modal-body pt-0">
                 <div class="row g-3 mb-2">
-                    <div class="col-12 col-md-6">
+                    <div class="col-12 col-md-6" data-view-target="day">
                         <label class="form-label small mb-1">Diena</label>
-                        <input type="date" class="form-control" value="@Model.SelectedDate.ToString("yyyy-MM-dd")" />
+                        <input type="date" class="form-control" id="filterDayDate" value="@Model.SelectedDate.ToString("yyyy-MM-dd")" />
                     </div>
-                    <div class="col-12 col-md-6">
+                    <div class="col-12 col-md-6" data-view-target="week">
                         <label class="form-label small mb-1">Savaite nuo</label>
-                        <input type="date" class="form-control" value="@Model.WeekStart.ToString("yyyy-MM-dd")" />
+                        <input type="date" class="form-control" id="filterWeekDate" value="@Model.WeekStart.ToString("yyyy-MM-dd")" />
+                    </div>
+                     <div class="col-12 col-md-6">
+                        <label class="form-label small mb-1">Lokacija / regionas</label>
+                        <select class="form-select" id="filterLocation">
+                            <option value="">Visos</option>
+                            @foreach (var loc in locationOptions)
+                            {
+                                <option value="@loc">@loc</option>
+                            }
+                        </select>
                     </div>
                 </div>
 
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
-                        <label class="form-label small mb-1">Technikas</label>
-                        <select class="form-select">
-                            <option>Visi</option>
-                            <option>Vilnius</option>
-                            <option>Kaunas</option>
-                            <option>Siauliai</option>
-                        </select>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <label class="form-label small mb-1">Lokacija / regionas</label>
-                        <select class="form-select">
-                            <option>Visos</option>
-                            <option>Vilnius</option>
-                            <option>Kaunas</option>
-                            <option>Siauliai</option>
-                            <option>Klaipeda</option>
-                        </select>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <label class="form-label small mb-1">Statusas / prioritetas</label>
-                        <select class="form-select">
-                            <option>Visi</option>
-                            <option>Aukstas</option>
-                            <option>Vidutinis</option>
-                            <option>Zemas</option>
+                        <label class="form-label small mb-1">Statusas / apkrova</label>
+                        <select class="form-select" id="filterStatus">
+                            @foreach (var status in statusOptions)
+                            {
+                                <option value="@status">@status</option>
+                            }
                         </select>
                     </div>
                     <div class="col-12 col-md-6">
@@ -75,30 +69,22 @@
                             <button type="button" class="@dayBtnClass" data-view-mode="day">Diena</button>
                             <button type="button" class="@weekBtnClass" data-view-mode="week">Savaite</button>
                         </div>
+                        <div class="form-text text-muted small">Pasirinkite rodini pagal, kuri kalendoriu norite matyti.</div>
                     </div>
                 </div>
+                <hr class="my-3" />
 
                 <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mt-3">
                     <div class="d-flex flex-wrap gap-2 filter-console-actions">
-                        <button class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#createTaskModal">
+                        <button class="btn btn-primary btn-sm d-flex align-items-center gap-1" data-edit-action data-bs-toggle="modal" data-bs-target="#createTaskModal">
                             <i class="bi bi-plus-lg"></i> Sukurti uzduoti
                         </button>
-                        <button class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#editTasksModal">
+                        <button class="btn btn-secondary btn-sm d-flex align-items-center gap-1" data-edit-action data-bs-toggle="modal" data-bs-target="#editTasksModal">
                             <i class="bi bi-pencil-square"></i> Redaguoti uzduotis
                         </button>
-                        <button class="btn btn-outline-warning btn-sm d-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#consoleIssuesModal">
+                        <button class="btn btn-warning btn-sm d-flex align-items-center gap-1" data-edit-action data-bs-toggle="modal" data-bs-target="#consoleIssuesModal">
                             <i class="bi bi-exclamation-triangle"></i> Dienos problemos
                         </button>
-                        <div class="btn-group dropup">
-                            <button class="btn btn-outline-success btn-sm dropdown-toggle d-flex align-items-center gap-1" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="bi bi-box-arrow-down"></i> Eksportas
-                            </button>
-                            <ul class="dropdown-menu">
-                                <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#exportPdfModal">Eksportuoti i PDF</button></li>
-                                <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#exportExcelModal">Eksportuoti i Excel</button></li>
-                                <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#exportCsvModal">Eksportuoti i CSV</button></li>
-                            </ul>
-                        </div>
                     </div>
                     @if (Model.IsManager)
                     {
@@ -116,7 +102,6 @@
 
             <div class="modal-footer border-0 pt-0">
                 <div class="w-100 d-flex flex-wrap align-items-center gap-2 justify-content-between">
-                    <span class="text-muted small">Mock: filtrai nerodo realiu duomenu</span>
                     <div class="d-flex gap-2 ms-auto">
                         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Uzdaryti</button>
                         <button type="button" class="btn btn-primary" id="applyFiltersBtn">Taikyti filtrus</button>
@@ -126,6 +111,124 @@
         </div>
     </div>
 </div>
+
+<script>
+(() => {
+    const modal = document.getElementById('filterConsoleModal');
+    if (!modal) return;
+
+    const locationSelect = modal.querySelector('#filterLocation');
+    const statusSelect = modal.querySelector('#filterStatus');
+    const dayInput = modal.querySelector('#filterDayDate');
+    const weekInput = modal.querySelector('#filterWeekDate');
+    const applyBtn = modal.querySelector('#applyFiltersBtn');
+    const scheduleContainer = document.getElementById('scheduleTables');
+    let currentView = (modal.dataset.initialView || '').toLowerCase() === 'week' ? 'week' : 'day';
+
+    const searchParams = new URL(window.location.href).searchParams;
+    const locationParam = searchParams.get("location");
+    const statusParam = searchParams.get("status");
+    const dateParam = searchParams.get("date");
+    if (locationSelect && locationParam) {
+        locationSelect.value = locationParam;
+    }
+    if (statusSelect && statusParam) {
+        statusSelect.value = statusParam;
+    }
+    if (dayInput && dateParam && currentView === "day") {
+        dayInput.value = dateParam;
+    }
+    if (weekInput && dateParam && currentView === "week") {
+        weekInput.value = dateParam;
+    }
+
+    const applyFilters = async () => {
+        if (!scheduleContainer) return;
+        const params = new URLSearchParams();
+        params.set('view', currentView || 'day');
+
+        const dateVal = currentView === 'week' ? (weekInput?.value || '') : (dayInput?.value || '');
+        if (dateVal) {
+            params.set('date', dateVal);
+        }
+
+        const loc = locationSelect?.value || '';
+        if (loc) {
+            params.set('location', loc);
+        }
+
+        const status = statusSelect?.value || '';
+        if (status) {
+            params.set('status', status);
+        }
+
+        const partialUrl = `/Schedule/Table?${params.toString()}`;
+        applyBtn?.setAttribute('disabled', 'disabled');
+
+        try {
+            const response = await fetch(partialUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const html = await response.text();
+            scheduleContainer.innerHTML = html;
+
+            const newUrl = new URL(window.location.href);
+            newUrl.search = params.toString();
+            window.history.replaceState({}, '', newUrl.toString());
+
+            const modalInstance = bootstrap.Modal.getInstance(modal);
+            modalInstance?.hide();
+        } catch (err) {
+            console.error('Nepavyko atnaujinti filtro rezultatu', err);
+        } finally {
+            applyBtn?.removeAttribute('disabled');
+        }
+    };
+
+    const viewButtons = modal.querySelectorAll('[data-view-mode]');
+    const viewSections = modal.querySelectorAll('[data-view-target]');
+
+    const setView = (mode) => {
+        const normalized = (mode || '').toLowerCase() === 'week' ? 'week' : 'day';
+        currentView = normalized;
+        viewSections.forEach(el => {
+            el.classList.toggle('d-none', (el.dataset.viewTarget || '') !== normalized);
+        });
+        viewButtons.forEach(btn => {
+            const isActive = (btn.dataset.viewMode || '') === normalized;
+            btn.classList.toggle('btn-primary', isActive);
+            btn.classList.toggle('btn-outline-secondary', !isActive);
+            btn.classList.toggle('active', isActive);
+        });
+    };
+
+    setView(currentView);
+
+    viewButtons.forEach(btn => {
+        btn.addEventListener('click', () => setView(btn.dataset.viewMode));
+    });
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            applyFilters();
+        });
+    }
+
+    const editToggle = modal.querySelector('#consoleEditMode');
+    const editButtons = modal.querySelectorAll('[data-edit-action]');
+    if (editToggle && editButtons.length) {
+        const syncEditState = () => {
+            const isOn = editToggle.checked;
+            editButtons.forEach(btn => {
+                btn.disabled = !isOn;
+                btn.classList.toggle('disabled', !isOn);
+            });
+        };
+        syncEditState();
+        editToggle.addEventListener('change', syncEditState);
+        modal.addEventListener('shown.bs.modal', syncEditState);
+    }
+})();
+</script>
 
 <!-- Veiksmu modalai -->
 <div class="modal fade" id="createTaskModal" tabindex="-1" aria-labelledby="createTaskLabel" aria-hidden="true">
