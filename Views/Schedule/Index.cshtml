@@ -7,7 +7,6 @@
 
 <div class="page-header d-flex align-items-center mb-2 @(Model.IsManager ? "edit-mode" : string.Empty)">
     <div>
-        <p class="text-muted small mb-1">Mock demonstracija ~20-30% apimtis</p>
         <h1 class="h4 mb-0">@((isWeekly ? "Savaites grafikas" : "Dienos grafikas"))</h1>
     </div>
     <div class="ms-auto d-flex align-items-center gap-2">
@@ -16,15 +15,8 @@
         {
             <span class="badge bg-primary-subtle text-dark">Redagavimo rezimas ijungtas (mock)</span>
         }
-        <span class="badge bg-info text-dark">Beta</span>
     </div>
 </div>
-
-<div class="alert-strip d-flex align-items-center mb-2">
-    <div class="flex-grow-1">[!] Aptikta @issues.Count problemu sia diena</div>
-    <button class="btn btn-link btn-sm" data-bs-toggle="modal" data-bs-target="#issuesModal">Perziureti</button>
-</div>
-
 <div class="console-banner alert alert-info d-flex align-items-center justify-content-between mb-3">
     <div class="d-flex align-items-center gap-2">
         <i class="bi bi-sliders2-vertical"></i>
@@ -38,7 +30,30 @@
     </button>
 </div>
 
-<div id="scheduleTables" data-current-view="@Model.ViewMode">
+@if (Model.IsPreviewMode)
+{
+    var currentDate = isWeekly ? Model.WeekStart : Model.SelectedDate;
+    var baseParams = new { view = Model.ViewMode, date = currentDate.ToString("yyyy-MM-dd") };
+    <div class="alert alert-warning d-flex align-items-center justify-content-between mb-3 shadow-sm">
+        <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-eye"></i>
+            <div>
+                <div class="fw-semibold mb-0">Generavimo perziura</div>
+                <div class="small mb-0">Perziurite suplanuota laikotarpi pries patvirtindami.</div>
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="@Url.Action("Index", "Schedule", baseParams)">Atsaukti</a>
+            <a class="btn btn-primary btn-sm" href="@Url.Action("Index", "Schedule", baseParams)">Patvirtinti</a>
+        </div>
+    </div>
+}
+
+<div id="scheduleTables"
+     data-current-view="@Model.ViewMode"
+     data-preview="@Model.IsPreviewMode.ToString().ToLower()"
+     data-planned-start="@(Model.PlannedPeriodStart == default(DateTime) ? string.Empty : Model.PlannedPeriodStart.ToString("yyyy-MM-dd"))"
+     data-planned-weeks="@Model.PlannedWeeks">
     @if (isWeekly)
     {
         @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_WeeklyTable.cshtml", Model)
@@ -50,6 +65,8 @@
 </div>
 @await Html.PartialAsync("~/Views/Schedule/Partials/Issues/_IssuesModal.cshtml", issues)
 @await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsole.cshtml", Model)
+@await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_CreateScheduleModal.cshtml", Model)
+@await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_SummaryScheduleModal.cshtml", Model)
 
 
 @section Scripts {

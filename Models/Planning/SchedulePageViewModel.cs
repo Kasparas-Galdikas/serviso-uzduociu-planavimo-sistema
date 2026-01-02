@@ -17,5 +17,9 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public List<string> AvailableStatuses { get; set; } = new();
         public DailyTableLayout? DailyLayout { get; set; }
         public WeeklyTableLayout? WeeklyLayout { get; set; }
+        public bool IsPreviewMode { get; set; }
+        public DateTime PlannedPeriodStart { get; set; }
+        public DateTime PlannedPeriodEnd { get; set; }
+        public int PlannedWeeks { get; set; } = 1;
     }
 }

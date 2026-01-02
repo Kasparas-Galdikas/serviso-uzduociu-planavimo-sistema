@@ -16,17 +16,17 @@ namespace ServiceTaskPlanningSystem.Controllers
         }
 
         [HttpGet]
-        public IActionResult Index(string view = "day", string? date = null, string? location = null, string? status = null)
+        public IActionResult Index(string view = "day", string? date = null, string? location = null, string? status = null, bool preview = false, string? plannedStart = null, int plannedWeeks = 1)
         {
-            var vm = _scheduleProvider.GetSchedule(view, date, location, status);
+            var vm = _scheduleProvider.GetSchedule(view, date, location, status, preview, plannedStart, plannedWeeks);
             vm = EnrichWithLayout(vm);
             return View(vm);
         }
 
         [HttpGet]
-        public IActionResult Table(string view = "day", string? date = null, string? location = null, string? status = null)
+        public IActionResult Table(string view = "day", string? date = null, string? location = null, string? status = null, bool preview = false, string? plannedStart = null, int plannedWeeks = 1)
         {
-            var vm = _scheduleProvider.GetSchedule(view, date, location, status);
+            var vm = _scheduleProvider.GetSchedule(view, date, location, status, preview, plannedStart, plannedWeeks);
             vm = EnrichWithLayout(vm);
             var partial = string.Equals(vm.ViewMode, "week", StringComparison.OrdinalIgnoreCase)
                 ? "~/Views/Schedule/Partials/Tables/_WeeklyTable.cshtml"

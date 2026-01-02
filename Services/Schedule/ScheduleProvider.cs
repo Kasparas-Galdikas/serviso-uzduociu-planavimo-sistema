@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using ServiceTaskPlanningSystem.Models.Planning;
@@ -10,17 +10,55 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
     /// </summary>
     public class ScheduleProvider : IScheduleProvider
     {
-        public SchedulePageViewModel GetSchedule(string view, string? date, string? location, string? status)
+        public SchedulePageViewModel GetSchedule(string view, string? date, string? location, string? status, bool preview = false, string? plannedStart = null, int plannedWeeks = 1)
         {
             var selectedDate = ResolveDateOrToday(date);
             var weekStart = GetWeekStart(selectedDate);
+            var actualWeekStart = GetWeekStart(DateTime.Today);
+            var actualWeekEnd = actualWeekStart.AddDays(6);
+
+            // Base: current week (5 working days)
+            var baseTasks = SeedTasksRange(actualWeekStart, 5, false);
+            var lastPlannedEnd = baseTasks.Any() ? baseTasks.Max(t => t.End.Date) : actualWeekEnd;
+
+            // Plan start: day after last planned (or later if user provided)
+            var requestedPlannedStart = ResolveDateOrToday(plannedStart);
+            var plannedStartDate = requestedPlannedStart != default ? requestedPlannedStart : lastPlannedEnd.AddDays(1);
+            var minStart = lastPlannedEnd.AddDays(1);
+            if (plannedStartDate < minStart)
+            {
+                plannedStartDate = minStart;
+            }
+
+            var plannedWeeksCount = Math.Max(1, plannedWeeks);
+            // Fill remaining days of current week + full weeks ahead
+            var daysToWeekEnd = 7 - ((int)plannedStartDate.DayOfWeek == 0 ? 7 : (int)plannedStartDate.DayOfWeek);
+            var plannedTotalDays = daysToWeekEnd + plannedWeeksCount * 7;
+            var plannedIntervalEnd = plannedStartDate.AddDays(plannedTotalDays - 1);
+
+            var isActualWeek = selectedDate.Date >= actualWeekStart && selectedDate.Date <= actualWeekEnd;
+            var isPlannedInterval = selectedDate.Date >= plannedStartDate && selectedDate.Date <= plannedIntervalEnd;
+
             var viewMode = NormalizeView(view);
-            var day = new Func<int, DateTime>(offset => weekStart.AddDays(offset));
 
             var technicians = SeedTechnicians();
-            var tasks = SeedTasks(day);
+            var tasks = new List<TaskItem>();
+            if (preview)
+            {
+                tasks.AddRange(baseTasks);
+                var plannedTasks = SeedTasksRange(plannedStartDate, plannedTotalDays, true)
+                    .Where(t => t.Start.Date >= plannedStartDate.Date && t.Start.Date <= plannedIntervalEnd.Date)
+                    .ToList();
+                tasks.AddRange(plannedTasks);
+            }
+            else if (isActualWeek)
+            {
+                tasks.AddRange(baseTasks);
+            }
+
+            var showIssues = (preview && (isActualWeek || isPlannedInterval)) || (!preview && isActualWeek);
             var decisions = SeedDecisions();
-            var issues = SeedIssues(selectedDate, decisions);
+            var issues = showIssues ? SeedIssues(selectedDate, decisions) : new List<IssueItem>();
 
             var availableLocations = technicians
                 .Select(t => t.Location)
@@ -31,7 +69,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             var availableStatuses = new List<string> { "Visi", "Normali apkrova", "Apkrova", "Perkrova" };
 
             (technicians, tasks) = ApplyLocationFilter(location, technicians, tasks);
-            (technicians, tasks) = ApplyStatusFilter(status, technicians, tasks);
+            (technicians, tasks) = ApplyStatusFilter(status, viewMode, technicians, tasks);
 
             return new SchedulePageViewModel
             {
@@ -44,7 +82,11 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 DecisionOptions = decisions,
                 Issues = issues,
                 AvailableLocations = availableLocations,
-                AvailableStatuses = availableStatuses
+                AvailableStatuses = availableStatuses,
+                IsPreviewMode = preview,
+                PlannedPeriodStart = plannedStartDate,
+                PlannedPeriodEnd = plannedIntervalEnd,
+                PlannedWeeks = plannedWeeksCount
             };
         }
 
@@ -81,7 +123,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             return (filteredTechnicians, filteredTasks);
         }
 
-        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyStatusFilter(string? status, List<Technician> technicians, List<TaskItem> tasks)
+        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyStatusFilter(string? status, string viewMode, List<Technician> technicians, List<TaskItem> tasks)
         {
             if (string.IsNullOrWhiteSpace(status))
             {
@@ -93,7 +135,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             {
                 "normali apkrova" => tasks.Where(t => !t.IsLoad && !t.IsConflict).ToList(),
                 "apkrova" => tasks.Where(t => t.IsLoad && !t.IsConflict).ToList(),
-                "perkrova" => tasks.Where(t => t.IsConflict || t.IsLoad).ToList(),
+                "perkrova" => tasks.Where(t => t.IsConflict).ToList(),
                 _ => tasks
             };
 
@@ -107,12 +149,12 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
         private static List<Technician> SeedTechnicians() => new()
         {
             new() { Id = 1, Name = "Austeja J.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h, savaites 40h", WeeklyHours = 18, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 2 },
-            new() { Id = 2, Name = "Dovydas K.", Location = "Kaunas", RulesSummary = "Dienos limitas 10h, savaites 45h", WeeklyHours = 22, WeeklyLimit = 45, DailyHours = 7, DailyLimit = 10, TravelSwitches = 1 },
-            new() { Id = 3, Name = "Gabija P.", Location = "Siauliai", RulesSummary = "Dienos limitas 9h, savaites 42h", WeeklyHours = 15, WeeklyLimit = 42, DailyHours = 5, DailyLimit = 9, TravelSwitches = 3 },
+            new() { Id = 2, Name = "Dovydas K.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h, savaites 45h", WeeklyHours = 22, WeeklyLimit = 45, DailyHours = 7, DailyLimit = 8, TravelSwitches = 1 },
+            new() { Id = 3, Name = "Gabija P.", Location = "Siauliai", RulesSummary = "Dienos limitas 8h, savaites 42h", WeeklyHours = 15, WeeklyLimit = 42, DailyHours = 5, DailyLimit = 8, TravelSwitches = 3 },
             new() { Id = 4, Name = "Lukas V.", Location = "Klaipeda", RulesSummary = "Dienos limitas 8h", WeeklyHours = 19, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 1 },
             new() { Id = 5, Name = "Monika S.", Location = "Panevezys", RulesSummary = "Dienos limitas 8h", WeeklyHours = 12, WeeklyLimit = 40, DailyHours = 4, DailyLimit = 8, TravelSwitches = 0 },
-            new() { Id = 6, Name = "Rokas M.", Location = "Vilnius", RulesSummary = "Dienos limitas 7h", WeeklyHours = 21, WeeklyLimit = 35, DailyHours = 6, DailyLimit = 7, TravelSwitches = 2 },
-            new() { Id = 7, Name = "Greta B.", Location = "Kaunas", RulesSummary = "Dienos limitas 9h", WeeklyHours = 27, WeeklyLimit = 45, DailyHours = 7, DailyLimit = 9, TravelSwitches = 1 },
+            new() { Id = 6, Name = "Rokas M.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h", WeeklyHours = 21, WeeklyLimit = 35, DailyHours = 6, DailyLimit = 8, TravelSwitches = 2 },
+            new() { Id = 7, Name = "Greta B.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h", WeeklyHours = 27, WeeklyLimit = 45, DailyHours = 7, DailyLimit = 8, TravelSwitches = 1 },
             new() { Id = 8, Name = "Mantas P.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h", WeeklyHours = 10, WeeklyLimit = 40, DailyHours = 3, DailyLimit = 8, TravelSwitches = 0 },
             new() { Id = 9, Name = "Ieva Z.", Location = "Alytus", RulesSummary = "Dienos limitas 8h", WeeklyHours = 8, WeeklyLimit = 40, DailyHours = 4, DailyLimit = 8, TravelSwitches = 1 },
             new() { Id = 10, Name = "Paulius T.", Location = "Klaipeda", RulesSummary = "Dienos limitas 8h", WeeklyHours = 24, WeeklyLimit = 40, DailyHours = 7, DailyLimit = 8, TravelSwitches = 2 },
@@ -123,32 +165,87 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             new() { Id = 15, Name = "Karolina N.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h", WeeklyHours = 25, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 1 }
         };
 
-        private static List<TaskItem> SeedTasks(Func<int, DateTime> day) => new()
+        private static List<TaskItem> SeedTasksRange(DateTime startDate, int totalDays, bool markNewPlan)
         {
-            // Day 0 (Mon)
-            new() { Id = 1, TechnicianId = 1, Title = "Kabeliu patikra", Location = "Vilnius", Start = day(0).AddHours(9), End = day(0).AddHours(11), Priority = "vidutinis", Status = "planuojama", IsLoad = false, IsConflict = false, IsTravelSwitch = false, Risk = "zemas" },
-            new() { Id = 2, TechnicianId = 2, Title = "Wifi auditavimas", Location = "Panevezys", Start = day(0).AddHours(12), End = day(0).AddHours(16), Priority = "aukstas", Status = "planuojama", IsLoad = true, IsConflict = true, IsTravelSwitch = true, Risk = "aukstas" },
-            new() { Id = 3, TechnicianId = 3, Title = "Sviesolaidzio matavimai", Location = "Siauliai", Start = day(0).AddHours(8), End = day(0).AddHours(11), Priority = "vidutinis", Status = "planuojama", IsLoad = false, IsConflict = false, IsTravelSwitch = false, Risk = "vidutinis" },
-            new() { Id = 4, TechnicianId = 4, Title = "Klaipedos apsilankymas", Location = "Klaipeda", Start = day(0).AddHours(10), End = day(0).AddHours(18), Priority = "vidutinis", Status = "planuojama", IsLoad = true, IsConflict = true, IsTravelSwitch = false, Risk = "aukstas" },
-            new() { Id = 5, TechnicianId = 5, Title = "Panevezio remontas", Location = "Panevezys", Start = day(0).AddHours(9), End = day(0).AddHours(12), Priority = "vidutinis", Status = "planuojama", IsLoad = false, IsConflict = false, IsTravelSwitch = false, Risk = "zemas" },
-            // Day 1 (Tue)
-            new() { Id = 6, TechnicianId = 1, Title = "Serverio diagnostika", Location = "Vilnius", Start = day(1).AddHours(12), End = day(1).AddHours(15), Priority = "aukstas", Status = "planuojama", IsLoad = true, IsConflict = false, IsTravelSwitch = false, Risk = "vidutinis" },
-            new() { Id = 7, TechnicianId = 6, Title = "UPS testas", Location = "Vilnius", Start = day(1).AddHours(8), End = day(1).AddHours(11), Priority = "zemas", Status = "planuojama", IsLoad = false, IsConflict = false, IsTravelSwitch = false, Risk = "zemas" },
-            new() { Id = 8, TechnicianId = 7, Title = "Rysio balansavimas", Location = "Kaunas", Start = day(1).AddHours(13), End = day(1).AddHours(19), Priority = "aukstas", Status = "planuojama", IsLoad = true, IsConflict = true, IsTravelSwitch = false, Risk = "aukstas" },
-            new() { Id = 9, TechnicianId = 8, Title = "Routerio konfigur.", Location = "Vilnius", Start = day(1).AddHours(10), End = day(1).AddHours(12), Priority = "vidutinis", Status = "planuojama", IsLoad = false, IsConflict = false, IsTravelSwitch = false, Risk = "zemas" },
-            // Day 2 (Wed)
-            new() { Id = 10, TechnicianId = 9, Title = "Alytaus apziura", Location = "Alytus", Start = day(2).AddHours(9), End = day(2).AddHours(13), Priority = "vidutinis", Status = "planuojama", IsLoad = true, IsConflict = false, IsTravelSwitch = true, Risk = "vidutinis" },
-            new() { Id = 11, TechnicianId = 10, Title = "Klaipedos uzsakymas", Location = "Klaipeda", Start = day(2).AddHours(8), End = day(2).AddHours(17), Priority = "aukstas", Status = "planuojama", IsLoad = true, IsConflict = true, IsTravelSwitch = false, Risk = "aukstas" },
-            new() { Id = 12, TechnicianId = 11, Title = "Vilniaus auditavimas", Location = "Vilnius", Start = day(2).AddHours(14), End = day(2).AddHours(17), Priority = "vidutinis", Status = "planuojama", IsLoad = false, IsConflict = false, IsTravelSwitch = false, Risk = "zemas" },
-            // Day 3 (Thu)
-            new() { Id = 13, TechnicianId = 12, Title = "Kauno servisas", Location = "Kaunas", Start = day(3).AddHours(8), End = day(3).AddHours(12), Priority = "vidutinis", Status = "planuojama", IsLoad = false, IsConflict = false, IsTravelSwitch = true, Risk = "vidutinis" },
-            new() { Id = 14, TechnicianId = 13, Title = "Siauliu migracija", Location = "Siauliai", Start = day(3).AddHours(11), End = day(3).AddHours(18), Priority = "aukstas", Status = "planuojama", IsLoad = true, IsConflict = true, IsTravelSwitch = false, Risk = "aukstas" },
-            new() { Id = 15, TechnicianId = 14, Title = "Vilniaus perjungimas", Location = "Vilnius", Start = day(3).AddHours(9), End = day(3).AddHours(17), Priority = "aukstas", Status = "planuojama", IsLoad = true, IsConflict = true, IsTravelSwitch = true, Risk = "aukstas" },
-            // Day 4 (Fri)
-            new() { Id = 16, TechnicianId = 15, Title = "Kauno patikra", Location = "Kaunas", Start = day(4).AddHours(8), End = day(4).AddHours(12), Priority = "vidutinis", Status = "planuojama", IsLoad = false, IsConflict = false, IsTravelSwitch = false, Risk = "zemas" },
-            new() { Id = 17, TechnicianId = 5, Title = "Panevezio testai", Location = "Panevezys", Start = day(4).AddHours(13), End = day(4).AddHours(17), Priority = "vidutinis", Status = "planuojama", IsLoad = true, IsConflict = false, IsTravelSwitch = false, Risk = "vidutinis" },
-            new() { Id = 18, TechnicianId = 6, Title = "Vilniaus incidentas", Location = "Vilnius", Start = day(4).AddHours(11), End = day(4).AddHours(19), Priority = "aukstas", Status = "planuojama", IsLoad = true, IsConflict = true, IsTravelSwitch = false, Risk = "aukstas" }
-        };
+            var locations = new Dictionary<int, string>
+            {
+                { 1, "Vilnius" }, { 2, "Kaunas" }, { 3, "Siauliai" }, { 4, "Klaipeda" }, { 5, "Panevezys" },
+                { 6, "Vilnius" }, { 7, "Kaunas" }, { 8, "Vilnius" }, { 9, "Alytus" }, { 10, "Klaipeda" },
+                { 11, "Vilnius" }, { 12, "Kaunas" }, { 13, "Siauliai" }, { 14, "Vilnius" }, { 15, "Kaunas" }
+            };
+
+            var tasks = new List<TaskItem>();
+            var id = 1;
+            var durationOptions = new[] { 1.5, 2, 2.5, 3 };
+
+            for (var dayOffset = 0; dayOffset < totalDays; dayOffset++)
+            {
+                var currentDate = startDate.AddDays(dayOffset);
+                var weekKey = GetWeekStart(currentDate).Date;
+                var weekShift = (Math.Abs(weekKey.GetHashCode()) % 3) * 0.5;
+
+                foreach (var techId in locations.Keys)
+                {
+                    var start = 8.0 + weekShift;
+                    var tasksToday = new List<TaskItem>();
+                    var taskCount = 2 + ((techId + dayOffset + (int)(weekShift * 10)) % 3);
+
+                    for (var i = 0; i < taskCount; i++)
+                    {
+                        var duration = durationOptions[(techId + dayOffset + i) % durationOptions.Length];
+                        var end = start + duration;
+                        if (end > 18) break;
+
+                        var startDateTime = currentDate.AddHours(start);
+                        var endDateTime = currentDate.AddHours(end);
+                        tasksToday.Add(new TaskItem
+                        {
+                            Id = id++,
+                            TechnicianId = techId,
+                            Title = i == 0 ? "Ryto vizitas" : i == taskCount - 1 ? "Dienos pabaigos darbai" : "Darbai objektuose",
+                            Location = locations.TryGetValue(techId, out var loc) ? loc : "Vilnius",
+                            Start = startDateTime,
+                            End = endDateTime,
+                            Priority = "vidutinis",
+                            Status = "planuojama",
+                            IsLoad = false,
+                            IsConflict = false,
+                            IsTravelSwitch = false,
+                            IsNewPlan = markNewPlan,
+                            Risk = "vidutinis"
+                        });
+
+                        start = end + 0.5;
+                    }
+
+                    // Viršvalandžių injekcija kai kuriems technikams
+                    if ((techId % 2 == 0 && (int)currentDate.DayOfWeek == 5) || (techId % 3 == 0 && (int)currentDate.DayOfWeek == 2))
+                    {
+                        var lastTask = tasksToday.LastOrDefault();
+                        if (lastTask != null)
+                        {
+                            lastTask.End = lastTask.End.AddHours(1.5);
+                        }
+                    }
+
+                    var totalHours = tasksToday.Sum(t => (t.End - t.Start).TotalHours);
+                    var isConflict = totalHours > 8;
+                    var isLoad = !isConflict && totalHours >= 6.5;
+
+                    foreach (var t in tasksToday)
+                    {
+                        t.IsConflict = isConflict;
+                        t.IsLoad = isLoad;
+                        t.Priority = isConflict ? "aukstas" : isLoad ? "vidutinis" : "vidutinis";
+                        t.Risk = isConflict ? "aukstas" : isLoad ? "vidutinis" : "zemas";
+                    }
+
+                    tasks.AddRange(tasksToday);
+                }
+            }
+
+            return tasks;
+        }
 
         private static List<DecisionOption> SeedDecisions() => new()
         {
