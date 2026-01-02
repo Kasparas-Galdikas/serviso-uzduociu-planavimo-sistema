@@ -10,7 +10,12 @@
     }
 
     var tableModel = layout.Table;
-    var headerLabel = layout.HeaderLabel;
+   var headerLabel = layout.HeaderLabel;
+   var isPreview = Model.IsPreviewMode &&
+                   Model.PlannedPeriodStart != default(DateTime) &&
+                   Model.WeekStart.Date >= Model.PlannedPeriodStart.Date &&
+                   Model.WeekStart.Date <= Model.PlannedPeriodEnd.Date;
+    var baseParams = new { view = Model.ViewMode, date = Model.WeekStart.ToString("yyyy-MM-dd"), preview = true };
 }
 
 <div class="card p-3 mb-4">
@@ -18,7 +23,10 @@
         <div class="fw-semibold">@headerLabel</div>
         <h5 class="mb-0 flex-grow-1 text-center">Savaites grafikas</h5>
         <div class="d-flex align-items-center gap-2">
-            <span class="badge bg-info text-dark">Mock duomenys</span>
+            @if (isPreview)
+            {
+                <span class="badge bg-warning text-dark">Generavimo perziura</span>
+            }
         </div>
     </div>
     @{
@@ -33,7 +41,7 @@
 
     @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TableShell.cshtml", tableModel)
 
-    <div class="">
+    <div class="mt-2">
         @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml", Model)
     </div>
 

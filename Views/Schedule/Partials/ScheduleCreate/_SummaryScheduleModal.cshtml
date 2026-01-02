@@ -1,0 +1,143 @@
+﻿@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+<!-- Planavimo santraukos modalas -->
+<div class="modal fade" id="planningSummaryModal" tabindex="-1" aria-labelledby="planningSummaryLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <h5 class="modal-title" id="planningSummaryLabel">Tvarkarascio generavimo santrauka</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Uzdaryti"></button>
+            </div>
+            <div class="modal-body">
+                <div class="vstack gap-4">
+                    <section>
+                        <p class="text-muted small mb-1">1. Planavimo laikotarpis</p>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Pradzios data</label>
+                                <input type="date" class="form-control" id="summaryStartDate" value="@Model.SelectedDate.ToString("yyyy-MM-dd")" disabled />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Trukme</label>
+                                <input type="number" class="form-control" id="summaryDuration" min="1" max="52" placeholder="Pvz.: 4" disabled />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Vienetas</label>
+                                <select class="form-select" id="summaryUnit" disabled>
+                                    <option value="weeks">Savaites</option>
+                                    <option value="months">Menesiai</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-text">Santrauka rodo pasirinktą laikotarpį.</div>
+                    </section>
+
+                    <section>
+                        <p class="text-muted small mb-1">2. Planavimo strategija</p>
+                        <div class="d-flex flex-column gap-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="summaryPlanningStrategy" id="summaryStrategyBalanced" checked disabled>
+                                <label class="form-check-label" for="summaryStrategyBalanced">Subalansuota</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="summaryPlanningStrategy" id="summaryStrategyMinimize" disabled>
+                                <label class="form-check-label" for="summaryStrategyMinimize">Minimizuoti perkrova</label>
+                            </div>
+                        </div>
+                        <div class="form-text">Strategija fiksuota pagal pasirinktą konfigūraciją.</div>
+                    </section>
+
+                    <section>
+                        <p class="text-muted small mb-1">3. Ribojimai</p>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Maks. val. technikui per diena</label>
+                                <input type="number" class="form-control" id="summaryDailyMax" min="4" max="12" placeholder="Pvz.: 8" disabled />
+                                <div class="form-text">Maksimalus darbo krūvis.</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Maks. is eilės pamainų</label>
+                                <input type="number" class="form-control" id="summaryMaxShifts" min="1" max="14" placeholder="Pvz.: 5" disabled />
+                            </div>
+                            <div>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="summaryAllowOvertime" disabled>
+                                    <label class="form-check-label" for="summaryAllowOvertime">Leisti viršvalandžius prireikus</label>
+                                </div>
+
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="summaryIncludeWeekends" disabled>
+                                    <label class="form-check-label" for="summaryIncludeWeekends">Itraukti savaitgalius</label>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <div class="d-flex w-100 align-items-center justify-content-between gap-2">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#createTaskModal">Grižti</button>
+                    <button type="button" class="btn btn-primary" id="summaryConfirmBtn" data-base-url="@Url.Action("Index", "Schedule")">Patvirtinti generavima</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const createModal = document.getElementById('createTaskModal');
+        const summaryModal = document.getElementById('planningSummaryModal');
+        if (!createModal || !summaryModal) return;
+
+        const copyValue = function (sourceId, targetId, isCheckbox, isSelect, isRadio) {
+            const source = createModal.querySelector('#' + sourceId);
+            const target = summaryModal.querySelector('#' + targetId);
+            if (!source || !target) return;
+            if (isCheckbox) {
+                target.checked = source.checked;
+            } else if (isRadio) {
+                target.checked = source.checked;
+            } else if (isSelect) {
+                target.value = source.value;
+            } else {
+                target.value = source.value;
+            }
+        };
+
+        summaryModal.addEventListener('show.bs.modal', function () {
+            copyValue('createStartDate', 'summaryStartDate');
+            copyValue('createDuration', 'summaryDuration');
+            copyValue('createUnit', 'summaryUnit', false, true);
+
+            copyValue('strategyBalanced', 'summaryStrategyBalanced', false, false, true);
+            copyValue('strategyMinimize', 'summaryStrategyMinimize', false, false, true);
+
+            copyValue('createDailyMax', 'summaryDailyMax');
+            copyValue('createMaxShifts', 'summaryMaxShifts');
+            copyValue('createAllowOvertime', 'summaryAllowOvertime', true);
+            copyValue('createIncludeWeekends', 'summaryIncludeWeekends', true);
+        });
+
+        const confirmBtn = summaryModal.querySelector('#summaryConfirmBtn');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', function () {
+                const baseUrl = confirmBtn.getAttribute('data-base-url') || '/Schedule/Index';
+                const startInput = createModal.querySelector('#createStartDate');
+                const durationInput = createModal.querySelector('#createDuration');
+                const unitSelect = createModal.querySelector('#createUnit');
+                const startDate = startInput && startInput.value ? startInput.value : '';
+                const durationVal = durationInput && durationInput.value ? parseInt(durationInput.value, 10) : 1;
+                const plannedWeeks = isNaN(durationVal) ? 1 : durationVal;
+                const url = startDate
+                    ? `${baseUrl}?view=week&date=${encodeURIComponent(startDate)}&preview=true&plannedStart=${encodeURIComponent(startDate)}&plannedWeeks=${plannedWeeks}`
+                    : `${baseUrl}?view=week&preview=true&plannedWeeks=${plannedWeeks}`;
+
+                const bsSummary = bootstrap.Modal.getInstance(summaryModal) || new bootstrap.Modal(summaryModal);
+                const bsCreate = bootstrap.Modal.getInstance(createModal);
+                bsSummary.hide();
+                bsCreate && bsCreate.hide();
+                window.location.href = url;
+            });
+        }
+    });
+</script>

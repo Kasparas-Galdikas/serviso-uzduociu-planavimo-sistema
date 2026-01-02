@@ -12,16 +12,24 @@
     var tableModel = layout.Table;
     var headerLabel = layout.HeaderLabel;
     var isToday = layout.IsToday;
+    var isPreview = Model.IsPreviewMode &&
+                    Model.PlannedPeriodStart != default(DateTime) &&
+                    Model.SelectedDate.Date >= Model.PlannedPeriodStart.Date &&
+                    Model.SelectedDate.Date <= Model.PlannedPeriodEnd.Date;
+    var baseParams = new { view = Model.ViewMode, date = Model.SelectedDate.ToString("yyyy-MM-dd"), preview = true };
 }
 
 <div class="card p-3 mb-4">
 
     <!-- HEADER -->
     <div class="d-flex align-items-center mb-3">
-         <div class="fw-semibold @(isToday ? "today-label" : string.Empty)">@headerLabel</div>
+        <div class="fw-semibold @(isToday ? "today-label" : string.Empty)">@headerLabel</div>
         <h5 class="mb-0 flex-grow-1 text-center">Dienos grafikas</h5>
         <div class="d-flex align-items-center gap-2">
-            <span class="badge bg-info text-dark">Mock duomenys</span>
+            @if (isPreview)
+            {
+                <span class="badge bg-warning text-dark">Generavimo perziura</span>
+            }
         </div>
     </div>
 

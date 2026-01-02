@@ -8,8 +8,12 @@
     var prevDate = baseDate.AddDays(isWeekly ? -7 : -1);
     var nextDate = baseDate.AddDays(isWeekly ? 7 : 1);
 
-    var prevUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = prevDate.ToString("yyyy-MM-dd") }) ?? "#";
-    var nextUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = nextDate.ToString("yyyy-MM-dd") }) ?? "#";
+    var previewParam = Model.IsPreviewMode ? new { preview = true } : null;
+    var basePreview = Model.IsPreviewMode ? true : (bool?)null;
+    var plannedStart = Model.PlannedPeriodStart != default(DateTime) ? Model.PlannedPeriodStart.ToString("yyyy-MM-dd") : null;
+    var plannedWeeks = Model.PlannedWeeks > 0 ? Model.PlannedWeeks : 1;
+    var prevUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = prevDate.ToString("yyyy-MM-dd"), preview = basePreview, plannedStart = plannedStart, plannedWeeks = plannedWeeks }) ?? "#";
+    var nextUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = nextDate.ToString("yyyy-MM-dd"), preview = basePreview, plannedStart = plannedStart, plannedWeeks = plannedWeeks }) ?? "#";
 }
 
 <div class="d-flex align-items-center mb-2 justify-content-between">

@@ -15,6 +15,13 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
 
     public class ScheduleLayoutBuilder : IScheduleLayoutBuilder
     {
+        private static string GetDailyState(double hours, double dailyLimit)
+        {
+            if (hours > dailyLimit) return "task-conflict"; // perkrova
+            if (hours >= dailyLimit * 0.8) return "task-load"; // apkrova
+            return "task-normal"; // normali zona
+        }
+
         public DailyTableLayout BuildDailyLayout(SchedulePageViewModel viewModel)
         {
             var day = viewModel.SelectedDate != default ? viewModel.SelectedDate : viewModel.WeekStart;
@@ -48,6 +55,10 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 var techLocation = WebUtility.HtmlEncode(tech.Location);
 
                 var cells = new List<TableCell>();
+                var dailyLimit = tech.DailyLimit > 0 ? tech.DailyLimit : 8;
+                var totalHours = tasks.Sum(t => (t.End - t.Start).TotalHours);
+                var stateClassForDay = GetDailyState(totalHours, dailyLimit);
+
                 var slotIndex = 0;
 
                 while (slotIndex < slots.Count - 1)
@@ -62,14 +73,8 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                         var remainingSlots = (slots.Count - 1) - slotIndex;
                         var colspan = Math.Max(1, Math.Min(durationSlots, remainingSlots));
 
-                        var stateClass =
-                            task.IsConflict ? "task-conflict" :
-                            task.IsLoad ? "task-load" :
-                            task.IsTravelSwitch ? "task-travel" :
-                            "task-normal";
-
                         var contentHtml = $@"
-<div class=""task-card {stateClass}"">
+<div class=""task-card {stateClassForDay}"">
     <div class=""task-time"">{task.Start:HH:mm} - {task.End:HH:mm}</div>
     <div class=""task-title"">{WebUtility.HtmlEncode(task.Title)}</div>
     <div class=""task-location"">{WebUtility.HtmlEncode(task.Location)}</div>
@@ -167,7 +172,14 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
 
                 foreach (var day in days)
                 {
-                    var dailyUrl = $"/Schedule/Index?view=day&date={day:yyyy-MM-dd}";
+                    var previewParam = viewModel.IsPreviewMode ? "&preview=true" : string.Empty;
+                    if (viewModel.IsPreviewMode && viewModel.PlannedPeriodStart != default(DateTime))
+                    {
+                        var plannedStart = viewModel.PlannedPeriodStart.ToString("yyyy-MM-dd");
+                        var plannedWeeks = viewModel.PlannedWeeks > 0 ? viewModel.PlannedWeeks : 1;
+                        previewParam += $"&plannedStart={plannedStart}&plannedWeeks={plannedWeeks}";
+                    }
+                    var dailyUrl = $"/Schedule/Index?view=day&date={day:yyyy-MM-dd}{previewParam}";
                     var tasks = viewModel.Tasks
                         .Where(t => t.TechnicianId == tech.Id && t.Start.Date == day.Date)
                         .ToList();
@@ -189,7 +201,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                     var taskLine = taskCount > 0 ? $"{taskCount} uzduotys" : "Nera uzduociu";
                     var freeLine = freeHours >= 0
                         ? $"+{freeHours:0.#}h laisva"
-                        : $"{Math.Abs(freeHours):0.#}h truksta";
+                        : $"{Math.Abs(freeHours):0.#}h viršija";
                     var freeClass = freeHours >= 0 ? "text-success" : "text-danger";
                     var dotTitle = stateClass switch
                     {

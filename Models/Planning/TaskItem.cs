@@ -15,6 +15,7 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public bool IsConflict { get; set; }
         public bool IsLoad { get; set; }
         public bool IsTravelSwitch { get; set; }
+        public bool IsNewPlan { get; set; }
         public string? Risk { get; set; }
     }
 }
