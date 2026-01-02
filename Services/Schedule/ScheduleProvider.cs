@@ -1,7 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using ServiceTaskPlanningSystem.Models.Planning;
+
 namespace ServiceTaskPlanningSystem.Services.Schedule
 {
     /// <summary>
@@ -12,42 +14,25 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
     {
         public SchedulePageViewModel GetSchedule(string view, string? date, string? location, string? status, bool preview = false, string? plannedStart = null, int plannedWeeks = 1)
         {
-            var selectedDate = ResolveDateOrToday(date);
-            var weekStart = GetWeekStart(selectedDate);
-            var actualWeekStart = GetWeekStart(DateTime.Today);
-            var actualWeekEnd = actualWeekStart.AddDays(6);
-
-            // Base: current week (5 working days)
-            var baseTasks = SeedTasksRange(actualWeekStart, 5, false);
-            var lastPlannedEnd = baseTasks.Any() ? baseTasks.Max(t => t.End.Date) : actualWeekEnd;
-
-            // Plan start: day after last planned (or later if user provided)
-            var requestedPlannedStart = ResolveDateOrToday(plannedStart);
-            var plannedStartDate = requestedPlannedStart != default ? requestedPlannedStart : lastPlannedEnd.AddDays(1);
-            var minStart = lastPlannedEnd.AddDays(1);
-            if (plannedStartDate < minStart)
-            {
-                plannedStartDate = minStart;
-            }
-
-            var plannedWeeksCount = Math.Max(1, plannedWeeks);
-            // Fill remaining days of current week + full weeks ahead
-            var daysToWeekEnd = 7 - ((int)plannedStartDate.DayOfWeek == 0 ? 7 : (int)plannedStartDate.DayOfWeek);
-            var plannedTotalDays = daysToWeekEnd + plannedWeeksCount * 7;
-            var plannedIntervalEnd = plannedStartDate.AddDays(plannedTotalDays - 1);
-
-            var isActualWeek = selectedDate.Date >= actualWeekStart && selectedDate.Date <= actualWeekEnd;
-            var isPlannedInterval = selectedDate.Date >= plannedStartDate && selectedDate.Date <= plannedIntervalEnd;
-
+            var selectedDate = DateResolver.ParseOrToday(date);
             var viewMode = NormalizeView(view);
 
-            var technicians = SeedTechnicians();
+            var actualWeekStart = WeekCalculator.GetWeekStart(DateTime.Today);
+            var actualWeekEnd = WeekCalculator.GetWeekEnd(DateTime.Today);
+            var baseTasks = MockScheduleData.SeedTasksRange(actualWeekStart, 5, false);
+            var lastPlannedEnd = baseTasks.Any() ? baseTasks.Max(t => t.End.Date) : actualWeekEnd;
+
+            var planningWindow = PlanningWindowCalculator.Calculate(plannedStart, plannedWeeks, lastPlannedEnd);
+            var isActualWeek = WeekCalculator.IsInRange(selectedDate, actualWeekStart, actualWeekEnd);
+            var isPlannedInterval = PlanningWindowCalculator.IsWithin(selectedDate, planningWindow);
+
+            var technicians = MockScheduleData.SeedTechnicians();
             var tasks = new List<TaskItem>();
             if (preview)
             {
                 tasks.AddRange(baseTasks);
-                var plannedTasks = SeedTasksRange(plannedStartDate, plannedTotalDays, true)
-                    .Where(t => t.Start.Date >= plannedStartDate.Date && t.Start.Date <= plannedIntervalEnd.Date)
+                var plannedTasks = MockScheduleData.SeedTasksRange(planningWindow.Start, planningWindow.TotalDays, true)
+                    .Where(t => t.Start.Date >= planningWindow.Start && t.Start.Date <= planningWindow.End)
                     .ToList();
                 tasks.AddRange(plannedTasks);
             }
@@ -57,8 +42,8 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             }
 
             var showIssues = (preview && (isActualWeek || isPlannedInterval)) || (!preview && isActualWeek);
-            var decisions = SeedDecisions();
-            var issues = showIssues ? SeedIssues(selectedDate, decisions) : new List<IssueItem>();
+            var decisions = MockScheduleData.SeedDecisions();
+            var issues = showIssues ? MockScheduleData.SeedIssues(selectedDate, decisions) : new List<IssueItem>();
 
             var availableLocations = technicians
                 .Select(t => t.Location)
@@ -69,11 +54,11 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             var availableStatuses = new List<string> { "Visi", "Normali apkrova", "Apkrova", "Perkrova" };
 
             (technicians, tasks) = ApplyLocationFilter(location, technicians, tasks);
-            (technicians, tasks) = ApplyStatusFilter(status, viewMode, technicians, tasks);
+            (technicians, tasks) = ApplyStatusFilter(status, technicians, tasks);
 
             return new SchedulePageViewModel
             {
-                WeekStart = weekStart,
+                WeekStart = WeekCalculator.GetWeekStart(selectedDate),
                 SelectedDate = selectedDate,
                 IsManager = true,
                 ViewMode = viewMode,
@@ -84,23 +69,11 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 AvailableLocations = availableLocations,
                 AvailableStatuses = availableStatuses,
                 IsPreviewMode = preview,
-                PlannedPeriodStart = plannedStartDate,
-                PlannedPeriodEnd = plannedIntervalEnd,
-                PlannedWeeks = plannedWeeksCount
+                PlannedPeriodStart = planningWindow.Start,
+                PlannedPeriodEnd = planningWindow.End,
+                PlannedWeeks = planningWindow.Weeks
             };
         }
-
-        private static DateTime ResolveDateOrToday(string? date)
-        {
-            if (!string.IsNullOrWhiteSpace(date) && DateTime.TryParse(date, out var parsedDate))
-            {
-                return parsedDate.Date;
-            }
-            return DateTime.Today;
-        }
-
-        private static DateTime GetWeekStart(DateTime selectedDate) =>
-            selectedDate.AddDays(-(int)selectedDate.DayOfWeek + (int)DayOfWeek.Monday);
 
         private static string NormalizeView(string view) =>
             string.Equals(view, "week", StringComparison.OrdinalIgnoreCase) ? "week" : "day";
@@ -123,7 +96,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             return (filteredTechnicians, filteredTasks);
         }
 
-        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyStatusFilter(string? status, string viewMode, List<Technician> technicians, List<TaskItem> tasks)
+        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyStatusFilter(string? status, List<Technician> technicians, List<TaskItem> tasks)
         {
             if (string.IsNullOrWhiteSpace(status))
             {
@@ -145,8 +118,95 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
 
             return (filteredTechnicians, filteredTasks);
         }
+    }
 
-        private static List<Technician> SeedTechnicians() => new()
+    internal static class DateResolver
+    {
+        private static readonly string[] AcceptedFormats = { "yyyy-MM-dd" };
+
+        public static DateTime ParseOrToday(string? value) =>
+            TryParse(value, out var parsed) ? parsed : DateTime.Today;
+
+        public static DateTime? ParseOrNull(string? value) =>
+            TryParse(value, out var parsed) ? parsed : null;
+
+        private static bool TryParse(string? value, out DateTime parsed)
+        {
+            if (!string.IsNullOrWhiteSpace(value) &&
+                DateTime.TryParseExact(value, AcceptedFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsedDate))
+            {
+                parsed = parsedDate.Date;
+                return true;
+            }
+
+            parsed = default;
+            return false;
+        }
+    }
+
+    internal static class WeekCalculator
+    {
+        public static DateTime GetWeekStart(DateTime date)
+        {
+            var localDate = date.Date;
+            var offset = ((int)localDate.DayOfWeek + 6) % 7; // Monday = 0
+            return localDate.AddDays(-offset);
+        }
+
+        public static DateTime GetWeekEnd(DateTime date) => GetWeekStart(date).AddDays(6);
+
+        public static bool IsInRange(DateTime date, DateTime start, DateTime end) =>
+            date.Date >= start.Date && date.Date <= end.Date;
+    }
+
+    internal readonly struct PlanningWindow
+    {
+        public PlanningWindow(DateTime start, DateTime end, int totalDays, int weeks)
+        {
+            Start = start.Date;
+            End = end.Date;
+            TotalDays = totalDays;
+            Weeks = weeks;
+        }
+
+        public DateTime Start { get; }
+        public DateTime End { get; }
+        public int TotalDays { get; }
+        public int Weeks { get; }
+    }
+
+    internal static class PlanningWindowCalculator
+    {
+        public static PlanningWindow Calculate(string? plannedStart, int plannedWeeks, DateTime lastPlannedEnd)
+        {
+            var requestedStart = DateResolver.ParseOrNull(plannedStart);
+            var earliestStart = lastPlannedEnd.Date.AddDays(1);
+            var effectiveStart = requestedStart.HasValue && requestedStart.Value >= earliestStart
+                ? requestedStart.Value
+                : earliestStart;
+
+            var weeks = Math.Max(1, plannedWeeks);
+            var daysRemainingInStartWeek = (WeekCalculator.GetWeekEnd(effectiveStart) - effectiveStart).Days + 1;
+            var totalDays = daysRemainingInStartWeek + weeks * 7;
+            var end = effectiveStart.AddDays(totalDays - 1);
+
+            return new PlanningWindow(effectiveStart, end, totalDays, weeks);
+        }
+
+        public static bool IsWithin(DateTime date, PlanningWindow window) =>
+            WeekCalculator.IsInRange(date, window.Start, window.End);
+    }
+
+    internal static class MockScheduleData
+    {
+        private static readonly Dictionary<int, string> Locations = new()
+        {
+            { 1, "Vilnius" }, { 2, "Kaunas" }, { 3, "Siauliai" }, { 4, "Klaipeda" }, { 5, "Panevezys" },
+            { 6, "Vilnius" }, { 7, "Kaunas" }, { 8, "Vilnius" }, { 9, "Alytus" }, { 10, "Klaipeda" },
+            { 11, "Vilnius" }, { 12, "Kaunas" }, { 13, "Siauliai" }, { 14, "Vilnius" }, { 15, "Kaunas" }
+        };
+
+        public static List<Technician> SeedTechnicians() => new()
         {
             new() { Id = 1, Name = "Austeja J.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h, savaites 40h", WeeklyHours = 18, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 2 },
             new() { Id = 2, Name = "Dovydas K.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h, savaites 45h", WeeklyHours = 22, WeeklyLimit = 45, DailyHours = 7, DailyLimit = 8, TravelSwitches = 1 },
@@ -165,26 +225,19 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             new() { Id = 15, Name = "Karolina N.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h", WeeklyHours = 25, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 1 }
         };
 
-        private static List<TaskItem> SeedTasksRange(DateTime startDate, int totalDays, bool markNewPlan)
+        public static List<TaskItem> SeedTasksRange(DateTime startDate, int totalDays, bool markNewPlan)
         {
-            var locations = new Dictionary<int, string>
-            {
-                { 1, "Vilnius" }, { 2, "Kaunas" }, { 3, "Siauliai" }, { 4, "Klaipeda" }, { 5, "Panevezys" },
-                { 6, "Vilnius" }, { 7, "Kaunas" }, { 8, "Vilnius" }, { 9, "Alytus" }, { 10, "Klaipeda" },
-                { 11, "Vilnius" }, { 12, "Kaunas" }, { 13, "Siauliai" }, { 14, "Vilnius" }, { 15, "Kaunas" }
-            };
-
             var tasks = new List<TaskItem>();
             var id = 1;
             var durationOptions = new[] { 1.5, 2, 2.5, 3 };
 
             for (var dayOffset = 0; dayOffset < totalDays; dayOffset++)
             {
-                var currentDate = startDate.AddDays(dayOffset);
-                var weekKey = GetWeekStart(currentDate).Date;
-                var weekShift = (Math.Abs(weekKey.GetHashCode()) % 3) * 0.5;
+                var currentDate = startDate.Date.AddDays(dayOffset);
+                var weekStart = WeekCalculator.GetWeekStart(currentDate);
+                var weekShift = (GetStableSeed(weekStart) % 3) * 0.5;
 
-                foreach (var techId in locations.Keys)
+                foreach (var techId in Locations.Keys)
                 {
                     var start = 8.0 + weekShift;
                     var tasksToday = new List<TaskItem>();
@@ -203,7 +256,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                             Id = id++,
                             TechnicianId = techId,
                             Title = i == 0 ? "Ryto vizitas" : i == taskCount - 1 ? "Dienos pabaigos darbai" : "Darbai objektuose",
-                            Location = locations.TryGetValue(techId, out var loc) ? loc : "Vilnius",
+                            Location = Locations.TryGetValue(techId, out var loc) ? loc : "Vilnius",
                             Start = startDateTime,
                             End = endDateTime,
                             Priority = "vidutinis",
@@ -218,8 +271,8 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                         start = end + 0.5;
                     }
 
-                    // Viršvalandžių injekcija kai kuriems technikams
-                    if ((techId % 2 == 0 && (int)currentDate.DayOfWeek == 5) || (techId % 3 == 0 && (int)currentDate.DayOfWeek == 2))
+                    if ((techId % 2 == 0 && currentDate.DayOfWeek == DayOfWeek.Friday) ||
+                        (techId % 3 == 0 && currentDate.DayOfWeek == DayOfWeek.Tuesday))
                     {
                         var lastTask = tasksToday.LastOrDefault();
                         if (lastTask != null)
@@ -247,17 +300,17 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             return tasks;
         }
 
-        private static List<DecisionOption> SeedDecisions() => new()
+        public static List<DecisionOption> SeedDecisions() => new()
         {
             new() { Title = "Perkelti Klaipedos uzduoti", Description = "Atideti Klaipedos perjungima i ryto langa.", RiskLevel = "vidutinis", LoadImpact = "-2h Vilnius", TravelImpact = "+1 kelione", IsRecommended = true },
             new() { Title = "Paskirstyti apkrova", Description = "Dali Kauno darbu perleisti Gabijai.", RiskLevel = "zemas", LoadImpact = "-1h Kaunas, +1h Siauliai", TravelImpact = "0", IsRecommended = false },
             new() { Title = "Palikti kaip yra", Description = "Jokiu pakeitimu - stebeti konfliktus.", RiskLevel = "aukstas", LoadImpact = "0", TravelImpact = "0", IsRecommended = false }
         };
 
-        private static List<IssueItem> SeedIssues(DateTime selectedDate, IEnumerable<DecisionOption> decisions)
+        public static List<IssueItem> SeedIssues(DateTime selectedDate, IEnumerable<DecisionOption> decisions)
         {
             var decisionList = decisions.ToList();
-            var dayName = selectedDate.ToString("dddd");
+            var dayName = selectedDate.ToString("dddd", CultureInfo.InvariantCulture);
 
             return new List<IssueItem>
             {
@@ -283,6 +336,12 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                     Decisions = decisionList
                 }
             };
+        }
+
+        private static int GetStableSeed(DateTime date)
+        {
+            var weekOfYear = ISOWeek.GetWeekOfYear(date);
+            return unchecked((date.Year * 100) + weekOfYear);
         }
     }
 }
