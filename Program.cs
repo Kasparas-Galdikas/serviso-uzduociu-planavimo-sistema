@@ -1,9 +1,31 @@
+using Microsoft.EntityFrameworkCore;
+using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Data.Seed;
+using ServiceTaskPlanningSystem.Services.Schedule;
+using ServiceTaskPlanningSystem.Configuration;
+
 var builder = WebApplication.CreateBuilder(args);
 
+var configuration = ConfigurationLoader.Build(builder.Environment.ContentRootPath, builder.Environment.EnvironmentName);
+builder.Configuration.AddConfiguration(configuration);
+
+var connectionString = ConfigurationLoader.GetRequiredConnectionString(configuration);
+
 // Add services to the container.
+builder.Services.AddDbContext<ScheduleDbContext>(options =>
+    options.UseNpgsql(connectionString, npgsqlOptions =>
+    {
+        npgsqlOptions.MapEnum<UserRole>();
+        npgsqlOptions.MapEnum<PlanStatus>();
+        npgsqlOptions.MapEnum<TaskPriority>();
+        npgsqlOptions.MapEnum<ScheduleTaskStatus>("task_status");
+        npgsqlOptions.MapEnum<RiskLevel>();
+        npgsqlOptions.MapEnum<LoadState>();
+    }).UseSnakeCaseNamingConvention());
 builder.Services.AddControllersWithViews();
-builder.Services.AddSingleton<ServiceTaskPlanningSystem.Services.Schedule.IScheduleProvider, ServiceTaskPlanningSystem.Services.Schedule.ScheduleProvider>();
-builder.Services.AddSingleton<ServiceTaskPlanningSystem.Services.Schedule.IScheduleLayoutBuilder, ServiceTaskPlanningSystem.Services.Schedule.ScheduleLayoutBuilder>();
+builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
+builder.Services.AddTransient<DatabaseSeeder>();
+builder.Services.AddSingleton<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 
 var app = builder.Build();
 
@@ -27,5 +49,10 @@ app.MapControllerRoute(
     pattern: "{controller=Home}/{action=Index}/{id?}")
     .WithStaticAssets();
 
+using (var scope = app.Services.CreateScope())
+{
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    await seeder.SeedAsync();
+}
 
-app.Run();
+await app.RunAsync();

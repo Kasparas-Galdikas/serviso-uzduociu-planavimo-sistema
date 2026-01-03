@@ -1,64 +1,93 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using Microsoft.EntityFrameworkCore;
+using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
+using ServiceTaskPlanningSystem.Data.Seed;
+
 namespace ServiceTaskPlanningSystem.Services.Schedule
 {
-    /// <summary>
-    /// Central place for mock schedule data and basic filtering logic.
-    /// Swap this implementation with a data-backed provider later.
-    /// </summary>
     public class ScheduleProvider : IScheduleProvider
     {
+        private readonly ScheduleDbContext _db;
+
+        public ScheduleProvider(ScheduleDbContext db)
+        {
+            _db = db;
+        }
+
         public SchedulePageViewModel GetSchedule(string view, string? date, string? location, string? status, bool preview = false, string? plannedStart = null, int plannedWeeks = 1)
         {
-            var selectedDate = ResolveDateOrToday(date);
-            var weekStart = GetWeekStart(selectedDate);
-            var actualWeekStart = GetWeekStart(DateTime.Today);
-            var actualWeekEnd = actualWeekStart.AddDays(6);
+            var selectedDate = DateResolver.ParseOrToday(date);
+            var viewMode = NormalizeView(view);
+            var weekStart = WeekCalculator.GetWeekStart(selectedDate);
+            var weekEnd = WeekCalculator.GetWeekEnd(selectedDate);
+            var actualWeekStart = WeekCalculator.GetWeekStart(DateTime.Today);
+            var actualWeekEnd = WeekCalculator.GetWeekEnd(DateTime.Today);
+            var displayStart = viewMode == "week" ? weekStart : selectedDate.Date;
+            var displayEnd = viewMode == "week" ? weekEnd : selectedDate.Date;
 
-            // Base: current week (5 working days)
-            var baseTasks = SeedTasksRange(actualWeekStart, 5, false);
-            var lastPlannedEnd = baseTasks.Any() ? baseTasks.Max(t => t.End.Date) : actualWeekEnd;
+            var activePlanId = _db.Plans.AsNoTracking()
+                .Where(p => p.Status == PlanStatus.Active)
+                .Select(p => (long?)p.Id)
+                .FirstOrDefault();
 
-            // Plan start: day after last planned (or later if user provided)
-            var requestedPlannedStart = ResolveDateOrToday(plannedStart);
-            var plannedStartDate = requestedPlannedStart != default ? requestedPlannedStart : lastPlannedEnd.AddDays(1);
-            var minStart = lastPlannedEnd.AddDays(1);
-            if (plannedStartDate < minStart)
+            var technicians = _db.Technicians
+                .AsNoTracking()
+                .Include(t => t.Region)
+                .Select(t => new Technician
+                {
+                    Id = (int)t.Id,
+                    Name = t.Name,
+                    Location = t.Region != null ? t.Region.Name : string.Empty,
+                    RulesSummary = t.RulesSummary ?? string.Empty,
+                    WeeklyHours = 0,
+                    WeeklyLimit = (int)t.WeeklyLimit,
+                    DailyHours = 0,
+                    DailyLimit = (int)t.DailyLimit,
+                    TravelSwitches = t.TravelSwitchLimit
+                })
+                .ToList();
+
+            var activeTasks = new List<TaskItem>();
+            DateTime? activePlanLastEnd = null;
+            if (activePlanId.HasValue)
             {
-                plannedStartDate = minStart;
+                var weekStartUtc = DateTime.SpecifyKind(weekStart, DateTimeKind.Utc);
+                var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
+
+                var tasksQuery = _db.Tasks
+                    .AsNoTracking()
+                    .Where(t => t.PlanId == activePlanId.Value &&
+                                t.StartAt >= weekStartUtc &&
+                                t.StartAt < weekEndUtcExclusive)
+                    .Include(t => t.Evaluation);
+
+                activeTasks = tasksQuery
+                    .AsEnumerable()
+                    .Select(t => MapTask(t))
+                    .ToList();
+
+                activePlanLastEnd = _db.Tasks
+                    .AsNoTracking()
+                    .Where(t => t.PlanId == activePlanId.Value)
+                    .Select(t => (DateTime?)t.EndAt)
+                    .Max();
             }
 
-            var plannedWeeksCount = Math.Max(1, plannedWeeks);
-            // Fill remaining days of current week + full weeks ahead
-            var daysToWeekEnd = 7 - ((int)plannedStartDate.DayOfWeek == 0 ? 7 : (int)plannedStartDate.DayOfWeek);
-            var plannedTotalDays = daysToWeekEnd + plannedWeeksCount * 7;
-            var plannedIntervalEnd = plannedStartDate.AddDays(plannedTotalDays - 1);
-
-            var isActualWeek = selectedDate.Date >= actualWeekStart && selectedDate.Date <= actualWeekEnd;
-            var isPlannedInterval = selectedDate.Date >= plannedStartDate && selectedDate.Date <= plannedIntervalEnd;
-
-            var viewMode = NormalizeView(view);
-
-            var technicians = SeedTechnicians();
             var tasks = new List<TaskItem>();
+            tasks.AddRange(activeTasks);
+
+            var lastPlannedEnd = activePlanLastEnd?.Date ?? weekEnd.Date;
+            var planningWindow = PlanningWindowCalculator.Calculate(plannedStart, plannedWeeks, lastPlannedEnd);
+
             if (preview)
             {
-                tasks.AddRange(baseTasks);
-                var plannedTasks = SeedTasksRange(plannedStartDate, plannedTotalDays, true)
-                    .Where(t => t.Start.Date >= plannedStartDate.Date && t.Start.Date <= plannedIntervalEnd.Date)
-                    .ToList();
+                var plannedTasks = GeneratePlannedTasks(planningWindow.Start, planningWindow.TotalDays, technicians);
                 tasks.AddRange(plannedTasks);
             }
-            else if (isActualWeek)
-            {
-                tasks.AddRange(baseTasks);
-            }
-
-            var showIssues = (preview && (isActualWeek || isPlannedInterval)) || (!preview && isActualWeek);
-            var decisions = SeedDecisions();
-            var issues = showIssues ? SeedIssues(selectedDate, decisions) : new List<IssueItem>();
 
             var availableLocations = technicians
                 .Select(t => t.Location)
@@ -68,8 +97,13 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 .ToList();
             var availableStatuses = new List<string> { "Visi", "Normali apkrova", "Apkrova", "Perkrova" };
 
+            var decisions = SeedDecisions();
+            var showIssues = (preview && (WeekCalculator.IsInRange(selectedDate, actualWeekStart, actualWeekEnd) || PlanningWindowCalculator.IsWithin(selectedDate, planningWindow)))
+                            || (!preview && WeekCalculator.IsInRange(selectedDate, actualWeekStart, actualWeekEnd));
+            var issues = showIssues ? SeedIssues(selectedDate, decisions) : new List<IssueItem>();
+
             (technicians, tasks) = ApplyLocationFilter(location, technicians, tasks);
-            (technicians, tasks) = ApplyStatusFilter(status, viewMode, technicians, tasks);
+            (technicians, tasks) = ApplyStatusFilter(status, technicians, tasks);
 
             return new SchedulePageViewModel
             {
@@ -84,23 +118,78 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 AvailableLocations = availableLocations,
                 AvailableStatuses = availableStatuses,
                 IsPreviewMode = preview,
-                PlannedPeriodStart = plannedStartDate,
-                PlannedPeriodEnd = plannedIntervalEnd,
-                PlannedWeeks = plannedWeeksCount
+                PlannedPeriodStart = planningWindow.Start,
+                PlannedPeriodEnd = planningWindow.End,
+                PlannedWeeks = planningWindow.Weeks
             };
         }
 
-        private static DateTime ResolveDateOrToday(string? date)
+        private IEnumerable<TaskItem> GeneratePlannedTasks(
+        DateTime start,
+         int totalDays,
+        List<Technician> technicians)
         {
-            if (!string.IsNullOrWhiteSpace(date) && DateTime.TryParse(date, out var parsedDate))
+            var planned = MockScheduleData.SeedTasksRange(start, totalDays, true);
+
+            var mockTechs = MockScheduleData.SeedTechnicians()
+                .ToDictionary(t => t.Id);
+
+            var technicianByName = technicians
+                .GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var t in planned)
             {
-                return parsedDate.Date;
+                Technician? tech = null;
+
+                if (mockTechs.TryGetValue(t.TechnicianId, out var mockTech) &&
+                    technicianByName.TryGetValue(mockTech.Name, out var matched))
+                {
+                    tech = matched;
+                }
+
+                tech ??= technicians.FirstOrDefault();
+
+                yield return new TaskItem
+                {
+                    Id = t.Id,
+                    TechnicianId = tech?.Id ?? t.TechnicianId,
+                    Title = t.Title,
+                    Location = t.Location,
+                    Start = DateTime.SpecifyKind(t.Start, DateTimeKind.Utc),
+                    End = DateTime.SpecifyKind(t.End, DateTimeKind.Utc),
+                    Priority = t.Priority,
+                    Status = t.Status,
+                    IsConflict = t.IsConflict,
+                    IsLoad = t.IsLoad,
+                    IsTravelSwitch = t.IsTravelSwitch,
+                    IsNewPlan = true,
+                    Risk = t.Risk
+                };
             }
-            return DateTime.Today;
         }
 
-        private static DateTime GetWeekStart(DateTime selectedDate) =>
-            selectedDate.AddDays(-(int)selectedDate.DayOfWeek + (int)DayOfWeek.Monday);
+
+        private TaskItem MapTask(Data.TaskEntity task)
+        {
+            var eval = task.Evaluation;
+            return new TaskItem
+            {
+                Id = (int)task.Id,
+                TechnicianId = (int)task.TechnicianId,
+                Title = task.Title,
+                Location = task.Location,
+                Start = DateTime.SpecifyKind(task.StartAt, DateTimeKind.Utc),
+                End = DateTime.SpecifyKind(task.EndAt, DateTimeKind.Utc),
+                Priority = task.Priority.ToString().ToLowerInvariant(),
+                Status = task.Status.ToString().ToLowerInvariant(),
+                IsConflict = eval?.IsConflict ?? false,
+                IsLoad = eval?.IsOverloaded ?? false,
+                IsTravelSwitch = eval?.TravelRequired ?? false,
+                IsNewPlan = false,
+                Risk = eval?.RiskLevel?.ToString().ToLowerInvariant()
+            };
+        }
 
         private static string NormalizeView(string view) =>
             string.Equals(view, "week", StringComparison.OrdinalIgnoreCase) ? "week" : "day";
@@ -123,7 +212,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             return (filteredTechnicians, filteredTasks);
         }
 
-        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyStatusFilter(string? status, string viewMode, List<Technician> technicians, List<TaskItem> tasks)
+        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyStatusFilter(string? status, List<Technician> technicians, List<TaskItem> tasks)
         {
             if (string.IsNullOrWhiteSpace(status))
             {
@@ -146,107 +235,6 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             return (filteredTechnicians, filteredTasks);
         }
 
-        private static List<Technician> SeedTechnicians() => new()
-        {
-            new() { Id = 1, Name = "Austeja J.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h, savaites 40h", WeeklyHours = 18, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 2 },
-            new() { Id = 2, Name = "Dovydas K.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h, savaites 45h", WeeklyHours = 22, WeeklyLimit = 45, DailyHours = 7, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 3, Name = "Gabija P.", Location = "Siauliai", RulesSummary = "Dienos limitas 8h, savaites 42h", WeeklyHours = 15, WeeklyLimit = 42, DailyHours = 5, DailyLimit = 8, TravelSwitches = 3 },
-            new() { Id = 4, Name = "Lukas V.", Location = "Klaipeda", RulesSummary = "Dienos limitas 8h", WeeklyHours = 19, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 5, Name = "Monika S.", Location = "Panevezys", RulesSummary = "Dienos limitas 8h", WeeklyHours = 12, WeeklyLimit = 40, DailyHours = 4, DailyLimit = 8, TravelSwitches = 0 },
-            new() { Id = 6, Name = "Rokas M.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h", WeeklyHours = 21, WeeklyLimit = 35, DailyHours = 6, DailyLimit = 8, TravelSwitches = 2 },
-            new() { Id = 7, Name = "Greta B.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h", WeeklyHours = 27, WeeklyLimit = 45, DailyHours = 7, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 8, Name = "Mantas P.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h", WeeklyHours = 10, WeeklyLimit = 40, DailyHours = 3, DailyLimit = 8, TravelSwitches = 0 },
-            new() { Id = 9, Name = "Ieva Z.", Location = "Alytus", RulesSummary = "Dienos limitas 8h", WeeklyHours = 8, WeeklyLimit = 40, DailyHours = 4, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 10, Name = "Paulius T.", Location = "Klaipeda", RulesSummary = "Dienos limitas 8h", WeeklyHours = 24, WeeklyLimit = 40, DailyHours = 7, DailyLimit = 8, TravelSwitches = 2 },
-            new() { Id = 11, Name = "Jurate R.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h", WeeklyHours = 16, WeeklyLimit = 40, DailyHours = 5, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 12, Name = "Tomas G.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h", WeeklyHours = 20, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 3 },
-            new() { Id = 13, Name = "Elze K.", Location = "Siauliai", RulesSummary = "Dienos limitas 8h", WeeklyHours = 18, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 14, Name = "Vaidotas L.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h", WeeklyHours = 30, WeeklyLimit = 40, DailyHours = 7, DailyLimit = 8, TravelSwitches = 2 },
-            new() { Id = 15, Name = "Karolina N.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h", WeeklyHours = 25, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 1 }
-        };
-
-        private static List<TaskItem> SeedTasksRange(DateTime startDate, int totalDays, bool markNewPlan)
-        {
-            var locations = new Dictionary<int, string>
-            {
-                { 1, "Vilnius" }, { 2, "Kaunas" }, { 3, "Siauliai" }, { 4, "Klaipeda" }, { 5, "Panevezys" },
-                { 6, "Vilnius" }, { 7, "Kaunas" }, { 8, "Vilnius" }, { 9, "Alytus" }, { 10, "Klaipeda" },
-                { 11, "Vilnius" }, { 12, "Kaunas" }, { 13, "Siauliai" }, { 14, "Vilnius" }, { 15, "Kaunas" }
-            };
-
-            var tasks = new List<TaskItem>();
-            var id = 1;
-            var durationOptions = new[] { 1.5, 2, 2.5, 3 };
-
-            for (var dayOffset = 0; dayOffset < totalDays; dayOffset++)
-            {
-                var currentDate = startDate.AddDays(dayOffset);
-                var weekKey = GetWeekStart(currentDate).Date;
-                var weekShift = (Math.Abs(weekKey.GetHashCode()) % 3) * 0.5;
-
-                foreach (var techId in locations.Keys)
-                {
-                    var start = 8.0 + weekShift;
-                    var tasksToday = new List<TaskItem>();
-                    var taskCount = 2 + ((techId + dayOffset + (int)(weekShift * 10)) % 3);
-
-                    for (var i = 0; i < taskCount; i++)
-                    {
-                        var duration = durationOptions[(techId + dayOffset + i) % durationOptions.Length];
-                        var end = start + duration;
-                        if (end > 18) break;
-
-                        var startDateTime = currentDate.AddHours(start);
-                        var endDateTime = currentDate.AddHours(end);
-                        tasksToday.Add(new TaskItem
-                        {
-                            Id = id++,
-                            TechnicianId = techId,
-                            Title = i == 0 ? "Ryto vizitas" : i == taskCount - 1 ? "Dienos pabaigos darbai" : "Darbai objektuose",
-                            Location = locations.TryGetValue(techId, out var loc) ? loc : "Vilnius",
-                            Start = startDateTime,
-                            End = endDateTime,
-                            Priority = "vidutinis",
-                            Status = "planuojama",
-                            IsLoad = false,
-                            IsConflict = false,
-                            IsTravelSwitch = false,
-                            IsNewPlan = markNewPlan,
-                            Risk = "vidutinis"
-                        });
-
-                        start = end + 0.5;
-                    }
-
-                    // Viršvalandžių injekcija kai kuriems technikams
-                    if ((techId % 2 == 0 && (int)currentDate.DayOfWeek == 5) || (techId % 3 == 0 && (int)currentDate.DayOfWeek == 2))
-                    {
-                        var lastTask = tasksToday.LastOrDefault();
-                        if (lastTask != null)
-                        {
-                            lastTask.End = lastTask.End.AddHours(1.5);
-                        }
-                    }
-
-                    var totalHours = tasksToday.Sum(t => (t.End - t.Start).TotalHours);
-                    var isConflict = totalHours > 8;
-                    var isLoad = !isConflict && totalHours >= 6.5;
-
-                    foreach (var t in tasksToday)
-                    {
-                        t.IsConflict = isConflict;
-                        t.IsLoad = isLoad;
-                        t.Priority = isConflict ? "aukstas" : isLoad ? "vidutinis" : "vidutinis";
-                        t.Risk = isConflict ? "aukstas" : isLoad ? "vidutinis" : "zemas";
-                    }
-
-                    tasks.AddRange(tasksToday);
-                }
-            }
-
-            return tasks;
-        }
-
         private static List<DecisionOption> SeedDecisions() => new()
         {
             new() { Title = "Perkelti Klaipedos uzduoti", Description = "Atideti Klaipedos perjungima i ryto langa.", RiskLevel = "vidutinis", LoadImpact = "-2h Vilnius", TravelImpact = "+1 kelione", IsRecommended = true },
@@ -257,7 +245,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
         private static List<IssueItem> SeedIssues(DateTime selectedDate, IEnumerable<DecisionOption> decisions)
         {
             var decisionList = decisions.ToList();
-            var dayName = selectedDate.ToString("dddd");
+            var dayName = selectedDate.ToString("dddd", CultureInfo.InvariantCulture);
 
             return new List<IssueItem>
             {
@@ -284,5 +272,82 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 }
             };
         }
+    }
+
+    internal static class DateResolver
+    {
+        private static readonly string[] AcceptedFormats = { "yyyy-MM-dd" };
+
+        public static DateTime ParseOrToday(string? value) =>
+            TryParse(value, out var parsed) ? parsed : DateTime.Today;
+
+        public static DateTime? ParseOrNull(string? value) =>
+            TryParse(value, out var parsed) ? parsed : null;
+
+        private static bool TryParse(string? value, out DateTime parsed)
+        {
+            if (!string.IsNullOrWhiteSpace(value) &&
+                DateTime.TryParseExact(value, AcceptedFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsedDate))
+            {
+                parsed = parsedDate.Date;
+                return true;
+            }
+
+            parsed = default;
+            return false;
+        }
+    }
+
+    internal static class WeekCalculator
+    {
+        public static DateTime GetWeekStart(DateTime date)
+        {
+            var localDate = date.Date;
+            var offset = ((int)localDate.DayOfWeek + 6) % 7; // Monday = 0
+            return localDate.AddDays(-offset);
+        }
+
+        public static DateTime GetWeekEnd(DateTime date) => GetWeekStart(date).AddDays(6);
+
+        public static bool IsInRange(DateTime date, DateTime start, DateTime end) =>
+            date.Date >= start.Date && date.Date <= end.Date;
+    }
+
+    internal readonly struct PlanningWindow
+    {
+        public PlanningWindow(DateTime start, DateTime end, int totalDays, int weeks)
+        {
+            Start = start.Date;
+            End = end.Date;
+            TotalDays = totalDays;
+            Weeks = weeks;
+        }
+
+        public DateTime Start { get; }
+        public DateTime End { get; }
+        public int TotalDays { get; }
+        public int Weeks { get; }
+    }
+
+    internal static class PlanningWindowCalculator
+    {
+        public static PlanningWindow Calculate(string? plannedStart, int plannedWeeks, DateTime lastPlannedEnd)
+        {
+            var requestedStart = DateResolver.ParseOrNull(plannedStart);
+            var earliestStart = lastPlannedEnd.Date.AddDays(1);
+            var effectiveStart = requestedStart.HasValue && requestedStart.Value >= earliestStart
+                ? requestedStart.Value
+                : earliestStart;
+
+            var weeks = Math.Max(1, plannedWeeks);
+            var daysRemainingInStartWeek = (WeekCalculator.GetWeekEnd(effectiveStart) - effectiveStart).Days + 1;
+            var totalDays = daysRemainingInStartWeek + weeks * 7;
+            var end = effectiveStart.AddDays(totalDays - 1);
+
+            return new PlanningWindow(effectiveStart, end, totalDays, weeks);
+        }
+
+        public static bool IsWithin(DateTime date, PlanningWindow window) =>
+            WeekCalculator.IsInRange(date, window.Start, window.End);
     }
 }

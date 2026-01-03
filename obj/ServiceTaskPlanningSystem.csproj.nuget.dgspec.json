@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\Kasparas\\OneDrive\\Desktop\\Užduočių planavimo sistema\\ServiceTaskPlanningSystem\\ServiceTaskPlanningSystem.csproj": {}
+    "C:\\Users\\Kasparas\\OneDrive\\Desktop\\serviso-uzduociu-planavimo-sistema\\ServiceTaskPlanningSystem.csproj": {}
   },
   "projects": {
-    "C:\\Users\\Kasparas\\OneDrive\\Desktop\\Užduočių planavimo sistema\\ServiceTaskPlanningSystem\\ServiceTaskPlanningSystem.csproj": {
+    "C:\\Users\\Kasparas\\OneDrive\\Desktop\\serviso-uzduociu-planavimo-sistema\\ServiceTaskPlanningSystem.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Kasparas\\OneDrive\\Desktop\\Užduočių planavimo sistema\\ServiceTaskPlanningSystem\\ServiceTaskPlanningSystem.csproj",
+        "projectUniqueName": "C:\\Users\\Kasparas\\OneDrive\\Desktop\\serviso-uzduociu-planavimo-sistema\\ServiceTaskPlanningSystem.csproj",
         "projectName": "ServiceTaskPlanningSystem",
-        "projectPath": "C:\\Users\\Kasparas\\OneDrive\\Desktop\\Užduočių planavimo sistema\\ServiceTaskPlanningSystem\\ServiceTaskPlanningSystem.csproj",
+        "projectPath": "C:\\Users\\Kasparas\\OneDrive\\Desktop\\serviso-uzduociu-planavimo-sistema\\ServiceTaskPlanningSystem.csproj",
         "packagesPath": "C:\\Users\\Kasparas\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Kasparas\\OneDrive\\Desktop\\Užduočių planavimo sistema\\ServiceTaskPlanningSystem\\obj\\",
+        "outputPath": "C:\\Users\\Kasparas\\OneDrive\\Desktop\\serviso-uzduociu-planavimo-sistema\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\Kasparas\\AppData\\Roaming\\NuGet\\NuGet.Config"
@@ -43,6 +43,22 @@
       "frameworks": {
         "net9.0": {
           "targetAlias": "net9.0",
+          "dependencies": {
+            "EFCore.NamingConventions": {
+              "target": "Package",
+              "version": "[9.0.0, )"
+            },
+            "Microsoft.EntityFrameworkCore.Design": {
+              "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[9.0.1, )"
+            },
+            "Npgsql.EntityFrameworkCore.PostgreSQL": {
+              "target": "Package",
+              "version": "[9.0.4, )"
+            }
+          },
           "imports": [
             "net461",
             "net462",
