@@ -1,6 +1,7 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using ServiceTaskPlanningSystem.Data;
 
 #nullable disable
 
@@ -17,7 +18,8 @@ namespace ServiceTaskPlanningSystem.Migrations
                 .Annotation("Npgsql:Enum:plan_status", "draft,preview,active,superseded")
                 .Annotation("Npgsql:Enum:risk_level", "low,medium,high")
                 .Annotation("Npgsql:Enum:task_priority", "low,medium,high")
-                .Annotation("Npgsql:Enum:task_status", "planned,in_progress,completed,canceled")
+                .Annotation("Npgsql:Enum:task_status", "canceled,completed,in_progress,planned")
+                .Annotation("Npgsql:Enum:task_status.schedule_task_status", "planned,in_progress,completed,canceled")
                 .Annotation("Npgsql:Enum:user_role", "manager,technician")
                 .Annotation("Npgsql:PostgresExtension:citext", ",,");
 
@@ -43,7 +45,7 @@ namespace ServiceTaskPlanningSystem.Migrations
                     id = table.Column<long>(type: "bigint", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     email = table.Column<string>(type: "citext", nullable: false),
-                    role = table.Column<int>(type: "user_role", nullable: false),
+                    role = table.Column<UserRole>(type: "user_role", nullable: false),
                     is_active = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
                     created_at = table.Column<DateTime>(type: "timestamptz", nullable: false, defaultValueSql: "NOW()")
                 },
@@ -62,7 +64,7 @@ namespace ServiceTaskPlanningSystem.Migrations
                     period_end = table.Column<DateTime>(type: "date", nullable: false),
                     weeks = table.Column<int>(type: "integer", nullable: false, defaultValue: 1),
                     created_by = table.Column<long>(type: "bigint", nullable: true),
-                    status = table.Column<int>(type: "plan_status", nullable: false),
+                    status = table.Column<PlanStatus>(type: "plan_status", nullable: false),
                     superseded_by_plan_id = table.Column<long>(type: "bigint", nullable: true),
                     created_at = table.Column<DateTime>(type: "timestamptz", nullable: false, defaultValueSql: "NOW()")
                 },
@@ -133,8 +135,8 @@ namespace ServiceTaskPlanningSystem.Migrations
                     region_id = table.Column<long>(type: "bigint", nullable: true),
                     start_at = table.Column<DateTime>(type: "timestamptz", nullable: false),
                     end_at = table.Column<DateTime>(type: "timestamptz", nullable: false),
-                    priority = table.Column<int>(type: "task_priority", nullable: false, defaultValueSql: "'medium'::task_priority"),
-                    status = table.Column<int>(type: "task_status", nullable: false, defaultValueSql: "'planned'::task_status"),
+                    priority = table.Column<TaskPriority>(type: "task_priority", nullable: false, defaultValueSql: "'medium'::task_priority"),
+                    status = table.Column<ScheduleTaskStatus>(type: "task_status", nullable: false, defaultValueSql: "'planned'::task_status"),
                     created_at = table.Column<DateTime>(type: "timestamptz", nullable: false, defaultValueSql: "NOW()")
                 },
                 constraints: table =>
@@ -166,7 +168,7 @@ namespace ServiceTaskPlanningSystem.Migrations
                 columns: table => new
                 {
                     task_id = table.Column<long>(type: "bigint", nullable: false),
-                    risk_level = table.Column<int>(type: "risk_level", nullable: true),
+                    risk_level = table.Column<RiskLevel>(type: "risk_level", nullable: true),
                     is_conflict = table.Column<bool>(type: "boolean", nullable: false),
                     is_overloaded = table.Column<bool>(type: "boolean", nullable: false),
                     travel_required = table.Column<bool>(type: "boolean", nullable: false),

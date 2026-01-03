@@ -24,8 +24,16 @@ namespace ServiceTaskPlanningSystem.Data
             }
 
             var optionsBuilder = new DbContextOptionsBuilder<ScheduleDbContext>();
-            optionsBuilder.UseNpgsql(connectionString)
-                          .UseSnakeCaseNamingConvention();
+            optionsBuilder.UseNpgsql(connectionString, npgsqlOptions =>
+                {
+                    npgsqlOptions.MapEnum<UserRole>();
+                    npgsqlOptions.MapEnum<PlanStatus>();
+                    npgsqlOptions.MapEnum<TaskPriority>();
+                    npgsqlOptions.MapEnum<ScheduleTaskStatus>("task_status");
+                    npgsqlOptions.MapEnum<RiskLevel>();
+                    npgsqlOptions.MapEnum<LoadState>();
+                })
+                .UseSnakeCaseNamingConvention();
             return new ScheduleDbContext(optionsBuilder.Options);
         }
 

@@ -13,7 +13,7 @@ namespace ServiceTaskPlanningSystem.Data
         public DateTime StartAt { get; set; }
         public DateTime EndAt { get; set; }
         public TaskPriority Priority { get; set; }
-        public TaskStatus Status { get; set; }
+        public ScheduleTaskStatus Status { get; set; }
         public DateTime CreatedAt { get; set; }
 
         public PlanEntity? Plan { get; set; }

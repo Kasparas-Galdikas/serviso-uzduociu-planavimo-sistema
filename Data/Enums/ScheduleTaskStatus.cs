@@ -1,6 +1,6 @@
 namespace ServiceTaskPlanningSystem.Data
 {
-    public enum TaskStatus
+    public enum ScheduleTaskStatus
     {
         Planned,
         InProgress,

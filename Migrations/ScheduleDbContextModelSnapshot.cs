@@ -24,7 +24,8 @@ namespace ServiceTaskPlanningSystem.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "plan_status", new[] { "draft", "preview", "active", "superseded" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "risk_level", new[] { "low", "medium", "high" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_priority", new[] { "low", "medium", "high" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", new[] { "planned", "in_progress", "completed", "canceled" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", new[] { "canceled", "completed", "in_progress", "planned" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", "schedule_task_status", new[] { "planned", "in_progress", "completed", "canceled" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_role", new[] { "manager", "technician" });
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -56,7 +57,7 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("date")
                         .HasColumnName("period_start");
 
-                    b.Property<int>("Status")
+                    b.Property<PlanStatus>("Status")
                         .HasColumnType("plan_status")
                         .HasColumnName("status");
 
@@ -156,7 +157,7 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("plan_id");
 
-                    b.Property<int>("Priority")
+                    b.Property<TaskPriority>("Priority")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("task_priority")
                         .HasColumnName("priority")
@@ -170,7 +171,7 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("timestamptz")
                         .HasColumnName("start_at");
 
-                    b.Property<int>("Status")
+                    b.Property<ScheduleTaskStatus>("Status")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("task_status")
                         .HasColumnName("status")
@@ -230,7 +231,7 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("numeric")
                         .HasColumnName("load_hours");
 
-                    b.Property<int?>("RiskLevel")
+                    b.Property<RiskLevel?>("RiskLevel")
                         .HasColumnType("risk_level")
                         .HasColumnName("risk_level");
 
@@ -339,7 +340,7 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
-                    b.Property<int>("Role")
+                    b.Property<UserRole>("Role")
                         .HasColumnType("user_role")
                         .HasColumnName("role");
 

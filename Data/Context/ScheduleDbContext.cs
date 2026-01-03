@@ -18,11 +18,12 @@ namespace ServiceTaskPlanningSystem.Data
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.ApplyUtcDateTimeConverter();
             modelBuilder.HasPostgresExtension("citext");
             modelBuilder.HasPostgresEnum<UserRole>();
             modelBuilder.HasPostgresEnum<PlanStatus>();
             modelBuilder.HasPostgresEnum<TaskPriority>();
-            modelBuilder.HasPostgresEnum<TaskStatus>();
+            modelBuilder.HasPostgresEnum<ScheduleTaskStatus>("task_status");
             modelBuilder.HasPostgresEnum<RiskLevel>();
             modelBuilder.HasPostgresEnum<LoadState>();
 
@@ -167,6 +168,7 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.Status)
                 .HasColumnType("task_status")
                 .HasDefaultValueSql("'planned'::task_status")
+                .HasSentinel((ScheduleTaskStatus)(-1))
                 .IsRequired();
             entity.Property(e => e.StartAt)
                 .HasColumnType("timestamptz")
