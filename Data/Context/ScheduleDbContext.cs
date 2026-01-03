@@ -18,7 +18,6 @@ namespace ServiceTaskPlanningSystem.Data
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            
             modelBuilder.HasPostgresExtension("citext");
             modelBuilder.HasPostgresEnum<UserRole>();
             modelBuilder.HasPostgresEnum<PlanStatus>();
