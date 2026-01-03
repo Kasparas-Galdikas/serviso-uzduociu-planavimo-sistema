@@ -1,9 +1,23 @@
+using Microsoft.EntityFrameworkCore;
+using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.Schedule;
+
 var builder = WebApplication.CreateBuilder(args);
 
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString) ||
+    connectionString.Contains("Use env var", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException("DefaultConnection is not configured. Set ConnectionStrings__DefaultConnection in environment variables.");
+}
+
 // Add services to the container.
+builder.Services.AddDbContext<ScheduleDbContext>(options =>
+    options.UseNpgsql(connectionString)
+           .UseSnakeCaseNamingConvention());
 builder.Services.AddControllersWithViews();
-builder.Services.AddSingleton<ServiceTaskPlanningSystem.Services.Schedule.IScheduleProvider, ServiceTaskPlanningSystem.Services.Schedule.ScheduleProvider>();
-builder.Services.AddSingleton<ServiceTaskPlanningSystem.Services.Schedule.IScheduleLayoutBuilder, ServiceTaskPlanningSystem.Services.Schedule.ScheduleLayoutBuilder>();
+builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
+builder.Services.AddSingleton<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 
 var app = builder.Build();
 
