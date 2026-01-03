@@ -12,7 +12,7 @@ using ServiceTaskPlanningSystem.Data;
 namespace ServiceTaskPlanningSystem.Migrations
 {
     [DbContext(typeof(ScheduleDbContext))]
-    [Migration("20260103160849_AddScheduleSchema")]
+    [Migration("20260103190231_AddScheduleSchema")]
     partial class AddScheduleSchema
     {
         /// <inheritdoc />

@@ -2,15 +2,14 @@ using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Schedule;
+using ServiceTaskPlanningSystem.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-if (string.IsNullOrWhiteSpace(connectionString) ||
-    connectionString.Contains("Use env var", StringComparison.OrdinalIgnoreCase))
-{
-    throw new InvalidOperationException("DefaultConnection is not configured. Set ConnectionStrings__DefaultConnection in environment variables.");
-}
+var configuration = ConfigurationLoader.Build(builder.Environment.ContentRootPath, builder.Environment.EnvironmentName);
+builder.Configuration.AddConfiguration(configuration);
+
+var connectionString = ConfigurationLoader.GetRequiredConnectionString(configuration);
 
 // Add services to the container.
 builder.Services.AddDbContext<ScheduleDbContext>(options =>
