@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ServiceTaskPlanningSystem.Data;
@@ -8,14 +8,42 @@ using ServiceTaskPlanningSystem.Data;
 namespace ServiceTaskPlanningSystem.Migrations
 {
     /// <inheritdoc />
-    public partial class AddScheduleSchema : Migration
+    public partial class AddScheduleSchemaActiveIndex : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // Ensure enum types are recreated cleanly if they already exist.
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = 'task_status' AND t.typname = 'schedule_task_status') THEN
+        DROP TYPE task_status.schedule_task_status;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.typname = 'task_status') THEN
+        DROP TYPE task_status;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.typname = 'plan_status') THEN
+        DROP TYPE plan_status;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.typname = 'load_state') THEN
+        DROP TYPE load_state;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.typname = 'risk_level') THEN
+        DROP TYPE risk_level;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.typname = 'task_priority') THEN
+        DROP TYPE task_priority;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.typname = 'user_role') THEN
+        DROP TYPE user_role;
+    END IF;
+END $$;
+");
+
             migrationBuilder.AlterDatabase()
                 .Annotation("Npgsql:Enum:load_state", "normal,load,conflict")
-                .Annotation("Npgsql:Enum:plan_status", "draft,preview,active,superseded")
+                .Annotation("Npgsql:Enum:plan_status", "draft,active,superseded")
                 .Annotation("Npgsql:Enum:risk_level", "low,medium,high")
                 .Annotation("Npgsql:Enum:task_priority", "low,medium,high")
                 .Annotation("Npgsql:Enum:task_status", "canceled,completed,in_progress,planned")
@@ -192,11 +220,11 @@ namespace ServiceTaskPlanningSystem.Migrations
                 column: "created_by");
 
             migrationBuilder.CreateIndex(
-                name: "ix_plans_status",
+                name: "ix_plans_status_draft",
                 table: "plans",
                 column: "status",
                 unique: true,
-                filter: "status = 'active'");
+                filter: "status = 'draft'");
 
             migrationBuilder.CreateIndex(
                 name: "ix_plans_superseded_by_plan_id",
@@ -244,11 +272,20 @@ namespace ServiceTaskPlanningSystem.Migrations
                 table: "users",
                 column: "email",
                 unique: true);
+
+            // Enforce a single active plan via DB-only filtered unique index.
+            migrationBuilder.Sql(@"
+CREATE UNIQUE INDEX IF NOT EXISTS ix_plans_status_active
+ON plans(status)
+WHERE status = 'active';
+");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("DROP INDEX IF EXISTS ix_plans_status_active;");
+
             migrationBuilder.DropTable(
                 name: "task_evaluations");
 

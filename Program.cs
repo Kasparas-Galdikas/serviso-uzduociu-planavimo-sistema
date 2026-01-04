@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Schedule;
+using ServiceTaskPlanningSystem.Services.Plans;
 using ServiceTaskPlanningSystem.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -24,6 +25,7 @@ builder.Services.AddDbContext<ScheduleDbContext>(options =>
     }).UseSnakeCaseNamingConvention());
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
+builder.Services.AddScoped<IPlanService, PlanService>();
 builder.Services.AddTransient<DatabaseSeeder>();
 builder.Services.AddSingleton<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 

@@ -143,7 +143,8 @@ namespace ServiceTaskPlanningSystem.Data
                 .HasForeignKey(e => e.SupersededByPlanId)
                 .OnDelete(DeleteBehavior.SetNull);
             entity.HasIndex(e => e.Status)
-                .HasFilter("status = 'active'")
+                .HasDatabaseName("ix_plans_status_draft")
+                .HasFilter("status = 'draft'")
                 .IsUnique();
         }
 

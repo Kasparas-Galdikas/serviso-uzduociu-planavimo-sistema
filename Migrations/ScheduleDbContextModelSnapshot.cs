@@ -21,7 +21,7 @@ namespace ServiceTaskPlanningSystem.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "load_state", new[] { "normal", "load", "conflict" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "plan_status", new[] { "draft", "preview", "active", "superseded" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "plan_status", new[] { "draft", "active", "superseded" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "risk_level", new[] { "low", "medium", "high" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_priority", new[] { "low", "medium", "high" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", new[] { "canceled", "completed", "in_progress", "planned" });
@@ -79,8 +79,8 @@ namespace ServiceTaskPlanningSystem.Migrations
 
                     b.HasIndex("Status")
                         .IsUnique()
-                        .HasDatabaseName("ix_plans_status")
-                        .HasFilter("status = 'active'");
+                        .HasDatabaseName("ix_plans_status_draft")
+                        .HasFilter("status = 'draft'");
 
                     b.HasIndex("SupersededByPlanId")
                         .HasDatabaseName("ix_plans_superseded_by_plan_id");
