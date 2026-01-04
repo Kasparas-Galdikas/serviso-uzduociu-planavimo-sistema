@@ -1,31 +1,408 @@
-html {
-  font-size: 14px;
-}
+@import url("./tokens/theme-tokens.css");
 
-@media (min-width: 768px) {
-  html {
-    font-size: 16px;
-  }
-}
-
-.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
-}
+/* =========================================================
+   Base document
+   ========================================================= */
 
 html {
   position: relative;
   min-height: 100%;
+  font-size: 16px;
 }
 
 body {
-  margin-bottom: 60px;
+  margin: 0;
+  background: var(--neutral-50);
+  color: var(--neutral-900);
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
 }
 
-.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
-  color: var(--bs-secondary-color);
-  text-align: end;
+/* =========================================================
+   Page structure (layout stays Bootstrap)
+   ========================================================= */
+
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+  padding-bottom: 64px; /* ensure content clears footer */
 }
 
-.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
-  text-align: start;
+.page-header {
+  padding: 12px 0;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-header h1 {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: 0.25rem;
+}
+
+.page-section {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+}
+
+/* =========================================================
+   Cards (system surface)
+   ========================================================= */
+
+.card,
+.card-shell {
+  background: #fff;
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.card-shell {
+  transition: box-shadow 0.15s ease;
+}
+
+.card-shell:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.card-shell .card-header,
+.card-shell .card-body,
+.card-shell .card-footer {
+  padding: 12px 16px;
+}
+
+.card-shell .card-header {
+  border-bottom: 1px solid var(--neutral-200);
+}
+
+.card-shell .card-footer {
+  border-top: 1px solid var(--neutral-200);
+}
+
+/* =========================================================
+   Navbar & Footer
+   ========================================================= */
+.navbar {
+  background: #fff;
+  border-bottom: 1px solid var(--neutral-200);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+}
+.navbar .nav-link { color: var(--neutral-700); }
+.navbar .nav-link:hover { color: var(--accent-700); }
+.navbar .nav-link.active { color: var(--accent-700); border-bottom: 2px solid var(--accent-700); }
+
+.footer {
+  background: #fff;
+  border-top: 1px solid var(--neutral-200);
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.04);
+  padding: 12px 0;
+  margin-top: 24px;
+}
+.footer .badge { box-shadow: none; }
+
+/* =========================================================
+   Typography
+   ========================================================= */
+
+h1, h2, h3, h4, h5 {
+  color: var(--neutral-900);
+}
+
+p {
+  color: var(--neutral-900);
+}
+
+.text-muted {
+  color: var(--neutral-500) !important;
+}
+
+/* =========================================================
+   Links
+   ========================================================= */
+
+a {
+  color: var(--accent-600);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-700);
+  text-decoration: underline;
+}
+
+/* =========================================================
+   Buttons (Bootstrap behavior, custom appearance)
+   ========================================================= */
+
+.btn {
+  border-radius: var(--radius-md);
+  font-weight: 600;
+}
+
+.btn-primary {
+  background: var(--accent-700);
+  border-color: var(--accent-700);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-600);
+  border-color: var(--accent-600);
+}
+
+.btn-primary:active {
+  background: var(--accent-800);
+  border-color: var(--accent-800);
+}
+
+.btn-primary:disabled {
+  background: var(--neutral-300);
+  border-color: var(--neutral-300);
+  color: var(--neutral-700);
+}
+
+.btn-secondary {
+  background: #fff;
+  border-color: var(--neutral-300);
+  color: var(--neutral-900);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.btn-secondary:hover {
+  background: #fff; /* no background change */
+  border-color: var(--neutral-400);
+  color: var(--neutral-900);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.btn-secondary:active {
+  background: var(--neutral-100);
+  border-color: var(--neutral-400);
+  color: var(--neutral-900);
+}
+
+.btn-secondary:disabled {
+  background: var(--neutral-100);
+  border-color: var(--neutral-300);
+  color: var(--neutral-500);
+  box-shadow: none;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent-700);
+}
+
+.btn-ghost:hover {
+  background: var(--neutral-100);
+}
+
+.btn-ghost:active {
+  background: var(--neutral-200);
+}
+
+.btn-ghost:disabled {
+  color: var(--neutral-400);
+}
+
+.btn-danger {
+  background: var(--danger-500);
+  border-color: var(--danger-500);
+  color: #fff;
+}
+
+.btn-danger:hover {
+  background: var(--danger-600);
+  border-color: var(--danger-600);
+}
+
+.btn-danger:disabled {
+  background: var(--neutral-300);
+  border-color: var(--neutral-300);
+  color: var(--neutral-700);
+}
+
+/* =========================================================
+   Forms
+   ========================================================= */
+
+.form-label {
+  font-weight: 600;
+  color: var(--neutral-900);
+}
+
+.form-control,
+.form-select,
+textarea {
+  border-radius: var(--radius-md);
+  border-color: var(--neutral-200);
+}
+
+.form-control:focus,
+.form-select:focus,
+textarea:focus {
+  border-color: var(--accent-500);
+}
+
+.form-readonly {
+  background: var(--state-readonly-bg) !important;
+  color: var(--state-readonly-text) !important;
+  border-color: var(--state-readonly-border) !important;
+  cursor: not-allowed;
+}
+
+.form-error {
+  border-color: var(--danger-500) !important;
+  color: var(--danger-500);
+}
+
+/* =========================================================
+   Focus & accessibility
+   ========================================================= */
+
+.btn:focus,
+.btn:active:focus,
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus,
+.btn-link.nav-link:focus {
+  outline: none;
+  box-shadow: var(--focus-ring-shadow);
+}
+
+/* =========================================================
+   Modals
+   ========================================================= */
+
+.modal-content {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--neutral-200);
+}
+
+.modal-header {
+  border-bottom: 1px solid var(--neutral-200);
+}
+
+.modal-footer {
+  border-top: 1px solid var(--neutral-200);
+}
+
+/* =========================================================
+   Alerts (semantic only)
+   ========================================================= */
+
+.alert {
+  border-radius: var(--radius-md);
+  font-weight: 500;
+}
+
+.alert-info {
+  background: var(--info-100);
+  border-color: var(--info-500);
+  color: var(--info-500);
+}
+
+.alert-warning {
+  background: var(--warning-100);
+  border-color: var(--warning-500);
+}
+
+.alert-danger {
+  background: var(--danger-100);
+  border-color: var(--danger-500);
+  color: var(--danger-500);
+}
+
+/* =========================================================
+   Form-floating tweaks
+   ========================================================= */
+
+.form-floating > .form-control::placeholder {
+  color: var(--neutral-500);
+}
+
+.form-floating > .form-control:focus::placeholder {
+  color: var(--neutral-400);
+}
+
+/* =========================================================
+   Responsiveness
+   ========================================================= */
+ @media (min-width: 1440px) {
+  body { font-size: 16.5px; }
+
+  h1 { font-size: 1.8rem; }
+  h2 { font-size: 1.45rem; }
+  h3 { font-size: 1.25rem; }
+
+  .page-header h1 { font-size: 1.85rem; }
+
+  p { font-size: 1rem; }
+  .btn { font-size: 0.95rem; }
+}
+
+
+@media (max-width: 1024px) {
+  body { font-size: 15px; }
+
+  h1 { font-size: 1.5rem; }
+  h2 { font-size: 1.25rem; }
+  h3 { font-size: 1.05rem; }
+
+  .page-header h1 { font-size: 1.55rem; }
+
+  p { font-size: 0.92rem; }
+  .form-label { font-size: 0.88rem; }
+  .btn { font-size: 0.88rem; }
+  .text-muted { font-size: 0.88em; }
+}
+
+@media (max-width: 768px) {
+  body { font-size: 14.5px; }
+
+  h1 { font-size: 1.35rem; }
+  h2 { font-size: 1.15rem; }
+  h3 { font-size: 1rem; }
+
+  .page-header h1 { font-size: 1.4rem; }
+
+  p { font-size: 0.88rem; }
+  .form-label { font-size: 0.85rem; }
+  .btn { font-size: 0.85rem; }
+  .alert { font-size: 0.85rem; }
+}
+
+
+@media (max-width: 576px) {
+  body { font-size: 14px; }
+
+  h1 { font-size: 1.2rem; }
+  h2 { font-size: 1.05rem; }
+  h3 { font-size: 0.95rem; }
+
+  .page-header h1 { font-size: 1.25rem; }
+
+  p { font-size: 0.82rem; }
+  .form-label { font-size: 0.8rem; }
+  .btn { font-size: 0.8rem; }
+  .alert { font-size: 0.8rem; }
+  .text-muted { font-size: 0.8em; }
+}
+
+@media (max-width: 420px) {
+  body { font-size: 13.5px; }
+
+  h1 { font-size: 1.1rem; }
+  h2 { font-size: 1rem; }
+
+  p { font-size: 0.78rem; }
+  .btn { font-size: 0.78rem; }
 }

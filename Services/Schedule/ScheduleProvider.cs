@@ -46,6 +46,9 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             var tasks = new List<TaskItem>();
             var weekStartUtc = DateTime.SpecifyKind(weekStart, DateTimeKind.Utc);
             var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
+            var draftRangeOverlapsWeek = draftPlan != null &&
+                                         draftPlan.PeriodStart.Date <= weekEnd.Date &&
+                                         draftPlan.PeriodEnd.Date >= weekStart.Date;
 
             if (activePlan != null)
             {
@@ -61,7 +64,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 tasks.AddRange(activeTasks);
             }
 
-            if (draftPlan != null)
+            if (draftPlan != null && draftRangeOverlapsWeek)
             {
                 var draftTasks = _db.Tasks
                     .AsNoTracking()
@@ -178,6 +181,10 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             }
 
             var statusKey = status.ToLowerInvariant();
+            if (statusKey == "visi")
+            {
+                return (technicians, tasks);
+            }
             var filteredTasks = statusKey switch
             {
                 "normali apkrova" => tasks.Where(t => !t.IsLoad && !t.IsConflict).ToList(),

@@ -68,7 +68,7 @@
             </div>
             <div class="modal-footer border-0">
                 <div class="d-flex w-100 align-items-center justify-content-between gap-2">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#createTaskModal">Grizti</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#createTaskModal">Grizti</button>
                     <button type="button" class="btn btn-primary" id="summaryConfirmBtn" data-base-url="@Url.Action("Index", "Schedule")">Patvirtinti generavima</button>
                 </div>
             </div>
@@ -81,6 +81,29 @@
         const createModal = document.getElementById('createTaskModal');
         const summaryModal = document.getElementById('planningSummaryModal');
         if (!createModal || !summaryModal) return;
+        const today = new Date().toISOString().slice(0, 10);
+        const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+        const startInput = document.querySelector('#createStartDate');
+        const endInput = document.querySelector('#createEndDate');
+        if (startInput) {
+            startInput.setAttribute('min', today);
+            if (!startInput.value || startInput.value < today) {
+                startInput.value = today;
+            }
+        }
+        if (endInput && startInput) {
+            const syncEndMin = () => {
+                const sVal = startInput.value || today;
+                const minEnd = sVal > today ? sVal : tomorrow;
+                endInput.setAttribute('min', minEnd);
+                if (endInput.value && endInput.value < minEnd) {
+                    endInput.value = minEnd;
+                }
+            };
+            syncEndMin();
+            startInput.addEventListener('change', syncEndMin);
+        }
 
         const copyValue = function (sourceId, targetId, isCheckbox, isSelect, isRadio) {
             const source = createModal.querySelector('#' + sourceId);

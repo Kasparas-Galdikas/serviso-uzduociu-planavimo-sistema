@@ -1,0 +1,53 @@
+:root {
+    /* Base palette */
+    --neutral-50: #f8fafc;
+    --neutral-100: #f1f5f9;
+    --neutral-200: #e2e8f0;
+    --neutral-300: #cbd5e1;
+    --neutral-400: #94a3b8;
+    --neutral-500: #64748b;
+    --neutral-700: #334155;
+    --neutral-900: #0f172a;
+
+    --accent-100: #e8f0ff;
+    --accent-300: #9bbcf5;
+    --accent-500: #1d4f8b;
+    --accent-600: #17406c;
+    --accent-700: #0f3057;
+    --accent-800: #0b243f;
+
+    --success-100: #e6f4ea;
+    --success-500: #2e7d32;
+    --warning-100: #fff7ec;
+    --warning-500: #f0ad4e;
+    --danger-100: #ffe7e7;
+    --danger-500: #d9534f;
+    --danger-600: #c34241;
+    --info-100: #e5f0ff;
+    --info-500: #1d4f8b;
+
+    /* State tokens */
+    --state-active-bg: #fff;
+    --state-active-border: var(--neutral-200);
+    --state-active-text: var(--neutral-900);
+
+    --state-draft-bg: var(--accent-100);
+    --state-draft-border: var(--accent-500);
+    --state-draft-text: var(--accent-700);
+
+    --state-readonly-bg: var(--neutral-100);
+    --state-readonly-border: var(--neutral-300);
+    --state-readonly-text: var(--neutral-500);
+
+    /* Focus, radius, shadows */
+    --focus-ring-color: rgba(29, 79, 139, 0.35);
+    --focus-ring-shadow: 0 0 0 3px var(--focus-ring-color);
+
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+
+    --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.12);
+}

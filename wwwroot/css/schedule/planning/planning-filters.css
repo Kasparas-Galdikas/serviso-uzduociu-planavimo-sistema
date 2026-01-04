@@ -1,16 +1,224 @@
-.filter-console-trigger { position: fixed; bottom: 20px; right: 20px; z-index: 1080; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.filter-console-btn { width: 58px; height: 58px; display: inline-flex; align-items: center; justify-content: center; background: var(--base-900); color: #fff; border: 0; box-shadow: 0 10px 24px rgba(15,48,87,0.25); transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease; }
-.filter-console-btn:hover { background: var(--base-700); transform: translateY(-1px); box-shadow: 0 14px 28px rgba(15,48,87,0.28); }
-.filter-console-btn:focus { outline: 3px solid rgba(29,79,139,0.25); }
-.filter-console-hint { background: rgba(255,255,255,0.98); padding: 6px 10px; border-radius: 12px; border: 1px solid var(--border); font-size: 0.85rem; color: var(--text-muted); }
-.filter-console-modal .modal-content { border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(0,0,0,0.12); }
-.filter-console-modal .modal-body { background: #f9fbff; }
-.filter-console-modal .form-label { color: var(--base-900); font-weight: 600; }
-.filter-console-modal .btn-group .btn { flex: 1; }
-.filter-console-actions .btn { white-space: nowrap; }
-.filter-console-actions .dropdown-menu { min-width: 180px; }
+/* =========================================================
+   Filter Console – Floating Control
+   ========================================================= */
+
+.filter-console-trigger {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1080;
+
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* =========================================================
+   Floating button
+   ========================================================= */
+
+.filter-console-btn {
+  width: 50px;
+  height: 50px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  background: var(--accent-700);
+  color: #fff;
+
+  border: 0;
+  border-radius: 50%;
+
+  font-size: 1rem;
+
+  box-shadow: var(--shadow-md);
+
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.filter-console-btn:hover {
+  background: var(--accent-500);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+}
+
+.filter-console-btn:focus {
+  outline: none;
+  box-shadow: var(--focus-ring-shadow);
+}
+
+/* =========================================================
+   Hint bubble
+   ========================================================= */
+
+.filter-console-hint {
+  position: absolute;
+  right: 0;
+  bottom: 72px;
+  background: rgba(255,255,255,0.98);
+  padding: 2px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--neutral-200);
+  font-size: 0.7rem;
+  color: var(--neutral-500);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.filter-console-trigger:hover .filter-console-hint {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+
+/* =========================================================
+   Modal styling
+   ========================================================= */
+
+.filter-console-modal .modal-content {
+  border-radius: 16px;
+  border: 1px solid var(--neutral-200);
+  box-shadow: var(--shadow-lg);
+}
+
+.filter-console-modal .modal-body {
+  background: linear-gradient(
+    180deg,
+    #f9fbff 0%,
+    var(--neutral-50) 100%
+  );
+}
+
+.filter-console-modal .form-label {
+  color: var(--accent-700);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+/* Button groups inside modal */
+
+.filter-console-modal .btn-group .btn {
+  flex: 1;
+}
+
+/* Action area */
+
+.filter-console-actions .btn {
+  white-space: nowrap;
+}
+
+.filter-console-actions .dropdown-menu {
+  min-width: 180px;
+}
+
+/* =========================================================
+   Tablet – landscape (≤ 1024px)
+   ========================================================= */
+
+@media (max-width: 1024px) {
+  .filter-console-btn {
+    width: 54px;
+    height: 54px;
+    font-size: 0.95rem;
+  }
+
+  .filter-console-hint {
+    font-size: 0.8rem;
+    padding: 6px 8px;
+  }
+
+  .filter-console-modal .form-label {
+    font-size: 0.9rem;
+  }
+
+  .filter-console-actions .btn {
+    font-size: 0.85rem;
+  }
+}
+
+/* =========================================================
+   Tablet – portrait (≤ 768px)
+   ========================================================= */
+
+@media (max-width: 768px) {
+  .filter-console-trigger {
+    bottom: 14px;
+    right: 14px;
+    gap: 4px;
+  }
+
+  .filter-console-btn {
+    width: 50px;
+    height: 50px;
+    font-size: 0.9rem;
+  }
+
+  .filter-console-hint {
+    font-size: 0.75rem;
+    padding: 5px 8px;
+    border-radius: 10px;
+  }
+
+  .filter-console-modal .form-label {
+    font-size: 0.85rem;
+  }
+
+  .filter-console-actions .btn {
+    font-size: 0.8rem;
+  }
+}
+
+/* =========================================================
+   Phones (≤ 576px)
+   ========================================================= */
 
 @media (max-width: 576px) {
-    .filter-console-trigger { bottom: 14px; right: 14px; }
-    .filter-console-btn { width: 52px; height: 52px; }
+  .filter-console-trigger {
+    bottom: 12px;
+    right: 12px;
+  }
+
+  .filter-console-btn {
+    width: 46px;
+    height: 46px;
+    font-size: 0.85rem;
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Hide hint to reduce noise on phones */
+  .filter-console-hint {
+    display: none;
+  }
+
+  .filter-console-modal .modal-body {
+    padding: 12px;
+  }
+
+  .filter-console-actions .btn {
+    font-size: 0.78rem;
+    padding: 6px 8px;
+  }
+}
+
+/* =========================================================
+   Very small phones (≤ 420px)
+   ========================================================= */
+
+@media (max-width: 420px) {
+  .filter-console-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .filter-console-modal .form-label {
+    font-size: 0.8rem;
+  }
 }
