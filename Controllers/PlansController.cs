@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -16,6 +17,13 @@ namespace ServiceTaskPlanningSystem.Controllers
             _planService = planService;
         }
 
+        public class CreateDraftRequest
+        {
+            public DateTime? StartDate { get; set; }
+            public DateTime? EndDate { get; set; }
+            public int? Weeks { get; set; }
+        }
+
         [HttpGet("state")]
         public async Task<IActionResult> GetState(CancellationToken cancellationToken)
         {
@@ -31,9 +39,9 @@ namespace ServiceTaskPlanningSystem.Controllers
         }
 
         [HttpPost("draft")]
-        public async Task<IActionResult> CreateDraft(CancellationToken cancellationToken)
+        public async Task<IActionResult> CreateDraft([FromBody] CreateDraftRequest? request, CancellationToken cancellationToken)
         {
-            var draft = await _planService.CreateDraftFromActiveAsync(cancellationToken);
+            var draft = await _planService.CreateDraftFromActiveAsync(request?.StartDate, request?.EndDate, request?.Weeks, cancellationToken);
             return Ok(new { draftPlanId = draft.Id });
         }
 
@@ -41,6 +49,13 @@ namespace ServiceTaskPlanningSystem.Controllers
         public async Task<IActionResult> PublishDraft(CancellationToken cancellationToken)
         {
             await _planService.PublishDraftAsync(cancellationToken);
+            return Ok();
+        }
+
+        [HttpPost("discard")]
+        public async Task<IActionResult> DiscardDraft(CancellationToken cancellationToken)
+        {
+            await _planService.DiscardDraftAsync(cancellationToken);
             return Ok();
         }
     }

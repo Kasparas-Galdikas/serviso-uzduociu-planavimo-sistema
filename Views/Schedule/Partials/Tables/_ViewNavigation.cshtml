@@ -8,12 +8,10 @@
     var prevDate = baseDate.AddDays(isWeekly ? -7 : -1);
     var nextDate = baseDate.AddDays(isWeekly ? 7 : 1);
 
-    var plannedStart = Model.PlannedPeriodStart != default(DateTime) ? Model.PlannedPeriodStart.ToString("yyyy-MM-dd") : null;
-    var plannedWeeks = Model.PlannedWeeks > 0 ? Model.PlannedWeeks : 1;
     var selectedLocation = ViewContext.HttpContext.Request.Query["location"].ToString();
     var selectedStatus = ViewContext.HttpContext.Request.Query["status"].ToString();
-    var prevUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = prevDate.ToString("yyyy-MM-dd"), preview = Model.IsPreviewMode, plannedStart = plannedStart, plannedWeeks = plannedWeeks, location = selectedLocation, status = selectedStatus }) ?? "#";
-    var nextUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = nextDate.ToString("yyyy-MM-dd"), preview = Model.IsPreviewMode, plannedStart = plannedStart, plannedWeeks = plannedWeeks, location = selectedLocation, status = selectedStatus }) ?? "#";
+    var prevUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = prevDate.ToString("yyyy-MM-dd"), location = selectedLocation, status = selectedStatus }) ?? "#";
+    var nextUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = nextDate.ToString("yyyy-MM-dd"), location = selectedLocation, status = selectedStatus }) ?? "#";
 }
 
 <div class="d-flex align-items-center mb-2 justify-content-between">
@@ -25,9 +23,6 @@
        data-target-date="@prevDate.ToString("yyyy-MM-dd")"
        data-location="@selectedLocation"
        data-status="@selectedStatus"
-       data-preview="@Model.IsPreviewMode.ToString().ToLower()"
-       data-planned-start="@plannedStart"
-       data-planned-weeks="@plannedWeeks"
        aria-label="Ankstesnis @(isWeekly ? "savaite" : "diena")">
         < Ankstesnis
     </a>
@@ -39,9 +34,6 @@
        data-target-date="@nextDate.ToString("yyyy-MM-dd")"
        data-location="@selectedLocation"
        data-status="@selectedStatus"
-       data-preview="@Model.IsPreviewMode.ToString().ToLower()"
-       data-planned-start="@plannedStart"
-       data-planned-weeks="@plannedWeeks"
        aria-label="Kitas @(isWeekly ? "savaite" : "diena")">
         Kitas >
     </a>

@@ -5,7 +5,6 @@ using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
-using ServiceTaskPlanningSystem.Data.Seed;
 
 namespace ServiceTaskPlanningSystem.Services.Schedule
 {
@@ -18,7 +17,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             _db = db;
         }
 
-        public SchedulePageViewModel GetSchedule(string view, string? date, string? location, string? status, bool preview = false, string? plannedStart = null, int plannedWeeks = 1)
+        public SchedulePageViewModel GetSchedule(string view, string? date, string? location, string? status, PlanEntity? activePlan, PlanEntity? draftPlan)
         {
             var selectedDate = DateResolver.ParseOrToday(date);
             var viewMode = NormalizeView(view);
@@ -26,13 +25,6 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             var weekEnd = WeekCalculator.GetWeekEnd(selectedDate);
             var actualWeekStart = WeekCalculator.GetWeekStart(DateTime.Today);
             var actualWeekEnd = WeekCalculator.GetWeekEnd(DateTime.Today);
-            var displayStart = viewMode == "week" ? weekStart : selectedDate.Date;
-            var displayEnd = viewMode == "week" ? weekEnd : selectedDate.Date;
-
-            var activePlanId = _db.Plans.AsNoTracking()
-                .Where(p => p.Status == PlanStatus.Active)
-                .Select(p => (long?)p.Id)
-                .FirstOrDefault();
 
             var technicians = _db.Technicians
                 .AsNoTracking()
@@ -51,43 +43,42 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 })
                 .ToList();
 
-            var activeTasks = new List<TaskItem>();
-            DateTime? activePlanLastEnd = null;
-            if (activePlanId.HasValue)
-            {
-                var weekStartUtc = DateTime.SpecifyKind(weekStart, DateTimeKind.Utc);
-                var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
+            var tasks = new List<TaskItem>();
+            var weekStartUtc = DateTime.SpecifyKind(weekStart, DateTimeKind.Utc);
+            var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
 
-                var tasksQuery = _db.Tasks
+            if (activePlan != null)
+            {
+                var activeTasks = _db.Tasks
                     .AsNoTracking()
-                    .Where(t => t.PlanId == activePlanId.Value &&
+                    .Where(t => t.PlanId == activePlan.Id &&
                                 t.StartAt >= weekStartUtc &&
                                 t.StartAt < weekEndUtcExclusive)
-                    .Include(t => t.Evaluation);
-
-                activeTasks = tasksQuery
+                    .Include(t => t.Evaluation)
                     .AsEnumerable()
-                    .Select(t => MapTask(t))
+                    .Select(t => TagTask(MapTask(t), TaskPlanSource.Active, false))
                     .ToList();
-
-                activePlanLastEnd = _db.Tasks
-                    .AsNoTracking()
-                    .Where(t => t.PlanId == activePlanId.Value)
-                    .Select(t => (DateTime?)t.EndAt)
-                    .Max();
+                tasks.AddRange(activeTasks);
             }
 
-            var tasks = new List<TaskItem>();
-            tasks.AddRange(activeTasks);
-
-            var lastPlannedEnd = activePlanLastEnd?.Date ?? weekEnd.Date;
-            var planningWindow = PlanningWindowCalculator.Calculate(plannedStart, plannedWeeks, lastPlannedEnd);
-
-            if (preview)
+            if (draftPlan != null)
             {
-                var plannedTasks = GeneratePlannedTasks(planningWindow.Start, planningWindow.TotalDays, technicians);
-                tasks.AddRange(plannedTasks);
+                var draftTasks = _db.Tasks
+                    .AsNoTracking()
+                    .Where(t => t.PlanId == draftPlan.Id &&
+                                t.StartAt >= weekStartUtc &&
+                                t.StartAt < weekEndUtcExclusive)
+                    .Include(t => t.Evaluation)
+                    .AsEnumerable()
+                    .Select(t => TagTask(MapTask(t), TaskPlanSource.Draft, true))
+                    .ToList();
+                tasks.AddRange(draftTasks);
             }
+
+            tasks = tasks
+                .OrderBy(t => t.Start)
+                .ThenBy(t => t.Source == TaskPlanSource.Active ? 0 : 1)
+                .ToList();
 
             var availableLocations = technicians
                 .Select(t => t.Location)
@@ -98,12 +89,13 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             var availableStatuses = new List<string> { "Visi", "Normali apkrova", "Apkrova", "Perkrova" };
 
             var decisions = SeedDecisions();
-            var showIssues = (preview && (WeekCalculator.IsInRange(selectedDate, actualWeekStart, actualWeekEnd) || PlanningWindowCalculator.IsWithin(selectedDate, planningWindow)))
-                            || (!preview && WeekCalculator.IsInRange(selectedDate, actualWeekStart, actualWeekEnd));
+            var showIssues = WeekCalculator.IsInRange(selectedDate, actualWeekStart, actualWeekEnd);
             var issues = showIssues ? SeedIssues(selectedDate, decisions) : new List<IssueItem>();
 
             (technicians, tasks) = ApplyLocationFilter(location, technicians, tasks);
             (technicians, tasks) = ApplyStatusFilter(status, technicians, tasks);
+
+            var planStatusText = draftPlan?.Status.ToString() ?? activePlan?.Status.ToString();
 
             return new SchedulePageViewModel
             {
@@ -117,58 +109,16 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 Issues = issues,
                 AvailableLocations = availableLocations,
                 AvailableStatuses = availableStatuses,
-                IsPreviewMode = preview,
-                PlannedPeriodStart = planningWindow.Start,
-                PlannedPeriodEnd = planningWindow.End,
-                PlannedWeeks = planningWindow.Weeks
+                IsPreviewMode = draftPlan != null,
+                HasDraft = draftPlan != null,
+                IsPlanningMode = draftPlan != null,
+                CurrentPlanId = (draftPlan ?? activePlan)?.Id,
+                CurrentPlanStatus = planStatusText,
+                PlannedPeriodStart = draftPlan?.PeriodStart ?? activePlan?.PeriodStart ?? default,
+                PlannedPeriodEnd = draftPlan?.PeriodEnd ?? activePlan?.PeriodEnd ?? default,
+                PlannedWeeks = draftPlan?.Weeks ?? activePlan?.Weeks ?? 1
             };
         }
-
-        private IEnumerable<TaskItem> GeneratePlannedTasks(
-        DateTime start,
-         int totalDays,
-        List<Technician> technicians)
-        {
-            var planned = MockScheduleData.SeedTasksRange(start, totalDays, true);
-
-            var mockTechs = MockScheduleData.SeedTechnicians()
-                .ToDictionary(t => t.Id);
-
-            var technicianByName = technicians
-                .GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-
-            foreach (var t in planned)
-            {
-                Technician? tech = null;
-
-                if (mockTechs.TryGetValue(t.TechnicianId, out var mockTech) &&
-                    technicianByName.TryGetValue(mockTech.Name, out var matched))
-                {
-                    tech = matched;
-                }
-
-                tech ??= technicians.FirstOrDefault();
-
-                yield return new TaskItem
-                {
-                    Id = t.Id,
-                    TechnicianId = tech?.Id ?? t.TechnicianId,
-                    Title = t.Title,
-                    Location = t.Location,
-                    Start = DateTime.SpecifyKind(t.Start, DateTimeKind.Utc),
-                    End = DateTime.SpecifyKind(t.End, DateTimeKind.Utc),
-                    Priority = t.Priority,
-                    Status = t.Status,
-                    IsConflict = t.IsConflict,
-                    IsLoad = t.IsLoad,
-                    IsTravelSwitch = t.IsTravelSwitch,
-                    IsNewPlan = true,
-                    Risk = t.Risk
-                };
-            }
-        }
-
 
         private TaskItem MapTask(Data.TaskEntity task)
         {
@@ -176,6 +126,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             return new TaskItem
             {
                 Id = (int)task.Id,
+                PlanId = task.PlanId ?? 0,
                 TechnicianId = (int)task.TechnicianId,
                 Title = task.Title,
                 Location = task.Location,
@@ -189,6 +140,13 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 IsNewPlan = false,
                 Risk = eval?.RiskLevel?.ToString().ToLowerInvariant()
             };
+        }
+
+        private static TaskItem TagTask(TaskItem task, TaskPlanSource source, bool isEditable)
+        {
+            task.Source = source;
+            task.IsEditable = isEditable;
+            return task;
         }
 
         private static string NormalizeView(string view) =>
@@ -311,43 +269,5 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
 
         public static bool IsInRange(DateTime date, DateTime start, DateTime end) =>
             date.Date >= start.Date && date.Date <= end.Date;
-    }
-
-    internal readonly struct PlanningWindow
-    {
-        public PlanningWindow(DateTime start, DateTime end, int totalDays, int weeks)
-        {
-            Start = start.Date;
-            End = end.Date;
-            TotalDays = totalDays;
-            Weeks = weeks;
-        }
-
-        public DateTime Start { get; }
-        public DateTime End { get; }
-        public int TotalDays { get; }
-        public int Weeks { get; }
-    }
-
-    internal static class PlanningWindowCalculator
-    {
-        public static PlanningWindow Calculate(string? plannedStart, int plannedWeeks, DateTime lastPlannedEnd)
-        {
-            var requestedStart = DateResolver.ParseOrNull(plannedStart);
-            var earliestStart = lastPlannedEnd.Date.AddDays(1);
-            var effectiveStart = requestedStart.HasValue && requestedStart.Value >= earliestStart
-                ? requestedStart.Value
-                : earliestStart;
-
-            var weeks = Math.Max(1, plannedWeeks);
-            var daysRemainingInStartWeek = (WeekCalculator.GetWeekEnd(effectiveStart) - effectiveStart).Days + 1;
-            var totalDays = daysRemainingInStartWeek + weeks * 7;
-            var end = effectiveStart.AddDays(totalDays - 1);
-
-            return new PlanningWindow(effectiveStart, end, totalDays, weeks);
-        }
-
-        public static bool IsWithin(DateTime date, PlanningWindow window) =>
-            WeekCalculator.IsInRange(date, window.Start, window.End);
     }
 }

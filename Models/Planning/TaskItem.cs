@@ -5,6 +5,7 @@ namespace ServiceTaskPlanningSystem.Models.Planning
     public class TaskItem
     {
         public int Id { get; set; }
+        public long PlanId { get; set; }
         public int TechnicianId { get; set; }
         public string Title { get; set; } = string.Empty;
         public string Location { get; set; } = string.Empty;
@@ -16,6 +17,14 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public bool IsLoad { get; set; }
         public bool IsTravelSwitch { get; set; }
         public bool IsNewPlan { get; set; }
+        public TaskPlanSource Source { get; set; } = TaskPlanSource.Active;
+        public bool IsEditable { get; set; }
         public string? Risk { get; set; }
+    }
+
+    public enum TaskPlanSource
+    {
+        Active,
+        Draft
     }
 }

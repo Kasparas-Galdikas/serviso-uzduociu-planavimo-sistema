@@ -8,9 +8,6 @@
     const weekDateInput = modal.querySelector("#filterWeekDate");
     const applyBtn = modal.querySelector("#applyFiltersBtn");
     const tables = document.getElementById("scheduleTables");
-    const isPreview = (tables?.dataset.preview || "").toLowerCase() === "true";
-    const plannedStart = tables?.dataset.plannedStart || "";
-    const plannedWeeks = tables?.dataset.plannedWeeks || "";
     const viewModeButtons = modal.querySelectorAll("[data-view-mode]");
     const viewTargets = modal.querySelectorAll("[data-view-target]");
     const dataSet = modal.dataset;
@@ -71,12 +68,6 @@
         if (locVal) query.set("location", locVal);
         const statusVal = statusInput?.value || "";
         if (statusVal) query.set("status", statusVal);
-
-        if (isPreview) {
-            query.set("preview", "true");
-            if (plannedStart) query.set("plannedStart", plannedStart);
-            if (plannedWeeks) query.set("plannedWeeks", plannedWeeks);
-        }
 
         applyBtn?.setAttribute("disabled", "disabled");
         try {
@@ -141,15 +132,6 @@
             if (loc) query.set("location", loc);
             const status = navBtn.dataset.status || "";
             if (status) query.set("status", status);
-
-            const previewFlag = (navBtn.dataset.preview || "").toLowerCase() === "true";
-            const pStart = navBtn.dataset.plannedStart || "";
-            const pWeeks = navBtn.dataset.plannedWeeks || "";
-            if (previewFlag) {
-                query.set("preview", "true");
-                if (pStart) query.set("plannedStart", pStart);
-                if (pWeeks) query.set("plannedWeeks", pWeeks);
-            }
 
             window.history.pushState({}, "", `/Schedule?${query.toString()}`);
             await fetchTable(query, { button: navBtn });

@@ -64,21 +64,29 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 while (slotIndex < slots.Count - 1)
                 {
                     var slotStart = startMinutes + slotIndex * slotSize;
-                    var task = tasks.FirstOrDefault(t => (int)t.Start.TimeOfDay.TotalMinutes == slotStart);
+                    var slotTasks = tasks
+                        .Where(t => (int)t.Start.TimeOfDay.TotalMinutes == slotStart)
+                        .OrderBy(t => t.Source == TaskPlanSource.Active ? 0 : 1)
+                        .ToList();
 
-                    if (task != null)
+                    if (slotTasks.Any())
                     {
-                        var durationMinutes = (task.End - task.Start).TotalMinutes;
+                        var durationMinutes = slotTasks.Max(t => (t.End - t.Start).TotalMinutes);
                         var durationSlots = (int)Math.Ceiling(durationMinutes / slotSize);
                         var remainingSlots = (slots.Count - 1) - slotIndex;
                         var colspan = Math.Max(1, Math.Min(durationSlots, remainingSlots));
 
-                        var contentHtml = $@"
-<div class=""task-card {stateClassForDay}"">
+                        var contentHtml = string.Join(string.Empty, slotTasks.Select(task =>
+                        {
+                            var sourceClass = task.Source == TaskPlanSource.Draft ? "task-draft" : "task-active";
+                            var editClass = task.IsEditable ? string.Empty : "read-only";
+                            return $@"
+<div class=""task-card {stateClassForDay} {sourceClass} {editClass}"" data-plan=""{task.PlanId}"" data-editable=""{task.IsEditable.ToString().ToLowerInvariant()}"">
     <div class=""task-time"">{task.Start:HH:mm} - {task.End:HH:mm}</div>
     <div class=""task-title"">{WebUtility.HtmlEncode(task.Title)}</div>
     <div class=""task-location"">{WebUtility.HtmlEncode(task.Location)}</div>
 </div>";
+                        }));
 
                         cells.Add(new TableCell
                         {
@@ -172,14 +180,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
 
                 foreach (var day in days)
                 {
-                    var previewParam = viewModel.IsPreviewMode ? "&preview=true" : string.Empty;
-                    if (viewModel.IsPreviewMode && viewModel.PlannedPeriodStart != default(DateTime))
-                    {
-                        var plannedStart = viewModel.PlannedPeriodStart.ToString("yyyy-MM-dd");
-                        var plannedWeeks = viewModel.PlannedWeeks > 0 ? viewModel.PlannedWeeks : 1;
-                        previewParam += $"&plannedStart={plannedStart}&plannedWeeks={plannedWeeks}";
-                    }
-                    var dailyUrl = $"/Schedule/Index?view=day&date={day:yyyy-MM-dd}{previewParam}";
+                    var dailyUrl = $"/Schedule/Index?view=day&date={day:yyyy-MM-dd}";
                     var tasks = viewModel.Tasks
                         .Where(t => t.TechnicianId == tech.Id && t.Start.Date == day.Date)
                         .ToList();

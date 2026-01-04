@@ -16,18 +16,11 @@
                                 <input type="date" class="form-control" id="createStartDate" readonly value="@Model.SelectedDate.ToString("yyyy-MM-dd")" />
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label small mb-1">Trukmė</label>
-                                <input type="number" class="form-control" id="createDuration" min="1" max="52" placeholder="Pvz.: 4" />
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label small mb-1">Vienetas</label>
-                                <select class="form-select" id="createUnit">
-                                    <option value="weeks">Savaitės</option>
-                                    <option value="months">Mėnesiai</option>
-                                </select>
+                                <label class="form-label small mb-1">Pabaigos data</label>
+                                <input type="date" class="form-control" id="createEndDate" />
                             </div>
                         </div>
-                        <div class="form-text">Nurodykite, kiek į priekį generuoti planą (ne tikslias datas).</div>
+                        <div class="form-text">Pasirinkite laikotarpį nuo pradžios iki pabaigos, kuriam generuoti planą.</div>
                     </section>
 
                     <section>
