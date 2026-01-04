@@ -31,6 +31,127 @@
         document.dispatchEvent(new CustomEvent("schedule:table:updated"));
     };
 
+    const bindTaskClick = () => {
+        document.addEventListener("click", async (evt) => {
+            const card = evt.target?.closest?.(".task-card");
+            if (!card) return;
+
+            const taskId = card.getAttribute("data-task-id");
+            const isEditableAttr = card.getAttribute("data-editable") || "false";
+            const planSource = card.getAttribute("data-plan-source") || "";
+            const isEditable = isEditableAttr.toLowerCase() === "true";
+
+            if (!taskId) return;
+
+            try {
+                const resp = await fetch(`/tasks/${taskId}`, {
+                    headers: { "X-Requested-With": "XMLHttpRequest" }
+                });
+                if (!resp.ok) {
+                    throw new Error("Nepavyko gauti uzduoties duomenu");
+                }
+                const data = await resp.json();
+                const detailModal = document.getElementById("taskDetailModal");
+                if (!detailModal) return;
+
+                populateTaskModal(detailModal, data, isEditable && data.isEditable);
+                const modal = new bootstrap.Modal(detailModal);
+                modal.show();
+            } catch (err) {
+                console.error(err);
+                alert("Nepavyko atidaryti uzduoties duomenu.");
+            }
+        });
+    };
+
+    const populateTaskModal = (modalEl, data, editable) => {
+        const setVal = (selector, value) => {
+            const el = modalEl.querySelector(selector);
+            if (el) el.value = value || "";
+        };
+        setVal("#taskDetailTitle", data.title);
+        setVal("#taskDetailLocation", data.location);
+        setVal("#taskDetailStart", data.startAt ? data.startAt.substring(0, 16) : "");
+        setVal("#taskDetailEnd", data.endAt ? data.endAt.substring(0, 16) : "");
+        setVal("#taskDetailPriority", data.priority);
+        setVal("#taskDetailStatus", data.status);
+
+        modalEl.dataset.taskId = data.id;
+        modalEl.dataset.editable = editable ? "true" : "false";
+
+        const inputs = modalEl.querySelectorAll("input, select, textarea");
+        inputs.forEach(el => {
+            if (editable) {
+                el.removeAttribute("disabled");
+            } else {
+                el.setAttribute("disabled", "disabled");
+            }
+        });
+
+        const saveBtn = modalEl.querySelector("#taskDetailSave");
+        if (saveBtn) {
+            saveBtn.classList.toggle("d-none", !editable);
+            saveBtn.onclick = async () => {
+                await saveTask(modalEl);
+            };
+        }
+    };
+
+    const saveTask = async (modalEl) => {
+        const taskId = modalEl.dataset.taskId;
+        if (!taskId) return;
+        const title = modalEl.querySelector("#taskDetailTitle")?.value || "";
+        const location = modalEl.querySelector("#taskDetailLocation")?.value || "";
+        const startAt = modalEl.querySelector("#taskDetailStart")?.value || "";
+        const endAt = modalEl.querySelector("#taskDetailEnd")?.value || "";
+        const priority = modalEl.querySelector("#taskDetailPriority")?.value || "";
+        const status = modalEl.querySelector("#taskDetailStatus")?.value || "";
+
+        const saveBtn = modalEl.querySelector("#taskDetailSave");
+        const setBusy = (state) => {
+            if (saveBtn) {
+                saveBtn.disabled = state;
+                saveBtn.setAttribute("aria-busy", state ? "true" : "false");
+            }
+        };
+
+        setBusy(true);
+        try {
+            const resp = await fetch(`/tasks/${taskId}`, {
+                method: "PATCH",
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    title,
+                    location,
+                    startAt,
+                    endAt,
+                    priority,
+                    status
+                })
+            });
+            if (resp.status === 409 || resp.status === 403) {
+                alert("Planas pasikeite. Uzduoties redaguoti negalima.");
+            } else if (!resp.ok) {
+                throw new Error("Nepavyko issaugoti uzduoties");
+            } else {
+                // refresh table
+                const query = new URLSearchParams(window.location.search || "");
+                if (!query.has("view")) query.set("view", "day");
+                await fetchTable(query, { skipHistory: true });
+                const bsModal = bootstrap.Modal.getInstance(modalEl);
+                bsModal?.hide();
+            }
+        } catch (err) {
+            console.error(err);
+            alert("Nepavyko issaugoti uzduoties.");
+        } finally {
+            setBusy(false);
+        }
+    };
+
     const fetchTable = async (query, { button, skipHistory } = {}) => {
         if (!tables) return;
         button?.classList.add("disabled");
@@ -145,5 +266,7 @@
             fetchTable(query, { skipHistory: true });
         });
     }
+
+    bindTaskClick();
 })();
 

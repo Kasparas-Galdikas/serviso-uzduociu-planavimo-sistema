@@ -81,7 +81,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                             var sourceClass = task.Source == TaskPlanSource.Draft ? "task-draft" : "task-active";
                             var editClass = task.IsEditable ? string.Empty : "read-only";
                             return $@"
-<div class=""task-card {stateClassForDay} {sourceClass} {editClass}"" data-plan=""{task.PlanId}"" data-editable=""{task.IsEditable.ToString().ToLowerInvariant()}"">
+<div class=""task-card {stateClassForDay} {sourceClass} {editClass}"" data-plan=""{task.PlanId}"" data-task-id=""{task.Id}"" data-plan-source=""{task.Source.ToString().ToLowerInvariant()}"" data-editable=""{task.IsEditable.ToString().ToLowerInvariant()}"">
     <div class=""task-time"">{task.Start:HH:mm} - {task.End:HH:mm}</div>
     <div class=""task-title"">{WebUtility.HtmlEncode(task.Title)}</div>
     <div class=""task-location"">{WebUtility.HtmlEncode(task.Location)}</div>
