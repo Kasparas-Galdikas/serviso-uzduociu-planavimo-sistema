@@ -2,19 +2,27 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
+using ServiceTaskPlanningSystem.Services.Plans;
 
 namespace ServiceTaskPlanningSystem.Services.Schedule
 {
     public class ScheduleProvider : IScheduleProvider
     {
         private readonly ScheduleDbContext _db;
+        private readonly ILogger<ScheduleProvider> _logger;
+        private readonly IServiceScopeFactory _scopeFactory;
 
-        public ScheduleProvider(ScheduleDbContext db)
+        public ScheduleProvider(ScheduleDbContext db, IServiceScopeFactory scopeFactory, ILogger<ScheduleProvider> logger)
         {
             _db = db;
+            _scopeFactory = scopeFactory;
+            _logger = logger;
         }
 
         public SchedulePageViewModel GetSchedule(string view, string? date, string? location, string? status, PlanEntity? activePlan, PlanEntity? draftPlan)
@@ -23,8 +31,26 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             var viewMode = NormalizeView(view);
             var weekStart = WeekCalculator.GetWeekStart(selectedDate);
             var weekEnd = WeekCalculator.GetWeekEnd(selectedDate);
-            var actualWeekStart = WeekCalculator.GetWeekStart(DateTime.Today);
-            var actualWeekEnd = WeekCalculator.GetWeekEnd(DateTime.Today);
+            var weekStartUtc = DateTime.SpecifyKind(weekStart, DateTimeKind.Utc);
+            var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
+            var lastPlanEndDate = _db.Plans.Max(p => (DateTime?)p.PeriodEnd);
+            var lastTaskEndDate = _db.Tasks.Max(t => (DateTime?)t.EndAt);
+            var latestEnd = (lastPlanEndDate, lastTaskEndDate) switch
+            {
+                (null, null) => (DateTime?)null,
+                (null, var t) => t?.Date,
+                (var p, null) => p?.Date,
+                (var p, var t) => (p!.Value > t!.Value ? p.Value : t.Value).Date
+            };
+
+            try
+            {
+                _logger.LogInformation("Schedule request view={ViewMode}, date={Date}, week={WeekStart}-{WeekEnd}, location={Location}, status={Status}", viewMode, selectedDate, weekStart, weekEnd, location, status);
+            }
+            catch
+            {
+                // logging only
+            }
 
             var technicians = _db.Technicians
                 .AsNoTracking()
@@ -43,44 +69,74 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 })
                 .ToList();
 
-            var tasks = new List<TaskItem>();
-            var weekStartUtc = DateTime.SpecifyKind(weekStart, DateTimeKind.Utc);
-            var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
-            var draftRangeOverlapsWeek = draftPlan != null &&
-                                         draftPlan.PeriodStart.Date <= weekEnd.Date &&
-                                         draftPlan.PeriodEnd.Date >= weekStart.Date;
+            var taskEntities = _db.Tasks
+                .AsNoTracking()
+                .Include(t => t.Plan)
+                .Include(t => t.Evaluation)
+                .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc)
+                .ToList();
 
-            if (activePlan != null)
+            var plansInView = taskEntities
+                .Select(t => t.Plan)
+                .Where(p => p != null)
+                .Distinct()
+                .ToList();
+
+            // Trigger repair for any plan missing evaluations in this window.
+            var planIdsMissingEval = taskEntities
+                .Where(t => t.PlanId != null && t.Evaluation == null)
+                .Select(t => t.PlanId!.Value)
+                .Distinct()
+                .ToList();
+
+            // Debug logging: which plans contribute tasks for this view.
+            try
             {
-                var activeTasks = _db.Tasks
-                    .AsNoTracking()
-                    .Where(t => t.PlanId == activePlan.Id &&
-                                t.StartAt >= weekStartUtc &&
-                                t.StartAt < weekEndUtcExclusive)
-                    .Include(t => t.Evaluation)
-                    .AsEnumerable()
-                    .Select(t => TagTask(MapTask(t), TaskPlanSource.Active, false))
+                var plansById = taskEntities
+                    .Where(t => t.Plan != null)
+                    .GroupBy(t => t.PlanId!.Value)
+                    .Select(g => new
+                    {
+                        PlanId = g.Key,
+                        Status = g.First().Plan!.Status,
+                        PeriodStart = g.First().Plan!.PeriodStart,
+                        PeriodEnd = g.First().Plan!.PeriodEnd,
+                        TaskCount = g.Count()
+                    })
                     .ToList();
-                tasks.AddRange(activeTasks);
+                _logger.LogInformation("Schedule view {ViewMode} week {WeekStart} - {WeekEnd}: plans in view {@Plans}", viewMode, weekStart, weekEnd, plansById);
+            }
+            catch
+            {
+                // swallow logging failures
             }
 
-            if (draftPlan != null && draftRangeOverlapsWeek)
+            foreach (var pid in planIdsMissingEval)
             {
-                var draftTasks = _db.Tasks
-                    .AsNoTracking()
-                    .Where(t => t.PlanId == draftPlan.Id &&
-                                t.StartAt >= weekStartUtc &&
-                                t.StartAt < weekEndUtcExclusive)
-                    .Include(t => t.Evaluation)
-                    .AsEnumerable()
-                    .Select(t => TagTask(MapTask(t), TaskPlanSource.Draft, true))
-                    .ToList();
-                tasks.AddRange(draftTasks);
+                TriggerEvaluationRepair(pid);
             }
 
-            tasks = tasks
+            var draftExists = plansInView.Any(p => p!.Status == PlanStatus.Draft);
+
+            var tasks = taskEntities
+                .Select(t =>
+                {
+                    var planStatus = t.Plan?.Status ?? PlanStatus.Active;
+                    var source = planStatus switch
+                    {
+                        PlanStatus.Draft => TaskPlanSource.Draft,
+                        PlanStatus.Superseded => TaskPlanSource.Superseded,
+                        _ => TaskPlanSource.Active
+                    };
+                    var task = MapTask(t, technicians, planStatus);
+                    task.Source = source;
+                    task.IsEditable = draftExists
+                        ? planStatus == PlanStatus.Draft
+                        : planStatus == PlanStatus.Active || planStatus == PlanStatus.Superseded;
+                    return task;
+                })
                 .OrderBy(t => t.Start)
-                .ThenBy(t => t.Source == TaskPlanSource.Active ? 0 : 1)
+                .ThenBy(t => t.Source == TaskPlanSource.Active ? 0 : t.Source == TaskPlanSource.Draft ? 1 : 2)
                 .ToList();
 
             var availableLocations = technicians
@@ -89,11 +145,16 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(l => l)
                 .ToList();
-            var availableStatuses = new List<string> { "Visi", "Normali apkrova", "Apkrova", "Perkrova" };
+            var availableStatuses = BuildAvailableStatuses(tasks);
 
-            var decisions = SeedDecisions();
-            var showIssues = WeekCalculator.IsInRange(selectedDate, actualWeekStart, actualWeekEnd);
-            var issues = showIssues ? SeedIssues(selectedDate, decisions) : new List<IssueItem>();
+            var issues = BuildIssues(tasks, technicians);
+            var summary = BuildSummary(tasks, technicians);
+
+            var lastPlanPeriod = _db.Plans
+                .AsNoTracking()
+                .OrderByDescending(p => p.PeriodEnd)
+                .Select(p => new { p.PeriodStart, p.PeriodEnd })
+                .FirstOrDefault();
 
             (technicians, tasks) = ApplyLocationFilter(location, technicians, tasks);
             (technicians, tasks) = ApplyStatusFilter(status, technicians, tasks);
@@ -108,28 +169,32 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 ViewMode = viewMode,
                 Technicians = technicians,
                 Tasks = tasks,
-                DecisionOptions = decisions,
                 Issues = issues,
                 AvailableLocations = availableLocations,
                 AvailableStatuses = availableStatuses,
+                Summary = summary,
                 IsPreviewMode = draftPlan != null,
                 HasDraft = draftPlan != null,
                 IsPlanningMode = draftPlan != null,
                 CurrentPlanId = (draftPlan ?? activePlan)?.Id,
                 CurrentPlanStatus = planStatusText,
-                PlannedPeriodStart = draftPlan?.PeriodStart ?? activePlan?.PeriodStart ?? default,
-                PlannedPeriodEnd = draftPlan?.PeriodEnd ?? activePlan?.PeriodEnd ?? default,
+                PlannedPeriodStart = draftPlan?.PeriodStart ?? activePlan?.PeriodStart ?? lastPlanPeriod?.PeriodStart ?? default,
+                PlannedPeriodEnd = draftPlan?.PeriodEnd ?? activePlan?.PeriodEnd ?? latestEnd ?? lastPlanPeriod?.PeriodEnd ?? default,
                 PlannedWeeks = draftPlan?.Weeks ?? activePlan?.Weeks ?? 1
             };
         }
 
-        private TaskItem MapTask(Data.TaskEntity task)
+        private TaskItem MapTask(Data.TaskEntity task, List<Technician> technicians, PlanStatus planStatus)
         {
             var eval = task.Evaluation;
+            var tech = technicians.FirstOrDefault(t => t.Id == task.TechnicianId);
+            var status = eval?.Status ?? LoadState.Normal;
+
             return new TaskItem
             {
                 Id = (int)task.Id,
                 PlanId = task.PlanId ?? 0,
+                PlanStatus = planStatus,
                 TechnicianId = (int)task.TechnicianId,
                 Title = task.Title,
                 Location = task.Location,
@@ -137,19 +202,15 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 End = DateTime.SpecifyKind(task.EndAt, DateTimeKind.Utc),
                 Priority = task.Priority.ToString().ToLowerInvariant(),
                 Status = task.Status.ToString().ToLowerInvariant(),
-                IsConflict = eval?.IsConflict ?? false,
-                IsLoad = eval?.IsOverloaded ?? false,
-                IsTravelSwitch = eval?.TravelRequired ?? false,
+                IsConflict = status == LoadState.Conflict,
+                IsLoad = status == LoadState.Load,
+                IsTravelSwitch = eval?.TravelRequired == true,
                 IsNewPlan = false,
-                Risk = eval?.RiskLevel?.ToString().ToLowerInvariant()
+                Risk = eval?.RiskLevel?.ToString().ToLowerInvariant(),
+                OverloadHours = eval?.OverloadHours ?? 0,
+                SwitchCount = eval?.SwitchCount ?? 0,
+                LoadStatus = status.ToString().ToLowerInvariant()
             };
-        }
-
-        private static TaskItem TagTask(TaskItem task, TaskPlanSource source, bool isEditable)
-        {
-            task.Source = source;
-            task.IsEditable = isEditable;
-            return task;
         }
 
         private static string NormalizeView(string view) =>
@@ -200,42 +261,108 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             return (filteredTechnicians, filteredTasks);
         }
 
-        private static List<DecisionOption> SeedDecisions() => new()
+        private static List<string> BuildAvailableStatuses(IEnumerable<TaskItem> tasks)
         {
-            new() { Title = "Perkelti Klaipedos uzduoti", Description = "Atideti Klaipedos perjungima i ryto langa.", RiskLevel = "vidutinis", LoadImpact = "-2h Vilnius", TravelImpact = "+1 kelione", IsRecommended = true },
-            new() { Title = "Paskirstyti apkrova", Description = "Dali Kauno darbu perleisti Gabijai.", RiskLevel = "zemas", LoadImpact = "-1h Kaunas, +1h Siauliai", TravelImpact = "0", IsRecommended = false },
-            new() { Title = "Palikti kaip yra", Description = "Jokiu pakeitimu - stebeti konfliktus.", RiskLevel = "aukstas", LoadImpact = "0", TravelImpact = "0", IsRecommended = false }
-        };
-
-        private static List<IssueItem> SeedIssues(DateTime selectedDate, IEnumerable<DecisionOption> decisions)
-        {
-            var decisionList = decisions.ToList();
-            var dayName = selectedDate.ToString("dddd", CultureInfo.InvariantCulture);
-
-            return new List<IssueItem>
+            var statusMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                new()
-                {
-                    Id = "task-3",
-                    Title = $"[!] Austeja J. {dayName} 16:00-18:00",
-                    Detail = "Klaipedos perjungimas persidengia su Vilniaus darbu",
-                    Decisions = decisionList
-                },
-                new()
-                {
-                    Id = "task-5",
-                    Title = $"[!] Dovydas K. {dayName} 12:00-15:00",
-                    Detail = "Kaunas virsija dienos limita +1h",
-                    Decisions = decisionList
-                },
-                new()
-                {
-                    Id = "task-8",
-                    Title = $"[!] Gabija P. {dayName} 14:00-17:00",
-                    Detail = "Papildoma kelione - perjungimas Klaipedoje",
-                    Decisions = decisionList
-                }
+                { "normal", "Normali apkrova" },
+                { "load", "Apkrova" },
+                { "conflict", "Perkrova" }
             };
+
+            var statuses = tasks
+                .Select(t => t.LoadStatus)
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(s => statusMap.TryGetValue(s, out var label) ? label : s)
+                .OrderBy(s => s)
+                .ToList();
+
+            // Ensure all standard statuses are available even if not present in current data.
+            foreach (var label in statusMap.Values)
+            {
+                if (!statuses.Contains(label, StringComparer.OrdinalIgnoreCase))
+                {
+                    statuses.Add(label);
+                }
+            }
+
+            statuses.Insert(0, "Visi");
+            return statuses;
+        }
+
+        private static List<IssueItem> BuildIssues(IEnumerable<TaskItem> tasks, IEnumerable<Technician> technicians)
+        {
+            var techLookup = technicians.ToDictionary(t => t.Id);
+            var issues = new List<IssueItem>();
+
+            foreach (var task in tasks)
+            {
+                var techName = techLookup.TryGetValue(task.TechnicianId, out var tech) ? tech.Name : $"Technikas #{task.TechnicianId}";
+                if (task.IsConflict)
+                {
+                    issues.Add(new IssueItem
+                    {
+                        Id = $"task-{task.Id}",
+                        Title = $"[!] {techName} {task.Start:HH:mm}-{task.End:HH:mm}",
+                        Detail = "Persidengiantys darbai"
+                    });
+                    continue;
+                }
+
+                if (task.OverloadHours > 0)
+                {
+                    issues.Add(new IssueItem
+                    {
+                        Id = $"task-{task.Id}",
+                        Title = $"[~] {techName} {task.Start:HH:mm}-{task.End:HH:mm}",
+                        Detail = $"Apkrova virsija limita +{task.OverloadHours:0.##}h"
+                    });
+                }
+                else if (task.IsTravelSwitch)
+                {
+                    issues.Add(new IssueItem
+                    {
+                        Id = $"task-{task.Id}",
+                        Title = $"[~] {techName} {task.Start:HH:mm}-{task.End:HH:mm}",
+                        Detail = "Virsyti kelioniu perjungimai"
+                    });
+                }
+            }
+
+            return issues;
+        }
+
+        private static ScheduleSummary BuildSummary(IEnumerable<TaskItem> tasks, IEnumerable<Technician> technicians)
+        {
+            var techLookup = technicians.ToDictionary(t => t.Id);
+            var switchExceedances = tasks.Count(t => t.IsTravelSwitch);
+
+            return new ScheduleSummary
+            {
+                TotalTasks = tasks.Count(),
+                ConflictTasks = tasks.Count(t => t.IsConflict),
+                OverloadHours = tasks.Sum(t => t.OverloadHours),
+                SwitchExceedances = switchExceedances
+            };
+        }
+
+        private void TriggerEvaluationRepair(long planId)
+        {
+            _ = Task.Run(async () =>
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var evaluator = scope.ServiceProvider.GetRequiredService<ITaskEvaluationService>();
+                try
+                {
+                    await evaluator.RecalculatePlanAsync(planId);
+                    _logger.LogInformation("Triggered evaluation repair for plan {PlanId} due to missing evaluations.", planId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to repair evaluations for plan {PlanId} on read.", planId);
+                }
+            });
         }
     }
 

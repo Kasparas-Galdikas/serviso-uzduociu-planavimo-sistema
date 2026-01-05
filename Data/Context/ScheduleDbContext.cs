@@ -212,6 +212,8 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.EvaluatedAt)
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");
+            entity.Property(e => e.Status)
+                .HasColumnType("load_state");
 
             entity.HasOne(e => e.Task)
                 .WithOne(t => t.Evaluation)

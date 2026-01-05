@@ -1,10 +1,12 @@
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
 @{
     var today = DateTime.Today;
-    var startValue = Model.SelectedDate.Date < today ? today : Model.SelectedDate.Date;
+    var plannedEnd = Model.PlannedPeriodEnd == default ? today : Model.PlannedPeriodEnd.Date;
+    var firstFreeDay = plannedEnd.AddDays(1);
+    var startValue = firstFreeDay < today ? today : firstFreeDay;
     var startValueStr = startValue.ToString("yyyy-MM-dd");
-    var minDateStr = today.ToString("yyyy-MM-dd");
-    var tomorrowStr = today.AddDays(1).ToString("yyyy-MM-dd");
+    var minDateStr = startValueStr; // prevent selecting dates that are already planned
+    var minEndStr = startValueStr;
 }
 <div class="modal fade" id="createTaskModal" tabindex="-1" aria-labelledby="createTaskLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
@@ -24,7 +26,7 @@
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label small mb-1">Pabaigos data</label>
-                                <input type="date" class="form-control" id="createEndDate" min="@tomorrowStr" />
+                                <input type="date" class="form-control" id="createEndDate" min="@minEndStr" />
                             </div>
                         </div>
                         <div class="form-text">Pasirinkite laikotarpi nuo pradzios iki pabaigos, kuriam generuoti plana.</div>

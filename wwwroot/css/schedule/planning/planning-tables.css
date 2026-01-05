@@ -187,6 +187,12 @@
   box-shadow: inset 0 0 0 1px var(--state-draft-border);
 }
 
+.task-card.task-superseded {
+  opacity: 0.75;
+  border-color: var(--neutral-300);
+  box-shadow: inset 0 0 0 1px var(--neutral-300);
+}
+
 .indicator {
   position: absolute;
   left: 0;

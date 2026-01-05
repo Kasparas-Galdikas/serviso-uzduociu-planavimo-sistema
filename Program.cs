@@ -26,8 +26,10 @@ builder.Services.AddDbContext<ScheduleDbContext>(options =>
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
 builder.Services.AddScoped<IPlanService, PlanService>();
+builder.Services.AddScoped<ITaskEvaluationService, TaskEvaluationService>();
 builder.Services.AddTransient<DatabaseSeeder>();
 builder.Services.AddSingleton<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
+builder.Services.AddHostedService<EvaluationRepairService>();
 
 var app = builder.Build();
 

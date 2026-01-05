@@ -19,6 +19,7 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public List<IssueItem> Issues { get; set; } = new();
         public List<string> AvailableLocations { get; set; } = new();
         public List<string> AvailableStatuses { get; set; } = new();
+        public ScheduleSummary? Summary { get; set; }
         public DailyTableLayout? DailyLayout { get; set; }
         public WeeklyTableLayout? WeeklyLayout { get; set; }
         public bool IsPreviewMode { get; set; }

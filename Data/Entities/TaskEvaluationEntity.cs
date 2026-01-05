@@ -11,6 +11,13 @@ namespace ServiceTaskPlanningSystem.Data
         public bool TravelRequired { get; set; }
         public decimal? LoadHours { get; set; }
         public DateTime EvaluatedAt { get; set; }
+        public bool? HasConflict { get; set; }
+        public string? ConflictReason { get; set; }
+        public decimal? DailyHours { get; set; }
+        public decimal? WeeklyHours { get; set; }
+        public decimal? OverloadHours { get; set; }
+        public int? SwitchCount { get; set; }
+        public LoadState? Status { get; set; }
 
         public TaskEntity Task { get; set; } = default!;
     }

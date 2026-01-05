@@ -146,7 +146,9 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                 TaskId = entity.Id,
                 RiskLevel = MapRiskLevel(mock.Risk),
                 IsConflict = mock.IsConflict,
-                IsOverloaded = mock.IsLoad,
+                HasConflict = mock.IsConflict,
+                Status = mock.IsConflict ? LoadState.Conflict : mock.IsLoad ? LoadState.Load : LoadState.Normal,
+                IsOverloaded = mock.IsConflict || mock.IsLoad,
                 TravelRequired = mock.IsTravelSwitch,
                 LoadHours = (decimal?)(mock.End - mock.Start).TotalHours,
                 EvaluatedAt = DateTime.UtcNow

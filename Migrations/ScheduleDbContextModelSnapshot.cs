@@ -213,11 +213,23 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("task_id");
 
+                    b.Property<string>("ConflictReason")
+                        .HasColumnType("text")
+                        .HasColumnName("conflict_reason");
+
+                    b.Property<decimal?>("DailyHours")
+                        .HasColumnType("numeric")
+                        .HasColumnName("daily_hours");
+
                     b.Property<DateTime>("EvaluatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamptz")
                         .HasColumnName("evaluated_at")
                         .HasDefaultValueSql("NOW()");
+
+                    b.Property<bool?>("HasConflict")
+                        .HasColumnType("boolean")
+                        .HasColumnName("has_conflict");
 
                     b.Property<bool>("IsConflict")
                         .HasColumnType("boolean")
@@ -231,13 +243,29 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("numeric")
                         .HasColumnName("load_hours");
 
+                    b.Property<decimal?>("OverloadHours")
+                        .HasColumnType("numeric")
+                        .HasColumnName("overload_hours");
+
                     b.Property<RiskLevel?>("RiskLevel")
                         .HasColumnType("risk_level")
                         .HasColumnName("risk_level");
 
+                    b.Property<LoadState?>("Status")
+                        .HasColumnType("load_state")
+                        .HasColumnName("status");
+
+                    b.Property<int?>("SwitchCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("switch_count");
+
                     b.Property<bool>("TravelRequired")
                         .HasColumnType("boolean")
                         .HasColumnName("travel_required");
+
+                    b.Property<decimal?>("WeeklyHours")
+                        .HasColumnType("numeric")
+                        .HasColumnName("weekly_hours");
 
                     b.HasKey("TaskId")
                         .HasName("pk_task_evaluations");

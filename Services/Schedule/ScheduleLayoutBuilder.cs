@@ -15,13 +15,6 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
 
     public class ScheduleLayoutBuilder : IScheduleLayoutBuilder
     {
-        private static string GetDailyState(double hours, double dailyLimit)
-        {
-            if (hours > dailyLimit) return "task-conflict"; // perkrova
-            if (hours >= dailyLimit * 0.8) return "task-load"; // apkrova
-            return "task-normal"; // normali zona
-        }
-
         public DailyTableLayout BuildDailyLayout(SchedulePageViewModel viewModel)
         {
             var day = viewModel.SelectedDate != default ? viewModel.SelectedDate : viewModel.WeekStart;
@@ -51,14 +44,17 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                     .OrderBy(t => t.Start)
                     .ToList();
 
-                var techName = WebUtility.HtmlEncode(tech.Name);
-                var techLocation = WebUtility.HtmlEncode(tech.Location);
+                var dayState = "task-normal";
+                if (tasks.Any(t => t.IsConflict))
+                {
+                    dayState = "task-conflict";
+                }
+                else if (tasks.Any(t => t.IsLoad || t.OverloadHours > 0))
+                {
+                    dayState = "task-load";
+                }
 
                 var cells = new List<TableCell>();
-                var dailyLimit = tech.DailyLimit > 0 ? tech.DailyLimit : 8;
-                var totalHours = tasks.Sum(t => (t.End - t.Start).TotalHours);
-                var stateClassForDay = GetDailyState(totalHours, dailyLimit);
-
                 var slotIndex = 0;
 
                 while (slotIndex < slots.Count - 1)
@@ -78,10 +74,19 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
 
                         var contentHtml = string.Join(string.Empty, slotTasks.Select(task =>
                         {
-                            var sourceClass = task.Source == TaskPlanSource.Draft ? "task-draft" : "task-active";
+                            var sourceClass = task.Source switch
+                            {
+                                TaskPlanSource.Draft => "task-draft",
+                                TaskPlanSource.Superseded => "task-superseded",
+                                _ => "task-active"
+                            };
                             var editClass = task.IsEditable ? string.Empty : "read-only";
+                            var loadClass = task.IsConflict
+                                ? "task-conflict"
+                                : (task.IsLoad || task.OverloadHours > 0) ? "task-load" : "task-normal";
                             return $@"
-<div class=""task-card {stateClassForDay} {sourceClass} {editClass}"" data-plan=""{task.PlanId}"" data-task-id=""{task.Id}"" data-plan-source=""{task.Source.ToString().ToLowerInvariant()}"" data-editable=""{task.IsEditable.ToString().ToLowerInvariant()}"">
+<div class=""task-card {dayState} {loadClass} {sourceClass} {editClass}"" data-plan=""{task.PlanId}"" data-task-id=""{task.Id}"" data-plan-source=""{task.Source.ToString().ToLowerInvariant()}""
+    data-editable=""{task.IsEditable.ToString().ToLowerInvariant()}"">
     <div class=""task-time"">{task.Start:HH:mm} - {task.End:HH:mm}</div>
     <div class=""task-title"">{WebUtility.HtmlEncode(task.Title)}</div>
     <div class=""task-location"">{WebUtility.HtmlEncode(task.Location)}</div>
@@ -116,7 +121,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
 
                 rows.Add(new TableRow
                 {
-                    HeaderHtml = $@"<div class=""fw-semibold"">{techName}</div><div class=""text-muted small"">{techLocation}</div>",
+                    HeaderHtml = $@"<div class=""fw-semibold"">{WebUtility.HtmlEncode(tech.Name)}</div><div class=""text-muted small"">{WebUtility.HtmlEncode(tech.Location)}</div>",
                     Cells = cells
                 });
             }
@@ -144,13 +149,6 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             var days = Enumerable.Range(0, 7)
                 .Select(i => viewModel.WeekStart.Date.AddDays(i))
                 .ToList();
-
-            string GetStateClass(double hours, int dailyLimit)
-            {
-                if (hours > dailyLimit) return "task-conflict";
-                if (hours >= dailyLimit * 0.8) return "task-load";
-                return "task-normal";
-            }
 
             string GetDotClass(string state) => state switch
             {
@@ -188,7 +186,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                     var totalHours = tasks.Sum(t => (t.End - t.Start).TotalHours);
                     var taskCount = tasks.Count;
                     var hasConflicts = tasks.Any(t => t.IsConflict);
-                    var hasLoadFlags = tasks.Any(t => t.IsLoad);
+                    var hasLoadFlags = tasks.Any(t => t.IsLoad || t.OverloadHours > 0);
                     var dailyLimit = tech.DailyLimit > 0 ? tech.DailyLimit : 8;
                     var freeHours = dailyLimit - totalHours;
 
@@ -196,7 +194,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                         ? "task-conflict"
                         : hasLoadFlags
                             ? "task-load"
-                            : GetStateClass(totalHours, dailyLimit);
+                            : "task-normal";
 
                     var loadLine = $"{totalHours:0.#}h / {dailyLimit:0.#}h";
                     var taskLine = taskCount > 0 ? $"{taskCount} uzduotys" : "Nera uzduociu";

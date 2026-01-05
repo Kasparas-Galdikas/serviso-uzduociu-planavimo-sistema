@@ -2,6 +2,8 @@
     const modal = document.getElementById("filterConsoleModal");
     if (!modal) return;
 
+    const logInfo = (...args) => console.info("[schedule]", ...args);
+
     const locationInput = modal.querySelector("#filterLocation");
     const statusInput = modal.querySelector("#filterStatus");
     const dayDateInput = modal.querySelector("#filterDayDate");
@@ -12,6 +14,32 @@
     const viewTargets = modal.querySelectorAll("[data-view-target]");
     const dataSet = modal.dataset;
     let currentView = (dataSet.initialView || "").toLowerCase() === "week" ? "week" : "day";
+    const plannedStart = dataSet.plannedPeriodStart;
+    const plannedEnd = dataSet.plannedPeriodEnd;
+
+    const parseDate = (val) => val ? new Date(`${val}T00:00:00`) : null;
+    const formatDate = (date) => date ? date.toISOString().slice(0, 10) : "";
+    const addDays = (date, days) => {
+        const next = new Date(date);
+        next.setDate(next.getDate() + days);
+        return next;
+    };
+
+    const plannedEndDate = parseDate(plannedEnd);
+    const nextFreeDate = plannedEndDate ? addDays(plannedEndDate, 1) : null;
+
+    const clampToNextFree = (input) => {
+        if (!input || !nextFreeDate) return;
+        const minStr = formatDate(nextFreeDate);
+        input.min = minStr;
+        input.setAttribute("title", `Galima rinktis nuo ${minStr} (nepersidengiant su aktyviu planu)`);
+        if (input.value) {
+            const current = parseDate(input.value);
+            if (current && current < nextFreeDate) {
+                input.value = minStr;
+            }
+        }
+    };
 
     const switchView = (next) => {
         const normalized = (next || "").toLowerCase() === "week" ? "week" : "day";
@@ -29,6 +57,7 @@
 
     const notifyTableUpdated = () => {
         document.dispatchEvent(new CustomEvent("schedule:table:updated"));
+        logInfo("Table updated");
     };
 
     const bindTaskClick = () => {
@@ -48,6 +77,7 @@
                     headers: { "X-Requested-With": "XMLHttpRequest" }
                 });
                 if (!resp.ok) {
+                    await logFetchError(resp, `/tasks/${taskId}`);
                     throw new Error("Nepavyko gauti uzduoties duomenu");
                 }
                 const data = await resp.json();
@@ -152,6 +182,15 @@
         }
     };
 
+    const logFetchError = async (resp, url) => {
+        try {
+            const text = await resp.text();
+            console.error(`Schedule fetch failed ${resp.status} ${resp.statusText} for ${url}`, text);
+        } catch (err) {
+            console.error(`Schedule fetch failed ${resp.status} ${resp.statusText} for ${url}`);
+        }
+    };
+
     const fetchTable = async (query, { button, skipHistory } = {}) => {
         if (!tables) return;
         button?.classList.add("disabled");
@@ -160,8 +199,13 @@
         const url = `/Schedule/Table?${query.toString()}`;
         try {
             const response = await fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+            if (!response.ok) {
+                await logFetchError(response, url);
+                return;
+            }
             const html = await response.text();
             tables.innerHTML = html;
+            logInfo("Fetched schedule table", { url, status: response.status, length: html.length });
 
             const nextUrl = new URL(window.location.href);
             nextUrl.pathname = "/Schedule";
@@ -189,6 +233,12 @@
         if (locVal) query.set("location", locVal);
         const statusVal = statusInput?.value || "";
         if (statusVal) query.set("status", statusVal);
+        logInfo("Applying filters", {
+            view: currentView,
+            date: dateVal || "none",
+            location: locVal || "all",
+            status: statusVal || "all"
+        });
 
         applyBtn?.setAttribute("disabled", "disabled");
         try {
@@ -209,6 +259,8 @@
     })();
 
     switchView(currentView);
+    clampToNextFree(dayDateInput);
+    clampToNextFree(weekDateInput);
     viewModeButtons.forEach(btn => {
         btn.addEventListener("click", () => switchView(btn.dataset.viewMode));
     });
@@ -253,6 +305,13 @@
             if (loc) query.set("location", loc);
             const status = navBtn.dataset.status || "";
             if (status) query.set("status", status);
+
+            logInfo("Nav click", {
+                view: navView,
+                date: targetDate || "none",
+                location: loc || "all",
+                status: status || "all"
+            });
 
             window.history.pushState({}, "", `/Schedule?${query.toString()}`);
             await fetchTable(query, { button: navBtn });

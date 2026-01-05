@@ -1,4 +1,11 @@
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+@{
+    var today = DateTime.Today;
+    var plannedEnd = Model.PlannedPeriodEnd == default ? today : Model.PlannedPeriodEnd.Date;
+    var firstFreeDay = plannedEnd.AddDays(1);
+    var startValue = firstFreeDay < today ? today : firstFreeDay;
+    var startValueStr = startValue.ToString("yyyy-MM-dd");
+}
 <!-- Planavimo santraukos modalas -->
 <div class="modal fade" id="planningSummaryModal" tabindex="-1" aria-labelledby="planningSummaryLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
@@ -14,7 +21,7 @@
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <label class="form-label small mb-1">Pradzios data</label>
-                                <input type="date" class="form-control" id="summaryStartDate" value="@Model.SelectedDate.ToString("yyyy-MM-dd")" disabled />
+                                <input type="date" class="form-control" id="summaryStartDate" value="@startValueStr" disabled />
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label small mb-1">Pabaigos data</label>
@@ -81,21 +88,19 @@
         const createModal = document.getElementById('createTaskModal');
         const summaryModal = document.getElementById('planningSummaryModal');
         if (!createModal || !summaryModal) return;
-        const today = new Date().toISOString().slice(0, 10);
-        const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-
         const startInput = document.querySelector('#createStartDate');
         const endInput = document.querySelector('#createEndDate');
         if (startInput) {
-            startInput.setAttribute('min', today);
-            if (!startInput.value || startInput.value < today) {
-                startInput.value = today;
+            const startMin = startInput.min || startInput.value || new Date().toISOString().slice(0, 10);
+            startInput.setAttribute('min', startMin);
+            if (!startInput.value || startInput.value < startMin) {
+                startInput.value = startMin;
             }
         }
         if (endInput && startInput) {
             const syncEndMin = () => {
-                const sVal = startInput.value || today;
-                const minEnd = sVal > today ? sVal : tomorrow;
+                const sVal = startInput.value || startInput.min || new Date().toISOString().slice(0, 10);
+                const minEnd = sVal;
                 endInput.setAttribute('min', minEnd);
                 if (endInput.value && endInput.value < minEnd) {
                     endInput.value = minEnd;

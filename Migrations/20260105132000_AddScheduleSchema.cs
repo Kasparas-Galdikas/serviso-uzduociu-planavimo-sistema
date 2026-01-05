@@ -201,7 +201,14 @@ END $$;
                     is_overloaded = table.Column<bool>(type: "boolean", nullable: false),
                     travel_required = table.Column<bool>(type: "boolean", nullable: false),
                     load_hours = table.Column<decimal>(type: "numeric", nullable: true),
-                    evaluated_at = table.Column<DateTime>(type: "timestamptz", nullable: false, defaultValueSql: "NOW()")
+                    evaluated_at = table.Column<DateTime>(type: "timestamptz", nullable: false, defaultValueSql: "NOW()"),
+                    conflict_reason = table.Column<string>(type: "text", nullable: true),
+                    daily_hours = table.Column<decimal>(type: "numeric", nullable: true),
+                    has_conflict = table.Column<bool>(type: "boolean", nullable: true),
+                    overload_hours = table.Column<decimal>(type: "numeric", nullable: true),
+                    status = table.Column<LoadState>(type: "load_state", nullable: true),
+                    switch_count = table.Column<int>(type: "integer", nullable: true),
+                    weekly_hours = table.Column<decimal>(type: "numeric", nullable: true)
                 },
                 constraints: table =>
                 {
