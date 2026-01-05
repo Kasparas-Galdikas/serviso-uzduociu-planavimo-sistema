@@ -43,14 +43,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 (var p, var t) => (p!.Value > t!.Value ? p.Value : t.Value).Date
             };
 
-            try
-            {
-                _logger.LogInformation("Schedule request view={ViewMode}, date={Date}, week={WeekStart}-{WeekEnd}, location={Location}, status={Status}", viewMode, selectedDate, weekStart, weekEnd, location, status);
-            }
-            catch
-            {
-                // logging only
-            }
+            _logger.LogInformation("svc.schedule.request view={ViewMode} date={Date} week={WeekStart}-{WeekEnd} location={Location} status={Status}", viewMode, selectedDate, weekStart, weekEnd, location, status);
 
             var technicians = _db.Technicians
                 .AsNoTracking()
@@ -90,26 +83,19 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 .ToList();
 
             // Debug logging: which plans contribute tasks for this view.
-            try
-            {
-                var plansById = taskEntities
-                    .Where(t => t.Plan != null)
-                    .GroupBy(t => t.PlanId!.Value)
-                    .Select(g => new
-                    {
-                        PlanId = g.Key,
-                        Status = g.First().Plan!.Status,
-                        PeriodStart = g.First().Plan!.PeriodStart,
-                        PeriodEnd = g.First().Plan!.PeriodEnd,
-                        TaskCount = g.Count()
-                    })
-                    .ToList();
-                _logger.LogInformation("Schedule view {ViewMode} week {WeekStart} - {WeekEnd}: plans in view {@Plans}", viewMode, weekStart, weekEnd, plansById);
-            }
-            catch
-            {
-                // swallow logging failures
-            }
+            var plansById = taskEntities
+                .Where(t => t.Plan != null)
+                .GroupBy(t => t.PlanId!.Value)
+                .Select(g => new
+                {
+                    PlanId = g.Key,
+                    Status = g.First().Plan!.Status,
+                    PeriodStart = g.First().Plan!.PeriodStart,
+                    PeriodEnd = g.First().Plan!.PeriodEnd,
+                    TaskCount = g.Count()
+                })
+                .ToList();
+            _logger.LogInformation("svc.schedule.plans view={ViewMode} count={Count}", viewMode, plansById.Count);
 
             foreach (var pid in planIdsMissingEval)
             {
@@ -149,6 +135,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
 
             var issues = BuildIssues(tasks, technicians);
             var summary = BuildSummary(tasks, technicians);
+            _logger.LogInformation("svc.schedule.summary tasks={Tasks} issues={Issues} locations={Locations} statuses={Statuses}", tasks.Count, issues.Count, availableLocations.Count, availableStatuses.Count);
 
             var lastPlanPeriod = _db.Plans
                 .AsNoTracking()

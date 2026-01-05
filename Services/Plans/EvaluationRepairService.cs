@@ -71,7 +71,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                     try
                     {
                         await evaluator.RecalculatePlanAsync(plan.PlanId, cancellationToken);
-                        _logger.LogInformation("Background repair recalculated evaluations for plan {PlanId}.", plan.PlanId);
+                        _logger.LogInformation("svc.eval.repair planId={PlanId} tasks={Tasks} evals={Evals} status={StatusCount}", plan.PlanId, plan.TaskCount, evalCount, statusCount);
                     }
                     catch (Exception ex)
                     {

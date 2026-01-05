@@ -57,10 +57,16 @@
     </div>
 }
 
+@{
+    var activeEnd = Model.PlannedPeriodEnd == default ? DateTime.Today : Model.PlannedPeriodEnd.Date;
+    var firstFree = activeEnd.AddDays(1);
+}
 <div id="scheduleTables"
      data-current-view="@Model.ViewMode"
      data-plan-status="@Model.CurrentPlanStatus"
-     data-plan-id="@Model.CurrentPlanId">
+     data-plan-id="@Model.CurrentPlanId"
+     data-active-end="@(activeEnd.ToString("yyyy-MM-dd"))"
+     data-first-free="@(firstFree.ToString("yyyy-MM-dd"))">
     @if (isWeekly)
     {
         @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_WeeklyTable.cshtml", Model)
@@ -75,10 +81,13 @@
 @await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_CreateScheduleModal.cshtml", Model)
 @await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_SummaryScheduleModal.cshtml", Model)
 @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TaskDetailModal.cshtml")
+@await Html.PartialAsync("~/Views/Shared/_ScheduleDebugDrawer.cshtml")
 
 
 @section Scripts {
+    <script src="~/js/schedule-logger.js" asp-append-version="true"></script>
     <script src="~/js/schedule-filters.js" asp-append-version="true"></script>
+    <script src="~/js/schedule-debug-drawer.js" asp-append-version="true"></script>
     <script>
         // scroll highlight for issues from modal
         document.querySelectorAll('.issue-scroll').forEach(btn => {
@@ -104,17 +113,21 @@
                 const redirect = discardBtn.getAttribute('data-redirect') || '/Schedule';
                 discardBtn.setAttribute('disabled', 'disabled');
                 discardBtn.setAttribute('aria-busy', 'true');
+                const logger = window.scheduleLogger;
                 try {
-                    const resp = await fetch('/Plans/discard', {
+                    const resp = await (logger?.fetchWithTrace('/Plans/discard', {
+                        method: 'POST'
+                    }, { event: 'ui.plan.discard' }) || fetch('/Plans/discard', {
                         method: 'POST',
                         headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                    });
+                    }));
                     if (!resp.ok) {
                         throw new Error('Nepavyko atsaukti juodrascio');
                     }
+                    logger?.log('info', 'ui.plan.discard.ok');
                     window.location.href = redirect;
                 } catch (err) {
-                    console.error(err);
+                    logger?.log('error', 'ui.plan.discard.error', { error: err?.message });
                     alert('Nepavyko atsaukti juodrascio. Bandykite dar karta.');
                 } finally {
                     discardBtn.removeAttribute('aria-busy');
@@ -129,18 +142,22 @@
                 const redirect = publishBtn.getAttribute('data-redirect') || '/Schedule';
                 publishBtn.setAttribute('disabled', 'disabled');
                 publishBtn.setAttribute('aria-busy', 'true');
+                const logger = window.scheduleLogger;
                 try {
-                    const resp = await fetch('/Plans/publish', {
+                    const resp = await (logger?.fetchWithTrace('/Plans/publish', {
+                        method: 'POST'
+                    }, { event: 'ui.plan.publish' }) || fetch('/Plans/publish', {
                         method: 'POST',
                         headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                    });
+                    }));
                     if (!resp.ok) {
                         const text = await resp.text();
                         throw new Error(text || 'Nepavyko patvirtinti plano');
                     }
+                    logger?.log('info', 'ui.plan.publish.ok');
                     window.location.href = redirect;
                 } catch (err) {
-                    console.error(err);
+                    logger?.log('error', 'ui.plan.publish.error', { error: err?.message });
                     alert(err?.message || 'Nepavyko patvirtinti plano. Bandykite dar karta.');
                 } finally {
                     publishBtn.removeAttribute('aria-busy');

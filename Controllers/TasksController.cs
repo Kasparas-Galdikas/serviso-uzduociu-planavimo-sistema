@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.Plans;
+using Microsoft.Extensions.Logging;
 
 namespace ServiceTaskPlanningSystem.Controllers
 {
@@ -14,11 +15,13 @@ namespace ServiceTaskPlanningSystem.Controllers
     {
         private readonly ScheduleDbContext _db;
         private readonly IPlanService _planService;
+        private readonly ILogger<TasksController> _logger;
 
-        public TasksController(ScheduleDbContext db, IPlanService planService)
+        public TasksController(ScheduleDbContext db, IPlanService planService, ILogger<TasksController> logger)
         {
             _db = db;
             _planService = planService;
+            _logger = logger;
         }
 
         public class TaskEditDto
@@ -45,6 +48,7 @@ namespace ServiceTaskPlanningSystem.Controllers
             }
 
             var isEditable = task.Plan?.Status == PlanStatus.Draft;
+            _logger.LogInformation("api.task.get id={Id} editable={Editable}", id, isEditable);
 
             return Ok(new
             {
@@ -82,10 +86,12 @@ namespace ServiceTaskPlanningSystem.Controllers
                     task.Status = dto.Status;
                 }, cancellationToken);
 
+                _logger.LogInformation("api.task.update id={Id} planId={PlanId}", id, updated.PlanId);
                 return Ok(new { updated.Id });
             }
             catch (InvalidOperationException ex)
             {
+                _logger.LogWarning(ex, "api.task.update.conflict id={Id}", id);
                 return Conflict(new { message = ex.Message });
             }
         }

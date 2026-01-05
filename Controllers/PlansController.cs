@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Services.Plans;
 using ServiceTaskPlanningSystem.Data;
+using Microsoft.Extensions.Logging;
 
 namespace ServiceTaskPlanningSystem.Controllers
 {
@@ -13,11 +14,13 @@ namespace ServiceTaskPlanningSystem.Controllers
     {
         private readonly IPlanService _planService;
         private readonly ITaskEvaluationService _taskEvaluationService;
+        private readonly ILogger<PlansController> _logger;
 
-        public PlansController(IPlanService planService, ITaskEvaluationService taskEvaluationService)
+        public PlansController(IPlanService planService, ITaskEvaluationService taskEvaluationService, ILogger<PlansController> logger)
         {
             _planService = planService;
             _taskEvaluationService = taskEvaluationService;
+            _logger = logger;
         }
 
         public class CreateDraftRequest
@@ -32,6 +35,7 @@ namespace ServiceTaskPlanningSystem.Controllers
         {
             var active = await _planService.GetActivePlanAsync(cancellationToken);
             var draft = await _planService.GetDraftPlanAsync(cancellationToken);
+            _logger.LogInformation("api.plan.state active={Active} draft={Draft}", active?.Id, draft?.Id);
 
             return Ok(new
             {
@@ -47,10 +51,13 @@ namespace ServiceTaskPlanningSystem.Controllers
             try
             {
                 var draft = await _planService.CreateDraftFromActiveAsync(request?.StartDate, request?.EndDate, request?.Weeks, cancellationToken);
+                _logger.LogInformation("api.plan.draft.created planId={PlanId}", draft.Id);
+                Response.Headers["X-Trace-Summary"] = $"draft.created id={draft.Id} start={draft.PeriodStart:yyyy-MM-dd} end={draft.PeriodEnd:yyyy-MM-dd} weeks={draft.Weeks}";
                 return Ok(new { draftPlanId = draft.Id });
             }
             catch (InvalidOperationException ex)
             {
+                _logger.LogWarning(ex, "api.plan.draft.failed");
                 return BadRequest(new { message = ex.Message });
             }
         }
@@ -61,10 +68,13 @@ namespace ServiceTaskPlanningSystem.Controllers
             try
             {
                 await _planService.PublishDraftAsync(cancellationToken);
+                _logger.LogInformation("api.plan.publish.ok");
+                Response.Headers["X-Trace-Summary"] = "plan.publish.ok";
                 return Ok();
             }
             catch (InvalidOperationException ex)
             {
+                _logger.LogWarning(ex, "api.plan.publish.failed");
                 return BadRequest(new { message = ex.Message });
             }
         }
@@ -73,6 +83,8 @@ namespace ServiceTaskPlanningSystem.Controllers
         public async Task<IActionResult> DiscardDraft(CancellationToken cancellationToken)
         {
             await _planService.DiscardDraftAsync(cancellationToken);
+            _logger.LogInformation("api.plan.discard.ok");
+            Response.Headers["X-Trace-Summary"] = "plan.discard.ok";
             return Ok();
         }
 

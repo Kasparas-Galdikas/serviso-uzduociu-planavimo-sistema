@@ -83,3 +83,59 @@
         </div>
     </div>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const startInput = document.querySelector('#createStartDate');
+        const endInput = document.querySelector('#createEndDate');
+        const scheduleContainer = document.querySelector('#scheduleTables');
+        if (!startInput || !endInput) return;
+
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const iso = (d) => d.toISOString().slice(0, 10);
+        const addDays = (date, days) => {
+            const d = new Date(date);
+            d.setDate(d.getDate() + days);
+            return d;
+        };
+
+        const syncStartFromActive = () => {
+            const firstFreeAttr = scheduleContainer?.getAttribute('data-first-free');
+            const activeEndIso = scheduleContainer?.getAttribute('data-active-end');
+            let firstFree = firstFreeAttr || startInput.min || todayIso;
+            if (!firstFree && activeEndIso) {
+                const parsed = new Date(activeEndIso + 'T00:00:00');
+                if (!isNaN(parsed)) {
+                    firstFree = iso(addDays(parsed, 1));
+                }
+            }
+            if (firstFree < todayIso) firstFree = todayIso;
+            startInput.min = firstFree;
+            if (!startInput.value || startInput.value < firstFree) {
+                startInput.value = firstFree;
+            }
+        };
+
+        const syncEndMin = () => {
+            const startMin = startInput.min || todayIso;
+            const startVal = startInput.value || startMin;
+            const minEnd = startVal < startMin ? startMin : startVal;
+            endInput.setAttribute('min', minEnd);
+            if (!endInput.value || endInput.value < minEnd) {
+                endInput.value = minEnd;
+            }
+        };
+
+        const refreshDates = () => {
+            syncStartFromActive();
+            syncEndMin();
+        };
+
+        // Re-evaluate on every modal open so min follows the latest active window
+        const createModal = document.getElementById('createTaskModal');
+        createModal?.addEventListener('show.bs.modal', refreshDates);
+
+        syncEndMin();
+        startInput.addEventListener('change', syncEndMin);
+    });
+</script>

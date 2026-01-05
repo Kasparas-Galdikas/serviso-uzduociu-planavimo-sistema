@@ -5,16 +5,19 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
+using Microsoft.Extensions.Logging;
 
 namespace ServiceTaskPlanningSystem.Services.Plans
 {
     public class TaskEvaluationService : ITaskEvaluationService
     {
         private readonly ScheduleDbContext _db;
+        private readonly ILogger<TaskEvaluationService> _logger;
 
-        public TaskEvaluationService(ScheduleDbContext db)
+        public TaskEvaluationService(ScheduleDbContext db, ILogger<TaskEvaluationService> logger)
         {
             _db = db;
+            _logger = logger;
         }
 
         public Task RecalculateTasksAsync(IEnumerable<long> taskIds, CancellationToken cancellationToken = default)
@@ -61,6 +64,9 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                 .GroupBy(t => t.TechnicianId)
                 .ToList();
 
+            var conflictCount = 0;
+            var overloadTotal = 0d;
+            var switchExceeded = 0;
             foreach (var techGroup in tasksByTech)
             {
                 if (!techLookup.TryGetValue(techGroup.Key, out var technician))
@@ -88,11 +94,14 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                     var dailyUtil = dailyLimit > 0 ? dailyHours / dailyLimit : 1d;
                     var weeklyUtil = weeklyLimit > 0 ? weeklyHours / weeklyLimit : 1d;
                     var overloadHours = Math.Max(Math.Max(dailyOver, weeklyOver), 0d);
+                    overloadTotal += (double)overloadHours;
 
                     var switchCount = CalculateSwitchCount(dayTasks);
                     var switchesExceeded = switchCount > switchLimit;
+                    if (switchesExceeded) switchExceeded++;
 
                     var conflictSet = DetectConflicts(dayTasks);
+                    conflictCount += conflictSet.Count;
 
                     foreach (var task in dayTasks)
                     {
@@ -148,6 +157,8 @@ namespace ServiceTaskPlanningSystem.Services.Plans
 
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+
+            _logger.LogInformation("svc.eval.recalculate tasks={Tasks} techs={Techs} conflicts={Conflicts} overloadHours={OverloadHours} switchesExceeded={SwitchExceeded}", tasks.Count, tasksByTech.Count, conflictCount, overloadTotal, switchExceeded);
         }
 
         private static HashSet<long> DetectConflicts(List<TaskEntity> tasks)

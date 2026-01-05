@@ -85,30 +85,46 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
+        const logger = window.scheduleLogger;
         const createModal = document.getElementById('createTaskModal');
         const summaryModal = document.getElementById('planningSummaryModal');
+        const scheduleContainer = document.querySelector('#scheduleTables');
         if (!createModal || !summaryModal) return;
         const startInput = document.querySelector('#createStartDate');
         const endInput = document.querySelector('#createEndDate');
-        if (startInput) {
-            const startMin = startInput.min || startInput.value || new Date().toISOString().slice(0, 10);
-            startInput.setAttribute('min', startMin);
-            if (!startInput.value || startInput.value < startMin) {
-                startInput.value = startMin;
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const iso = (d) => d.toISOString().slice(0, 10);
+        const addDays = (date, days) => {
+            const d = new Date(date);
+            d.setDate(d.getDate() + days);
+            return d;
+        };
+        const syncFromActive = () => {
+            if (!startInput) return;
+            const firstFreeAttr = scheduleContainer?.getAttribute('data-first-free');
+            const activeEndIso = scheduleContainer?.getAttribute('data-active-end');
+            let firstFree = firstFreeAttr || startInput.min || startInput.value || todayIso;
+            if (!firstFree && activeEndIso) {
+                const parsed = new Date(activeEndIso + 'T00:00:00');
+                if (!isNaN(parsed)) {
+                    firstFree = iso(addDays(parsed, 1));
+                }
             }
-        }
-        if (endInput && startInput) {
-            const syncEndMin = () => {
-                const sVal = startInput.value || startInput.min || new Date().toISOString().slice(0, 10);
-                const minEnd = sVal;
-                endInput.setAttribute('min', minEnd);
-                if (endInput.value && endInput.value < minEnd) {
+            if (firstFree < todayIso) firstFree = todayIso;
+            startInput.min = firstFree;
+            if (!startInput.value || startInput.value < firstFree) {
+                startInput.value = firstFree;
+            }
+            if (endInput) {
+                const startVal = startInput.value || firstFree;
+                const minEnd = startVal < firstFree ? firstFree : startVal;
+                endInput.min = minEnd;
+                if (!endInput.value || endInput.value < minEnd) {
                     endInput.value = minEnd;
                 }
-            };
-            syncEndMin();
-            startInput.addEventListener('change', syncEndMin);
-        }
+            }
+        };
+        syncFromActive();
 
         const copyValue = function (sourceId, targetId, isCheckbox, isSelect, isRadio) {
             const source = createModal.querySelector('#' + sourceId);
@@ -136,6 +152,7 @@
             copyValue('createMaxShifts', 'summaryMaxShifts');
             copyValue('createAllowOvertime', 'summaryAllowOvertime', true);
             copyValue('createIncludeWeekends', 'summaryIncludeWeekends', true);
+            syncFromActive();
         });
 
         const confirmBtn = summaryModal.querySelector('#summaryConfirmBtn');
@@ -163,7 +180,17 @@
 
                 setBusy(true);
                 try {
-                    const resp = await fetch('/Plans/draft', {
+                    const resp = await (logger?.fetchWithTrace('/Plans/draft', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            startDate: startDate || null,
+                            endDate: endDate || null,
+                            weeks
+                        })
+                    }, { event: 'ui.plan.draft.create', startDate, endDate, weeks }) || fetch('/Plans/draft', {
                         method: 'POST',
                         headers: {
                             'X-Requested-With': 'XMLHttpRequest',
@@ -174,10 +201,11 @@
                             endDate: endDate || null,
                             weeks
                         })
-                    });
+                    }));
                     if (!resp.ok) {
                         throw new Error('Request failed');
                     }
+                    logger?.log('info', 'ui.plan.draft.created', { startDate, endDate, weeks });
 
                     const url = startDate
                         ? `${baseUrl}?view=week&date=${encodeURIComponent(startDate)}`

@@ -1,0 +1,26 @@
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
+@if (Env.IsDevelopment())
+{
+    <div id="scheduleDebugDrawer" class="card shadow-sm mt-3">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <div>
+                <div class="fw-semibold">Schedule Debug Trace</div>
+                <div class="small text-muted">Client + server events for current trace</div>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+                <span class="badge bg-secondary" data-trace-id>n/a</span>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-copy-trace>Copy TraceId</button>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" role="switch" id="toggleServerLogs" data-toggle-server>
+                    <label class="form-check-label small" for="toggleServerLogs">Show server logs</label>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-refresh-logs>Refresh</button>
+                <button class="btn btn-outline-danger btn-sm" type="button" data-clear-logs>Clear</button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <ul class="list-group list-group-flush" data-log-list></ul>
+        </div>
+        <div class="card-footer small text-muted" data-status></div>
+    </div>
+}

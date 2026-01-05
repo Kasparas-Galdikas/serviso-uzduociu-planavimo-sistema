@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Models.Planning;
+using ServiceTaskPlanningSystem.Data.Seed;
 
 namespace ServiceTaskPlanningSystem.Services.Plans
 {
@@ -85,14 +88,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
 
             await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
-            try
-            {
-                _logger.LogInformation("CreateDraft: requestedStart={RequestedStart}, requestedEnd={RequestedEnd}, clampedStart={StartDate}, endDate={EndDate}, weeks={Weeks}, activePlanId={ActivePlanId}, activeStart={ActiveStart}, activeEnd={ActiveEnd}, lastPlannedEnd={LastPlannedEnd}", requestedStart?.Date, requestedEnd?.Date, startDate, endDate, weeks, activePlan.Id, activePlan.PeriodStart, activePlan.PeriodEnd, lastPlannedEnd);
-            }
-            catch
-            {
-                // logging only
-            }
+            _logger.LogInformation("svc.plan.draft.create requestedStart={RequestedStart} requestedEnd={RequestedEnd} start={StartDate} end={EndDate} weeks={Weeks} activePlanId={ActivePlanId}", requestedStart?.Date, requestedEnd?.Date, startDate, endDate, weeks, activePlan.Id);
 
             var draftPlan = new PlanEntity
             {
@@ -107,15 +103,20 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             _db.Plans.Add(draftPlan);
             await _db.SaveChangesAsync(cancellationToken);
 
-            var seededTasks = GenerateTasksFromActivePlan(activePlan, technicians, startDate, endDate, draftPlan.Id);
+            var seededTasks = GenerateTasksFromTemplate(technicians, startDate, endDate, draftPlan.Id);
             if (seededTasks.Any())
             {
                 _db.Tasks.AddRange(seededTasks);
                 await _db.SaveChangesAsync(cancellationToken);
             }
+            else
+            {
+                _logger.LogWarning("svc.plan.draft.seed.empty planId={PlanId} start={Start} end={End}", draftPlan.Id, startDate, endDate);
+            }
 
             await transaction.CommitAsync(cancellationToken);
             await _taskEvaluationService.RecalculatePlanAsync(draftPlan.Id, cancellationToken);
+            _logger.LogInformation("svc.plan.draft.created planId={PlanId} tasksSeeded={TaskCount}", draftPlan.Id, seededTasks.Count());
             return draftPlan;
         }
 
@@ -191,14 +192,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
 
             await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
-            try
-            {
-                _logger.LogInformation("PublishDraft: draftId={DraftId}, draftPeriod={DraftStart}-{DraftEnd}, draftTasks={DraftTasks}, draftEvals={DraftEvals}, activeId={ActiveId}", draft.Id, draft.PeriodStart, draft.PeriodEnd, draftTasksCount, draftEvalCount, active?.Id);
-            }
-            catch
-            {
-                // logging only
-            }
+            _logger.LogInformation("svc.plan.publish draftId={DraftId} draftTasks={DraftTasks} draftEvals={DraftEvals} activeId={ActiveId}", draft.Id, draftTasksCount, draftEvalCount, active?.Id);
 
             if (active != null)
             {
@@ -212,6 +206,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
 
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            _logger.LogInformation("svc.plan.publish.ok draftId={DraftId} superseded={ActiveId}", draft.Id, active?.Id);
         }
 
         public async Task DiscardDraftAsync(CancellationToken cancellationToken = default)
@@ -237,9 +232,10 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             _db.Plans.Remove(draft);
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            _logger.LogInformation("svc.plan.discard draftId={DraftId} removedTasks={Tasks}", draft.Id, draft.Tasks.Count);
         }
 
-        private static IEnumerable<TaskEntity> GenerateTasksFromActivePlan(PlanEntity activePlan, IEnumerable<TechnicianEntity> technicians, DateTime startDate, DateTime endDate, long planId)
+        private static IEnumerable<TaskEntity> GenerateTasksFromTemplate(IEnumerable<TechnicianEntity> technicians, DateTime startDate, DateTime endDate, long planId)
         {
             var start = startDate.Date;
             var end = endDate.Date;
@@ -249,10 +245,19 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             }
 
             var techLookup = technicians.ToDictionary(t => t.Id);
-            var tasksByTech = activePlan.Tasks.GroupBy(t => t.TechnicianId).ToDictionary(g => g.Key, g => g.ToList());
+            var templateWeek = SeedTemplateProvider.WeekTemplate;
+            var tasksByTech = templateWeek
+                .GroupBy(t => t.TechnicianId)
+                .ToDictionary(g => g.Key, g => g.ToList());
 
             for (var day = start; day <= end; day = day.AddDays(1))
             {
+                var templateDayOfWeek = day.DayOfWeek; // weekends naturally skipped if template has none
+                if (!templateWeek.Any(t => t.Start.Date.DayOfWeek == templateDayOfWeek))
+                {
+                    continue;
+                }
+
                 foreach (var kvp in tasksByTech)
                 {
                     if (!techLookup.TryGetValue(kvp.Key, out var tech))
@@ -262,19 +267,18 @@ namespace ServiceTaskPlanningSystem.Services.Plans
 
                     var dailyLimit = tech.DailyLimit > 0 ? (double)tech.DailyLimit : 8.0;
                     var sourceTasks = kvp.Value
-    .Where(t => t.StartAt.DayOfWeek == day.DayOfWeek)
-    .GroupBy(t => new
-    {
-        Start = t.StartAt.TimeOfDay,
-        End = t.EndAt.TimeOfDay,
-        t.Title,
-        t.Location,
-        t.Priority,
-        RegionId = t.RegionId ?? tech.RegionId
-    })
-    .Select(g => g.OrderBy(x => x.StartAt).First())
-    .OrderBy(t => t.StartAt.TimeOfDay)
-    .ToList();
+                        .Where(t => t.Start.Date.DayOfWeek == templateDayOfWeek)
+                        .GroupBy(t => new
+                        {
+                            Start = t.Start.TimeOfDay,
+                            End = t.End.TimeOfDay,
+                            t.Title,
+                            t.Location,
+                            t.Priority
+                        })
+                        .Select(g => g.OrderBy(x => x.Start).First())
+                        .OrderBy(t => t.Start.TimeOfDay)
+                        .ToList();
 
                     if (!sourceTasks.Any())
                     {
@@ -284,14 +288,14 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                     var accumulatedHours = 0.0;
                     foreach (var src in sourceTasks)
                     {
-                        var duration = (src.EndAt - src.StartAt).TotalHours;
+                        var duration = (src.End - src.Start).TotalHours;
                         if (accumulatedHours + duration > dailyLimit)
                         {
                             break;
                         }
 
-                        var startAt = DateTime.SpecifyKind(day + src.StartAt.TimeOfDay, DateTimeKind.Utc);
-                        var endAt = DateTime.SpecifyKind(day + src.EndAt.TimeOfDay, DateTimeKind.Utc);
+                        var startAt = DateTime.SpecifyKind(day + src.Start.TimeOfDay, DateTimeKind.Utc);
+                        var endAt = DateTime.SpecifyKind(day + src.End.TimeOfDay, DateTimeKind.Utc);
 
                         yield return new TaskEntity
                         {
@@ -299,10 +303,10 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                             TechnicianId = tech.Id,
                             Title = src.Title,
                             Location = src.Location,
-                            RegionId = src.RegionId ?? tech.RegionId,
+                            RegionId = tech.RegionId,
                             StartAt = startAt,
                             EndAt = endAt,
-                            Priority = src.Priority,
+                            Priority = MapPriority(src.Priority, src.Risk),
                             Status = ScheduleTaskStatus.Planned,
                             CreatedAt = DateTime.UtcNow
                         };
@@ -311,6 +315,41 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                     }
                 }
             }
+        }
+
+        private static TaskPriority MapPriority(string? priority, string? risk)
+        {
+            if (!string.IsNullOrWhiteSpace(priority))
+            {
+                return priority.ToLowerInvariant() switch
+                {
+                    "aukstas" => TaskPriority.High,
+                    "high" => TaskPriority.High,
+                    "zemas" => TaskPriority.Low,
+                    "low" => TaskPriority.Low,
+                    _ => TaskPriority.Medium
+                };
+            }
+
+            return MapRiskLevel(risk) switch
+            {
+                RiskLevel.High => TaskPriority.High,
+                RiskLevel.Low => TaskPriority.Low,
+                _ => TaskPriority.Medium
+            };
+        }
+
+        private static RiskLevel? MapRiskLevel(string? risk)
+        {
+            if (string.IsNullOrWhiteSpace(risk)) return null;
+            return risk.ToLowerInvariant() switch
+            {
+                "aukstas" => RiskLevel.High,
+                "high" => RiskLevel.High,
+                "zemas" => RiskLevel.Low,
+                "low" => RiskLevel.Low,
+                _ => RiskLevel.Medium
+            };
         }
     }
 }

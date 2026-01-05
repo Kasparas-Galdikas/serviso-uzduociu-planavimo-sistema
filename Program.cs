@@ -4,6 +4,8 @@ using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Schedule;
 using ServiceTaskPlanningSystem.Services.Plans;
 using ServiceTaskPlanningSystem.Configuration;
+using ServiceTaskPlanningSystem.Middleware;
+using ServiceTaskPlanningSystem.Infrastructure.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +13,12 @@ var configuration = ConfigurationLoader.Build(builder.Environment.ContentRootPat
 builder.Configuration.AddConfiguration(configuration);
 
 var connectionString = ConfigurationLoader.GetRequiredConnectionString(configuration);
+
+var traceFilterOptions = new TraceFilterOptions();
+var traceLogStore = new TraceLogStore(traceFilterOptions);
+builder.Services.AddSingleton(traceFilterOptions);
+builder.Services.AddSingleton(traceLogStore);
+builder.Logging.AddProvider(new TraceInMemoryLoggerProvider(traceLogStore, traceFilterOptions));
 
 // Add services to the container.
 builder.Services.AddDbContext<ScheduleDbContext>(options =>
@@ -42,6 +50,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseMiddleware<TraceMiddleware>();
 app.UseRouting();
 
 app.UseAuthorization();

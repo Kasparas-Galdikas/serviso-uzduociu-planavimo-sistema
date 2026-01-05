@@ -2,7 +2,9 @@
     const modal = document.getElementById("filterConsoleModal");
     if (!modal) return;
 
-    const logInfo = (...args) => console.info("[schedule]", ...args);
+    const logger = window.scheduleLogger;
+    if (logger) logger.initTrace();
+    const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
 
     const locationInput = modal.querySelector("#filterLocation");
     const statusInput = modal.querySelector("#filterStatus");
@@ -57,7 +59,7 @@
 
     const notifyTableUpdated = () => {
         document.dispatchEvent(new CustomEvent("schedule:table:updated"));
-        logInfo("Table updated");
+        logEvent("ui.table.updated");
     };
 
     const bindTaskClick = () => {
@@ -73,9 +75,7 @@
             if (!taskId) return;
 
             try {
-                const resp = await fetch(`/tasks/${taskId}`, {
-                    headers: { "X-Requested-With": "XMLHttpRequest" }
-                });
+                const resp = await (logger?.fetchWithTrace(`/tasks/${taskId}`, {}, { event: "ui.task.fetch", taskId }) || fetch(`/tasks/${taskId}`, { headers: { "X-Requested-With": "XMLHttpRequest" } }));
                 if (!resp.ok) {
                     await logFetchError(resp, `/tasks/${taskId}`);
                     throw new Error("Nepavyko gauti uzduoties duomenu");
@@ -87,8 +87,9 @@
                 populateTaskModal(detailModal, data, isEditable && data.isEditable);
                 const modal = new bootstrap.Modal(detailModal);
                 modal.show();
+                logEvent("ui.task.opened", { taskId, editable: isEditable && data.isEditable });
             } catch (err) {
-                console.error(err);
+                logEvent("ui.task.fetch.error", { taskId, error: err?.message }, "error");
                 alert("Nepavyko atidaryti uzduoties duomenu.");
             }
         });
@@ -147,7 +148,20 @@
 
         setBusy(true);
         try {
-            const resp = await fetch(`/tasks/${taskId}`, {
+            const resp = await (logger?.fetchWithTrace(`/tasks/${taskId}`, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    title,
+                    location,
+                    startAt,
+                    endAt,
+                    priority,
+                    status
+                })
+            }, { event: "ui.task.save", taskId }) || fetch(`/tasks/${taskId}`, {
                 method: "PATCH",
                 headers: {
                     "X-Requested-With": "XMLHttpRequest",
@@ -161,7 +175,7 @@
                     priority,
                     status
                 })
-            });
+            }));
             if (resp.status === 409 || resp.status === 403) {
                 alert("Planas pasikeite. Uzduoties redaguoti negalima.");
             } else if (!resp.ok) {
@@ -174,20 +188,21 @@
                 const bsModal = bootstrap.Modal.getInstance(modalEl);
                 bsModal?.hide();
             }
-        } catch (err) {
-            console.error(err);
-            alert("Nepavyko issaugoti uzduoties.");
-        } finally {
-            setBusy(false);
-        }
-    };
+                logEvent("ui.task.saved", { taskId });
+            } catch (err) {
+                logEvent("ui.task.save.error", { taskId, error: err?.message }, "error");
+                alert("Nepavyko issaugoti uzduoties.");
+            } finally {
+                setBusy(false);
+            }
+        };
 
     const logFetchError = async (resp, url) => {
         try {
             const text = await resp.text();
-            console.error(`Schedule fetch failed ${resp.status} ${resp.statusText} for ${url}`, text);
+            logEvent("ui.fetch.error", { url, status: resp.status, statusText: resp.statusText, body: text }, "error");
         } catch (err) {
-            console.error(`Schedule fetch failed ${resp.status} ${resp.statusText} for ${url}`);
+            logEvent("ui.fetch.error", { url, status: resp.status, statusText: resp.statusText }, "error");
         }
     };
 
@@ -198,14 +213,14 @@
 
         const url = `/Schedule/Table?${query.toString()}`;
         try {
-            const response = await fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+            const response = await (logger?.fetchWithTrace(url, {}, { event: "ui.table.fetch", view: query.get("view"), date: query.get("date"), location: query.get("location"), status: query.get("status") }) || fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } }));
             if (!response.ok) {
                 await logFetchError(response, url);
                 return;
             }
             const html = await response.text();
             tables.innerHTML = html;
-            logInfo("Fetched schedule table", { url, status: response.status, length: html.length });
+            logEvent("ui.table.fetch.ok", { url, status: response.status, length: html.length });
 
             const nextUrl = new URL(window.location.href);
             nextUrl.pathname = "/Schedule";
@@ -215,7 +230,7 @@
             }
             notifyTableUpdated();
         } catch (err) {
-            console.error("Nepavyko atnaujinti navigacijos per Ajax", err);
+            logEvent("ui.table.fetch.error", { url, error: err?.message }, "error");
         } finally {
             button?.classList.remove("disabled");
             button?.removeAttribute("aria-busy");
@@ -233,7 +248,7 @@
         if (locVal) query.set("location", locVal);
         const statusVal = statusInput?.value || "";
         if (statusVal) query.set("status", statusVal);
-        logInfo("Applying filters", {
+        logEvent("ui.filter.apply", {
             view: currentView,
             date: dateVal || "none",
             location: locVal || "all",
@@ -244,7 +259,7 @@
         try {
             await fetchTable(query);
         } catch (err) {
-            console.error("Nepavyko atnaujinti filtro rezultatu", err);
+            logEvent("ui.filter.apply.error", { error: err?.message }, "error");
         } finally {
             applyBtn?.removeAttribute("disabled");
         }
@@ -306,7 +321,7 @@
             const status = navBtn.dataset.status || "";
             if (status) query.set("status", status);
 
-            logInfo("Nav click", {
+            logEvent("ui.nav.click", {
                 view: navView,
                 date: targetDate || "none",
                 location: loc || "all",
