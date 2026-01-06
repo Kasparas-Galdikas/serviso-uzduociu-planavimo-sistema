@@ -65,6 +65,7 @@
      data-current-view="@Model.ViewMode"
      data-plan-status="@Model.CurrentPlanStatus"
      data-plan-id="@Model.CurrentPlanId"
+     data-is-manager="@(Model.IsManager.ToString().ToLowerInvariant())"
      data-active-end="@(activeEnd.ToString("yyyy-MM-dd"))"
      data-first-free="@(firstFree.ToString("yyyy-MM-dd"))">
     @if (isWeekly)

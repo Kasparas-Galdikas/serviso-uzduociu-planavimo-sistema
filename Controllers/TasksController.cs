@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.Plans;
+using ServiceTaskPlanningSystem.Services.Authorization;
 using Microsoft.Extensions.Logging;
 
 namespace ServiceTaskPlanningSystem.Controllers
@@ -16,11 +17,13 @@ namespace ServiceTaskPlanningSystem.Controllers
         private readonly ScheduleDbContext _db;
         private readonly IPlanService _planService;
         private readonly ILogger<TasksController> _logger;
+        private readonly ITaskPermissionService _taskPermissionService;
 
-        public TasksController(ScheduleDbContext db, IPlanService planService, ILogger<TasksController> logger)
+        public TasksController(ScheduleDbContext db, IPlanService planService, ITaskPermissionService taskPermissionService, ILogger<TasksController> logger)
         {
             _db = db;
             _planService = planService;
+            _taskPermissionService = taskPermissionService;
             _logger = logger;
         }
 
@@ -47,7 +50,8 @@ namespace ServiceTaskPlanningSystem.Controllers
                 return NotFound();
             }
 
-            var isEditable = task.Plan?.Status == PlanStatus.Draft;
+            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
+            var isEditable = await _taskPermissionService.CanEditTaskAsync(task, role, cancellationToken);
             _logger.LogInformation("api.task.get id={Id} editable={Editable}", id, isEditable);
 
             return Ok(new
@@ -76,6 +80,7 @@ namespace ServiceTaskPlanningSystem.Controllers
 
             try
             {
+                var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
                 var updated = await _planService.UpdateTaskAsync(id, task =>
                 {
                     task.Title = dto.Title;
@@ -84,7 +89,7 @@ namespace ServiceTaskPlanningSystem.Controllers
                     task.EndAt = dto.EndAt;
                     task.Priority = dto.Priority;
                     task.Status = dto.Status;
-                }, cancellationToken);
+                }, role, cancellationToken);
 
                 _logger.LogInformation("api.task.update id={Id} planId={PlanId}", id, updated.PlanId);
                 return Ok(new { updated.Id });

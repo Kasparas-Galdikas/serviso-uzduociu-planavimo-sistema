@@ -18,6 +18,7 @@
     let currentView = (dataSet.initialView || "").toLowerCase() === "week" ? "week" : "day";
     const plannedStart = dataSet.plannedPeriodStart;
     const plannedEnd = dataSet.plannedPeriodEnd;
+    const currentRole = new URLSearchParams(window.location.search || "").get("role") || "";
 
     const parseDate = (val) => val ? new Date(`${val}T00:00:00`) : null;
     const formatDate = (date) => date ? date.toISOString().slice(0, 10) : "";
@@ -69,7 +70,6 @@
 
             const taskId = card.getAttribute("data-task-id");
             const isEditableAttr = card.getAttribute("data-editable") || "false";
-            const planSource = card.getAttribute("data-plan-source") || "";
             const isEditable = isEditableAttr.toLowerCase() === "true";
 
             if (!taskId) return;
@@ -84,10 +84,10 @@
                 const detailModal = document.getElementById("taskDetailModal");
                 if (!detailModal) return;
 
-                populateTaskModal(detailModal, data, isEditable && data.isEditable);
+                populateTaskModal(detailModal, data, data.isEditable);
                 const modal = new bootstrap.Modal(detailModal);
                 modal.show();
-                logEvent("ui.task.opened", { taskId, editable: isEditable && data.isEditable });
+                logEvent("ui.task.opened", { taskId, editable: data.isEditable });
             } catch (err) {
                 logEvent("ui.task.fetch.error", { taskId, error: err?.message }, "error");
                 alert("Nepavyko atidaryti uzduoties duomenu.");
@@ -241,6 +241,7 @@
         if (!tables) return;
         const query = new URLSearchParams();
         query.set("view", currentView || "day");
+        if (currentRole) query.set("role", currentRole);
         const dateVal = currentView === "week" ? (weekDateInput?.value || "") : (dayDateInput?.value || "");
         if (dateVal) query.set("date", dateVal);
 
@@ -312,6 +313,8 @@
             const query = new URLSearchParams();
             const navView = (navBtn.dataset.view || currentView || "day").toLowerCase() === "week" ? "week" : "day";
             query.set("view", navView);
+            const roleVal = navBtn.dataset.role || currentRole;
+            if (roleVal) query.set("role", roleVal);
 
             const targetDate = navBtn.dataset.targetDate || "";
             if (targetDate) query.set("date", targetDate);

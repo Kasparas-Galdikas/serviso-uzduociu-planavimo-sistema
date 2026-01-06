@@ -20,16 +20,18 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
         private readonly ILogger<ScheduleProvider> _logger;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IPlanningCalendar _planningCalendar;
+        private readonly Services.Authorization.ITaskPermissionService _taskPermissionService;
 
-        public ScheduleProvider(ScheduleDbContext db, IServiceScopeFactory scopeFactory, IPlanningCalendar planningCalendar, ILogger<ScheduleProvider> logger)
+        public ScheduleProvider(ScheduleDbContext db, IServiceScopeFactory scopeFactory, IPlanningCalendar planningCalendar, Services.Authorization.ITaskPermissionService taskPermissionService, ILogger<ScheduleProvider> logger)
         {
             _db = db;
             _scopeFactory = scopeFactory;
             _planningCalendar = planningCalendar;
+            _taskPermissionService = taskPermissionService;
             _logger = logger;
         }
 
-        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? status, PlanEntity? activePlan, PlanEntity? draftPlan)
+        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? status, PlanEntity? activePlan, PlanEntity? draftPlan, string role)
         {
             var selectedDate = DateResolver.ParseOrToday(date);
             var viewMode = NormalizeView(view);
@@ -100,23 +102,23 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
 
             var draftExists = plansInView.Any(p => p!.Status == PlanStatus.Draft);
 
-            var tasks = taskEntities
-                .Select(t =>
+            var tasks = new List<TaskItem>();
+            foreach (var t in taskEntities)
+            {
+                var planStatus = t.Plan?.Status ?? PlanStatus.Active;
+                var source = planStatus switch
                 {
-                    var planStatus = t.Plan?.Status ?? PlanStatus.Active;
-                    var source = planStatus switch
-                    {
-                        PlanStatus.Draft => TaskPlanSource.Draft,
-                        PlanStatus.Superseded => TaskPlanSource.Superseded,
-                        _ => TaskPlanSource.Active
-                    };
-                    var task = MapTask(t, technicians, planStatus);
-                    task.Source = source;
-                    task.IsEditable = draftExists
-                        ? planStatus == PlanStatus.Draft
-                        : planStatus == PlanStatus.Active || planStatus == PlanStatus.Superseded;
-                    return task;
-                })
+                    PlanStatus.Draft => TaskPlanSource.Draft,
+                    PlanStatus.Superseded => TaskPlanSource.Superseded,
+                    _ => TaskPlanSource.Active
+                };
+                var task = MapTask(t, technicians, planStatus);
+                task.Source = source;
+                task.IsEditable = await _taskPermissionService.CanEditTaskAsync(t, role, CancellationToken.None);
+                tasks.Add(task);
+            }
+
+            tasks = tasks
                 .OrderBy(t => t.Start)
                 .ThenBy(t => t.Source == TaskPlanSource.Active ? 0 : t.Source == TaskPlanSource.Draft ? 1 : 2)
                 .ToList();

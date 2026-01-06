@@ -70,6 +70,13 @@
                         <!-- Prisijungimas -->
                         <div class="tab-pane fade show active" id="login-pane">
                             <form method="get" action="@scheduleUrl" class="vstack gap-3">
+                                <div class="d-flex justify-content-center gap-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="roleToggle" checked>
+                                        <label class="form-check-label small" for="roleToggle">Planavimo vadovas</label>
+                                    </div>
+                                    <span class="small text-muted">/ Technikas</span>
+                                </div>
 
                                 <div>
                                     <label for="loginEmail" class="form-label small text-muted">
@@ -96,6 +103,7 @@
                                 </div>
 
                                 <input type="hidden" name="view" value="week" />
+                                <input type="hidden" name="role" id="loginRole" value="manager" />
 
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div class="form-check">
@@ -124,6 +132,8 @@
                         <!-- Registracija -->
                         <div class="tab-pane fade" id="register-pane">
                             <form class="vstack gap-3" method="get" action="@scheduleUrl">
+                                <input type="hidden" name="view" value="week" />
+                                <input type="hidden" name="role" id="registerRole" value="manager" />
                                 <div>
                                     <label class="form-label small text-muted">
                                         Vardas ir pavardė
@@ -153,7 +163,6 @@
                                            disabled />
                                 </div>
 
-                                <input type="hidden" name="view" value="week" />
                                 <button class="btn btn-outline-primary w-100" type="submit">
                                     Tęsti į tvarkaraštį
                                 </button>
@@ -163,6 +172,8 @@
                         <!-- Slaptažodžio atkūrimas -->
                         <div class="tab-pane fade" id="forgot-pane">
                             <form class="vstack gap-3" method="get" action="@scheduleUrl">
+                                <input type="hidden" name="view" value="week" />
+                                <input type="hidden" name="role" id="forgotRole" value="manager" />
                                 <div>
                                     <label class="form-label small text-muted">
                                         Elektroninio pašto adresas
@@ -178,7 +189,6 @@
                                     slaptažodžio atkūrimo nuoroda.
                                 </p>
 
-                                <input type="hidden" name="view" value="week" />
                                 <button class="btn btn-outline-secondary w-100" type="submit">
                                     Pereiti prie tvarkaraščio
                                 </button>
@@ -191,3 +201,24 @@
         </div>
     </div>
 </div>
+
+<script>
+    (() => {
+        const toggle = document.getElementById('roleToggle');
+        const targets = [
+            document.getElementById('loginRole'),
+            document.getElementById('registerRole'),
+            document.getElementById('forgotRole')
+        ];
+
+        const syncRole = () => {
+            const role = toggle?.checked ? 'manager' : 'technician';
+            targets.forEach(t => { if (t) t.value = role; });
+        };
+
+        if (toggle) {
+            toggle.addEventListener('change', syncRole);
+            syncRole();
+        }
+    })();
+</script>

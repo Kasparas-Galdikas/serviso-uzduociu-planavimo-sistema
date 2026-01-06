@@ -12,6 +12,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             string? location,
             string? status,
             PlanEntity? activePlan,
-            PlanEntity? draftPlan);
+            PlanEntity? draftPlan,
+            string role);
     }
 }

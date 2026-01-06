@@ -52,3 +52,11 @@
         </div>
     </div>
 </div>
+
+<script>
+    document.addEventListener('schedule:table:updated', () => {
+        const tables = document.getElementById('scheduleTables');
+        if (!tables) return;
+        tables.setAttribute('data-is-manager', tables.dataset.isManager || '');
+    });
+</script>

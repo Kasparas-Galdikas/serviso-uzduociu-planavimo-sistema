@@ -27,14 +27,23 @@ namespace ServiceTaskPlanningSystem.Controllers
         {
             var activePlan = await _planService.GetActivePlanAsync();
             var draftPlan = await _planService.GetDraftPlanAsync();
+            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
+            var isManager = role == "manager" || role == "planuotojas" || string.IsNullOrWhiteSpace(role); // default manager
 
             if (draftPlan != null && activePlan == null)
             {
                 // Invalid state: draft should originate from an active plan. Log/flag as needed.
             }
 
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan);
-            vm.IsManager = true; // mock: assume manager is logged in
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role);
+            vm.IsManager = isManager;
+            if (vm.Tasks != null)
+            {
+                foreach (var t in vm.Tasks)
+                {
+                    t.IsEditable = vm.IsManager || false;
+                }
+            }
             vm = EnrichWithLayout(vm);
             _logger.LogInformation("api.schedule.index {View} {Date} {Location} {Status} active={Active} activePeriod={ActiveStart}-{ActiveEnd} activeStatus={ActiveStatus} draft={Draft} draftPeriod={DraftStart}-{DraftEnd} draftStatus={DraftStatus}",
                 vm.ViewMode,
@@ -57,14 +66,23 @@ namespace ServiceTaskPlanningSystem.Controllers
         {
             var activePlan = await _planService.GetActivePlanAsync();
             var draftPlan = await _planService.GetDraftPlanAsync();
+            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
+            var isManager = role == "manager" || role == "planuotojas" || string.IsNullOrWhiteSpace(role); // default manager
 
             if (draftPlan != null && activePlan == null)
             {
                 // Invalid state: draft should originate from an active plan. Log/flag as needed.
             }
 
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan);
-            vm.IsManager = true; // mock: assume manager is logged in
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role);
+            vm.IsManager = isManager;
+            if (vm.Tasks != null)
+            {
+                foreach (var t in vm.Tasks)
+                {
+                    t.IsEditable = vm.IsManager || false;
+                }
+            }
             vm = EnrichWithLayout(vm);
             var partial = string.Equals(vm.ViewMode, "week", StringComparison.OrdinalIgnoreCase)
                 ? "~/Views/Schedule/Partials/Tables/_WeeklyTable.cshtml"

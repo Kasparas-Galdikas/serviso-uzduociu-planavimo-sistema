@@ -10,6 +10,7 @@ using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Planning;
 using ServiceTaskPlanningSystem.Services.Evaluation;
+using ServiceTaskPlanningSystem.Services.Authorization;
 
 namespace ServiceTaskPlanningSystem.Services.Plans
 {
@@ -18,13 +19,15 @@ namespace ServiceTaskPlanningSystem.Services.Plans
         private readonly ScheduleDbContext _db;
         private readonly IEvaluationEngine _evaluationEngine;
         private readonly IPlanningCalendar _planningCalendar;
+        private readonly ITaskPermissionService _taskPermissionService;
         private readonly ILogger<PlanService> _logger;
 
-        public PlanService(ScheduleDbContext db, IEvaluationEngine evaluationEngine, IPlanningCalendar planningCalendar, ILogger<PlanService> logger)
+        public PlanService(ScheduleDbContext db, IEvaluationEngine evaluationEngine, IPlanningCalendar planningCalendar, ITaskPermissionService taskPermissionService, ILogger<PlanService> logger)
         {
             _db = db;
             _evaluationEngine = evaluationEngine;
             _planningCalendar = planningCalendar;
+            _taskPermissionService = taskPermissionService;
             _logger = logger;
         }
 
@@ -69,7 +72,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             var draftPlan = new PlanEntity
             {
                 PeriodStart = window.Start,
-                PeriodEnd = window.End,
+                PeriodEnd = window.End, // will be set to actual task span after seeding
                 Weeks = window.Weeks,
                 Status = PlanStatus.Draft,
                 CreatedAt = DateTime.UtcNow,
@@ -79,10 +82,19 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             _db.Plans.Add(draftPlan);
             await _db.SaveChangesAsync(cancellationToken);
 
-            var seededTasks = GenerateTasksFromTemplate(technicians, window.Start, window.End, draftPlan.Id);
+            var generationEnd = window.End;
+            var seededTasks = GenerateTasksFromTemplate(technicians, window.Start, generationEnd, draftPlan.Id);
             if (seededTasks.Any())
             {
                 _db.Tasks.AddRange(seededTasks);
+                await _db.SaveChangesAsync(cancellationToken);
+
+                // Align PeriodEnd to actual task span (true inclusive horizon)
+                var actualEnd = seededTasks.Max(t => t.EndAt.Date);
+                draftPlan.PeriodEnd = actualEnd;
+                var totalDays = (draftPlan.PeriodEnd - draftPlan.PeriodStart).Days + 1;
+                draftPlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
+                _db.Plans.Update(draftPlan);
                 await _db.SaveChangesAsync(cancellationToken);
             }
             else
@@ -96,10 +108,8 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             return draftPlan;
         }
 
-        public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, CancellationToken cancellationToken = default)
+        public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, string role, CancellationToken cancellationToken = default)
         {
-            var draftExists = await _db.Plans.AnyAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
-
             var task = await _db.Tasks
                 .Include(t => t.Plan)
                 .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
@@ -109,9 +119,10 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                 throw new InvalidOperationException($"Task {taskId} was not found.");
             }
 
-            if (task.Plan?.Status != PlanStatus.Draft)
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, role, cancellationToken);
+            if (!canEdit)
             {
-                throw new InvalidOperationException("Active plan is read-only while a draft exists.");
+                throw new InvalidOperationException("Neturite teisiu redaguoti sios uzduoties.");
             }
 
             applyChanges(task);
