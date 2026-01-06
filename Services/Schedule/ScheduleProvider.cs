@@ -9,6 +9,8 @@ using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.Plans;
+using ServiceTaskPlanningSystem.Services.Planning;
+using ServiceTaskPlanningSystem.Services.Evaluation;
 
 namespace ServiceTaskPlanningSystem.Services.Schedule
 {
@@ -17,15 +19,17 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
         private readonly ScheduleDbContext _db;
         private readonly ILogger<ScheduleProvider> _logger;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly IPlanningCalendar _planningCalendar;
 
-        public ScheduleProvider(ScheduleDbContext db, IServiceScopeFactory scopeFactory, ILogger<ScheduleProvider> logger)
+        public ScheduleProvider(ScheduleDbContext db, IServiceScopeFactory scopeFactory, IPlanningCalendar planningCalendar, ILogger<ScheduleProvider> logger)
         {
             _db = db;
             _scopeFactory = scopeFactory;
+            _planningCalendar = planningCalendar;
             _logger = logger;
         }
 
-        public SchedulePageViewModel GetSchedule(string view, string? date, string? location, string? status, PlanEntity? activePlan, PlanEntity? draftPlan)
+        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? status, PlanEntity? activePlan, PlanEntity? draftPlan)
         {
             var selectedDate = DateResolver.ParseOrToday(date);
             var viewMode = NormalizeView(view);
@@ -33,19 +37,11 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             var weekEnd = WeekCalculator.GetWeekEnd(selectedDate);
             var weekStartUtc = DateTime.SpecifyKind(weekStart, DateTimeKind.Utc);
             var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
-            var lastPlanEndDate = _db.Plans.Max(p => (DateTime?)p.PeriodEnd);
-            var lastTaskEndDate = _db.Tasks.Max(t => (DateTime?)t.EndAt);
-            var latestEnd = (lastPlanEndDate, lastTaskEndDate) switch
-            {
-                (null, null) => (DateTime?)null,
-                (null, var t) => t?.Date,
-                (var p, null) => p?.Date,
-                (var p, var t) => (p!.Value > t!.Value ? p.Value : t.Value).Date
-            };
+            var boundary = await _planningCalendar.GetBoundaryAsync();
 
             _logger.LogInformation("svc.schedule.request view={ViewMode} date={Date} week={WeekStart}-{WeekEnd} location={Location} status={Status}", viewMode, selectedDate, weekStart, weekEnd, location, status);
 
-            var technicians = _db.Technicians
+            var technicians = await _db.Technicians
                 .AsNoTracking()
                 .Include(t => t.Region)
                 .Select(t => new Technician
@@ -60,14 +56,14 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                     DailyLimit = (int)t.DailyLimit,
                     TravelSwitches = t.TravelSwitchLimit
                 })
-                .ToList();
+                .ToListAsync();
 
-            var taskEntities = _db.Tasks
+            var taskEntities = await _db.Tasks
                 .AsNoTracking()
                 .Include(t => t.Plan)
                 .Include(t => t.Evaluation)
                 .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc)
-                .ToList();
+                .ToListAsync();
 
             var plansInView = taskEntities
                 .Select(t => t.Plan)
@@ -137,30 +133,18 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             var summary = BuildSummary(tasks, technicians);
             _logger.LogInformation("svc.schedule.summary tasks={Tasks} issues={Issues} locations={Locations} statuses={Statuses}", tasks.Count, issues.Count, availableLocations.Count, availableStatuses.Count);
 
-            var lastPlanPeriod = _db.Plans
+            var lastPlanPeriod = await _db.Plans
                 .AsNoTracking()
                 .OrderByDescending(p => p.PeriodEnd)
                 .Select(p => new { p.PeriodStart, p.PeriodEnd })
-                .FirstOrDefault();
+                .FirstOrDefaultAsync();
 
-            // Use the furthest known end date (plan or task) to avoid enabling days still covered by active work.
-            var candidates = new List<DateTime?>();
-            if (draftPlan != null) candidates.Add(draftPlan.PeriodEnd);
-            if (activePlan != null) candidates.Add(activePlan.PeriodEnd);
-            if (latestEnd != null) candidates.Add(latestEnd);
-            if (lastPlanPeriod != null) candidates.Add(lastPlanPeriod.PeriodEnd);
-
-            var plannedPeriodEnd = candidates
-                .Where(c => c.HasValue)
-                .Select(c => c!.Value.Date)
-                .DefaultIfEmpty(default)
-                .Max();
-            var today = DateTime.Today;
-            var firstFreeDate = plannedPeriodEnd == default ? today : plannedPeriodEnd.Date.AddDays(1);
-            if (firstFreeDate < today)
-            {
-                firstFreeDate = today;
-            }
+            var plannedPeriodEnd = draftPlan?.PeriodEnd
+                ?? activePlan?.PeriodEnd
+                ?? boundary.LastOccupiedDate
+                ?? lastPlanPeriod?.PeriodEnd
+                ?? default;
+            var firstFreeDate = boundary.FirstFreeDate;
 
             (technicians, tasks) = ApplyLocationFilter(location, technicians, tasks);
             (technicians, tasks) = ApplyStatusFilter(status, technicians, tasks);
@@ -359,7 +343,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             _ = Task.Run(async () =>
             {
                 using var scope = _scopeFactory.CreateScope();
-                var evaluator = scope.ServiceProvider.GetRequiredService<ITaskEvaluationService>();
+                var evaluator = scope.ServiceProvider.GetRequiredService<IEvaluationEngine>();
                 try
                 {
                     await evaluator.RecalculatePlanAsync(planId);

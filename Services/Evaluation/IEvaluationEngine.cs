@@ -2,11 +2,11 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace ServiceTaskPlanningSystem.Services.Plans
+namespace ServiceTaskPlanningSystem.Services.Evaluation
 {
-    public interface ITaskEvaluationService
+    public interface IEvaluationEngine
     {
-        Task RecalculatePlanAsync(long planId, CancellationToken cancellationToken = default);
         Task RecalculateTasksAsync(IEnumerable<long> taskIds, CancellationToken cancellationToken = default);
+        Task RecalculatePlanAsync(long planId, CancellationToken cancellationToken = default);
     }
 }

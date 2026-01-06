@@ -3,6 +3,8 @@ using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Schedule;
 using ServiceTaskPlanningSystem.Services.Plans;
+using ServiceTaskPlanningSystem.Services.Planning;
+using ServiceTaskPlanningSystem.Services.Evaluation;
 using ServiceTaskPlanningSystem.Configuration;
 using ServiceTaskPlanningSystem.Middleware;
 using ServiceTaskPlanningSystem.Infrastructure.Logging;
@@ -34,7 +36,8 @@ builder.Services.AddDbContext<ScheduleDbContext>(options =>
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
 builder.Services.AddScoped<IPlanService, PlanService>();
-builder.Services.AddScoped<ITaskEvaluationService, TaskEvaluationService>();
+builder.Services.AddScoped<IEvaluationEngine, TaskEvaluationEngine>();
+builder.Services.AddScoped<IPlanningCalendar, PlanningCalendar>();
 builder.Services.AddTransient<DatabaseSeeder>();
 builder.Services.AddSingleton<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 builder.Services.AddHostedService<EvaluationRepairService>();

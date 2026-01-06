@@ -6,15 +6,16 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Services.Evaluation;
 
-namespace ServiceTaskPlanningSystem.Services.Plans
+namespace ServiceTaskPlanningSystem.Services.Evaluation
 {
-    public class TaskEvaluationService : ITaskEvaluationService
+    public class TaskEvaluationEngine : IEvaluationEngine
     {
         private readonly ScheduleDbContext _db;
-        private readonly ILogger<TaskEvaluationService> _logger;
+        private readonly ILogger<TaskEvaluationEngine> _logger;
 
-        public TaskEvaluationService(ScheduleDbContext db, ILogger<TaskEvaluationService> logger)
+        public TaskEvaluationEngine(ScheduleDbContext db, ILogger<TaskEvaluationEngine> logger)
         {
             _db = db;
             _logger = logger;

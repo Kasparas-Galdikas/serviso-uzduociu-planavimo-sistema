@@ -8,19 +8,23 @@ using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data.Seed;
+using ServiceTaskPlanningSystem.Services.Planning;
+using ServiceTaskPlanningSystem.Services.Evaluation;
 
 namespace ServiceTaskPlanningSystem.Services.Plans
 {
     public class PlanService : IPlanService
     {
         private readonly ScheduleDbContext _db;
-        private readonly ITaskEvaluationService _taskEvaluationService;
+        private readonly IEvaluationEngine _evaluationEngine;
+        private readonly IPlanningCalendar _planningCalendar;
         private readonly ILogger<PlanService> _logger;
 
-        public PlanService(ScheduleDbContext db, ITaskEvaluationService taskEvaluationService, ILogger<PlanService> logger)
+        public PlanService(ScheduleDbContext db, IEvaluationEngine evaluationEngine, IPlanningCalendar planningCalendar, ILogger<PlanService> logger)
         {
             _db = db;
-            _taskEvaluationService = taskEvaluationService;
+            _evaluationEngine = evaluationEngine;
+            _planningCalendar = planningCalendar;
             _logger = logger;
         }
 
@@ -51,60 +55,22 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                 throw new InvalidOperationException("No active plan found to clone.");
             }
 
-            // Determine the latest planned/task end across all plans to avoid overlaps.
-            var lastPlannedEnd = await _db.Plans.MaxAsync(p => p.PeriodEnd, cancellationToken);
-            var lastTaskEnd = await _db.Tasks.MaxAsync(t => (DateTime?)t.EndAt, cancellationToken) ?? lastPlannedEnd;
-            if (lastTaskEnd.Date > lastPlannedEnd.Date)
-            {
-                lastPlannedEnd = lastTaskEnd.Date;
-            }
-
             var technicians = await _db.Technicians
                 .Include(t => t.Region)
                 .ToListAsync(cancellationToken);
 
-            var firstFreeDay = lastPlannedEnd.Date.AddDays(1);
-            var requestedStartDate = requestedStart?.Date;
-            var requestedEndDate = requestedEnd?.Date;
-
-            if ((requestedStartDate.HasValue && requestedStartDate.Value < firstFreeDay) ||
-                (requestedEndDate.HasValue && requestedEndDate.Value < firstFreeDay))
-            {
-                throw new InvalidOperationException($"Drafts may start from {firstFreeDay:yyyy-MM-dd}.");
-            }
-
-            // Keep the user's requested span (N days) but clamp the start forward to avoid overlap.
-            var requestedSpanDays = requestedStartDate.HasValue && requestedEndDate.HasValue && requestedEndDate.Value >= requestedStartDate.Value
-                ? (requestedEndDate.Value - requestedStartDate.Value).Days + 1
-                : 0;
-
-            var startDate = requestedStartDate.HasValue && requestedStartDate.Value >= firstFreeDay
-                ? requestedStartDate.Value
-                : firstFreeDay;
-
-            var plannedSpanDays = requestedSpanDays > 0
-                ? requestedSpanDays
-                : requestedWeeks.HasValue && requestedWeeks.Value > 0
-                    ? requestedWeeks.Value * 7
-                    : (activePlan.Weeks > 0 ? activePlan.Weeks : 4) * 7;
-
-            if (plannedSpanDays < 1)
-            {
-                plannedSpanDays = 1;
-            }
-
-            var endDate = startDate.AddDays(plannedSpanDays - 1);
-            var weeks = Math.Max(1, (int)Math.Ceiling(plannedSpanDays / 7.0));
+            var fallbackWeeks = activePlan.Weeks > 0 ? activePlan.Weeks : 4;
+            var window = await _planningCalendar.BuildWindowAsync(requestedStart, requestedEnd, requestedWeeks, fallbackWeeks, cancellationToken);
 
             await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
-            _logger.LogInformation("svc.plan.draft.create requestedStart={RequestedStart} requestedEnd={RequestedEnd} start={StartDate} end={EndDate} weeks={Weeks} activePlanId={ActivePlanId}", requestedStart?.Date, requestedEnd?.Date, startDate, endDate, weeks, activePlan.Id);
+            _logger.LogInformation("svc.plan.draft.create requestedStart={RequestedStart} requestedEnd={RequestedEnd} start={StartDate} end={EndDate} weeks={Weeks} activePlanId={ActivePlanId}", requestedStart?.Date, requestedEnd?.Date, window.Start, window.End, window.Weeks, activePlan.Id);
 
             var draftPlan = new PlanEntity
             {
-                PeriodStart = startDate,
-                PeriodEnd = endDate,
-                Weeks = weeks,
+                PeriodStart = window.Start,
+                PeriodEnd = window.End,
+                Weeks = window.Weeks,
                 Status = PlanStatus.Draft,
                 CreatedAt = DateTime.UtcNow,
                 CreatedBy = activePlan.CreatedBy
@@ -113,7 +79,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             _db.Plans.Add(draftPlan);
             await _db.SaveChangesAsync(cancellationToken);
 
-            var seededTasks = GenerateTasksFromTemplate(technicians, startDate, endDate, draftPlan.Id);
+            var seededTasks = GenerateTasksFromTemplate(technicians, window.Start, window.End, draftPlan.Id);
             if (seededTasks.Any())
             {
                 _db.Tasks.AddRange(seededTasks);
@@ -121,11 +87,11 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             }
             else
             {
-                _logger.LogWarning("svc.plan.draft.seed.empty planId={PlanId} start={Start} end={End}", draftPlan.Id, startDate, endDate);
+                _logger.LogWarning("svc.plan.draft.seed.empty planId={PlanId} start={Start} end={End}", draftPlan.Id, window.Start, window.End);
             }
 
             await transaction.CommitAsync(cancellationToken);
-            await _taskEvaluationService.RecalculatePlanAsync(draftPlan.Id, cancellationToken);
+            await _evaluationEngine.RecalculatePlanAsync(draftPlan.Id, cancellationToken);
             _logger.LogInformation("svc.plan.draft.created planId={PlanId} tasksSeeded={TaskCount}", draftPlan.Id, seededTasks.Count());
             return draftPlan;
         }
@@ -152,7 +118,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             await _db.SaveChangesAsync(cancellationToken);
             if (task.PlanId.HasValue)
             {
-                await _taskEvaluationService.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
+                await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
             }
             return task;
         }
@@ -175,7 +141,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
 
             try
             {
-                await _taskEvaluationService.RecalculatePlanAsync(draft.Id, cancellationToken);
+                await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -192,7 +158,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             if (draftTasksCount > 0 && draftEvalCount < draftTasksCount)
             {
                 // Try one more recalculation in case evaluations were stale.
-                await _taskEvaluationService.RecalculatePlanAsync(draft.Id, cancellationToken);
+                await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
                 draftEvalCount = await _db.TaskEvaluations.CountAsync(e => draftTaskIds.Contains(e.TaskId), cancellationToken);
                 if (draftEvalCount < draftTasksCount)
                 {
@@ -230,7 +196,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                 return;
             }
 
-            await _taskEvaluationService.RecalculatePlanAsync(draft.Id, cancellationToken);
+            await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
 
             await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 

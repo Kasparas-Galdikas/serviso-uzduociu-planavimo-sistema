@@ -33,7 +33,7 @@ namespace ServiceTaskPlanningSystem.Controllers
                 // Invalid state: draft should originate from an active plan. Log/flag as needed.
             }
 
-            var vm = _scheduleProvider.GetSchedule(view, date, location, status, activePlan, draftPlan);
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan);
             vm.IsManager = true; // mock: assume manager is logged in
             vm = EnrichWithLayout(vm);
             _logger.LogInformation("api.schedule.index {View} {Date} {Location} {Status} active={Active} activePeriod={ActiveStart}-{ActiveEnd} activeStatus={ActiveStatus} draft={Draft} draftPeriod={DraftStart}-{DraftEnd} draftStatus={DraftStatus}",
@@ -63,7 +63,7 @@ namespace ServiceTaskPlanningSystem.Controllers
                 // Invalid state: draft should originate from an active plan. Log/flag as needed.
             }
 
-            var vm = _scheduleProvider.GetSchedule(view, date, location, status, activePlan, draftPlan);
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan);
             vm.IsManager = true; // mock: assume manager is logged in
             vm = EnrichWithLayout(vm);
             var partial = string.Equals(vm.ViewMode, "week", StringComparison.OrdinalIgnoreCase)

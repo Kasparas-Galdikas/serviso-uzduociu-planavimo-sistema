@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Services.Plans;
 using ServiceTaskPlanningSystem.Data;
 using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Services.Evaluation;
 
 namespace ServiceTaskPlanningSystem.Controllers
 {
@@ -13,13 +14,13 @@ namespace ServiceTaskPlanningSystem.Controllers
     public class PlansController : ControllerBase
     {
         private readonly IPlanService _planService;
-        private readonly ITaskEvaluationService _taskEvaluationService;
+        private readonly IEvaluationEngine _evaluationEngine;
         private readonly ILogger<PlansController> _logger;
 
-        public PlansController(IPlanService planService, ITaskEvaluationService taskEvaluationService, ILogger<PlansController> logger)
+        public PlansController(IPlanService planService, IEvaluationEngine evaluationEngine, ILogger<PlansController> logger)
         {
             _planService = planService;
-            _taskEvaluationService = taskEvaluationService;
+            _evaluationEngine = evaluationEngine;
             _logger = logger;
         }
 
@@ -101,12 +102,12 @@ namespace ServiceTaskPlanningSystem.Controllers
 
             if (active != null)
             {
-                await _taskEvaluationService.RecalculatePlanAsync(active.Id, cancellationToken);
+                await _evaluationEngine.RecalculatePlanAsync(active.Id, cancellationToken);
             }
 
             if (draft != null)
             {
-                await _taskEvaluationService.RecalculatePlanAsync(draft.Id, cancellationToken);
+                await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
             }
 
             return Ok(new

@@ -8,7 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 
-namespace ServiceTaskPlanningSystem.Services.Plans
+namespace ServiceTaskPlanningSystem.Services.Evaluation
 {
     public class EvaluationRepairService : BackgroundService
     {
@@ -46,7 +46,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
-            var evaluator = scope.ServiceProvider.GetRequiredService<ITaskEvaluationService>();
+            var evaluator = scope.ServiceProvider.GetRequiredService<IEvaluationEngine>();
 
             var planTaskCounts = await db.Tasks
                 .AsNoTracking()
