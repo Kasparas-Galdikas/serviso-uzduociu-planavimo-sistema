@@ -406,3 +406,19 @@ textarea:focus {
   p { font-size: 0.78rem; }
   .btn { font-size: 0.78rem; }
 }
+
+/* =========================================================
+   Authentication layout
+   ========================================================= */
+
+.auth-container {
+  max-width: 960px;
+}
+
+.auth-hero-panel {
+  background: linear-gradient(
+    180deg,
+    #f8f9fa 0%,
+    #e9ecef 100%
+  );
+}

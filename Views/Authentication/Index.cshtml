@@ -1,0 +1,193 @@
+@{
+    ViewData["Title"] = "Prisijungimas";
+    var scheduleUrl = Url.Action("Index", "Schedule", new { view = "week" }) ?? "/Schedule?view=week";
+}
+
+<div class="d-flex align-items-center justify-content-center min-vh-100">
+
+    <div class="container auth-container">
+        <div class="card shadow-lg border-0 overflow-hidden auth-card">
+            <div class="row g-0 h-100">
+
+                <!-- Informacinė sritis -->
+                <div class="col-md-5 d-none d-md-block auth-hero-panel">
+                    <div class="h-100 d-flex flex-column justify-content-center text-white p-4">
+                        <h2 class="fw-bold mb-3">
+                            Serviso užduočių planavimo sistema
+                        </h2>
+                        <p class="mb-0">
+                            Prisijunkite prie sistemos, kad galėtumėte planuoti serviso darbus,
+                            valdyti tvarkaraščius ir stebėti technikų apkrovą realiuoju laiku.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Prisijungimo forma -->
+                <div class="col-md-7 p-4">
+
+                    <div class="mb-4 text-center">
+                        <span class="badge bg-light text-dark px-3 py-2 rounded-pill">
+                            Sveiki sugrįžę
+                        </span>
+                        <h3 class="fw-semibold mt-3 mb-1">
+                            Prisijungimas prie sistemos
+                        </h3>
+                        <p class="text-muted mb-0 small">
+                            Įveskite savo prisijungimo duomenis
+                        </p>
+                    </div>
+
+                    <!-- Navigacija -->
+                    <ul class="nav nav-pills justify-content-center mb-3" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link active"
+                                    data-bs-toggle="pill"
+                                    data-bs-target="#login-pane"
+                                    type="button">
+                                Prisijungimas
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link"
+                                    data-bs-toggle="pill"
+                                    data-bs-target="#register-pane"
+                                    type="button">
+                                Registracija
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link"
+                                    data-bs-toggle="pill"
+                                    data-bs-target="#forgot-pane"
+                                    type="button">
+                                Slaptažodžio atkūrimas
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content">
+
+                        <!-- Prisijungimas -->
+                        <div class="tab-pane fade show active" id="login-pane">
+                            <form method="get" action="@scheduleUrl" class="vstack gap-3">
+
+                                <div>
+                                    <label for="loginEmail" class="form-label small text-muted">
+                                        Elektroninio pašto adresas
+                                    </label>
+                                    <input type="email"
+                                           class="form-control"
+                                           id="loginEmail"
+                                           name="email"
+                                           placeholder="vardas.pavarde@imone.lt"
+                                            />
+                                </div>
+
+                                <div>
+                                    <label for="loginPassword" class="form-label small text-muted">
+                                        Slaptažodis
+                                    </label>
+                                    <input type="password"
+                                           class="form-control"
+                                           id="loginPassword"
+                                           name="password"
+                                           placeholder="••••••••"
+                                            />
+                                </div>
+
+                                <input type="hidden" name="view" value="week" />
+
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="form-check">
+                                        <input class="form-check-input"
+                                               type="checkbox"
+                                               id="rememberMe"
+                                               checked />
+                                        <label class="form-check-label small text-muted"
+                                               for="rememberMe">
+                                            Prisiminti mane
+                                        </label>
+                                    </div>
+                                    <a class="small text-decoration-none"
+                                       data-bs-toggle="pill"
+                                       href="#forgot-pane">
+                                        Pamiršote slaptažodį?
+                                    </a>
+                                </div>
+
+                                <button type="submit" class="btn btn-primary w-100">
+                                    Prisijungti
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Registracija -->
+                        <div class="tab-pane fade" id="register-pane">
+                            <form class="vstack gap-3" method="get" action="@scheduleUrl">
+                                <div>
+                                    <label class="form-label small text-muted">
+                                        Vardas ir pavardė
+                                    </label>
+                                    <input type="text"
+                                           class="form-control"
+                                           placeholder="Vardas Pavardė"
+                                           disabled />
+                                </div>
+
+                                <div>
+                                    <label class="form-label small text-muted">
+                                        Elektroninio pašto adresas
+                                    </label>
+                                    <input type="email"
+                                           class="form-control"
+                                           placeholder="vardas.pavarde@imone.lt"
+                                           disabled />
+                                </div>
+
+                                <div>
+                                    <label class="form-label small text-muted">
+                                        Slaptažodis
+                                    </label>
+                                    <input type="password"
+                                           class="form-control"
+                                           disabled />
+                                </div>
+
+                                <input type="hidden" name="view" value="week" />
+                                <button class="btn btn-outline-primary w-100" type="submit">
+                                    Tęsti į tvarkaraštį
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Slaptažodžio atkūrimas -->
+                        <div class="tab-pane fade" id="forgot-pane">
+                            <form class="vstack gap-3" method="get" action="@scheduleUrl">
+                                <div>
+                                    <label class="form-label small text-muted">
+                                        Elektroninio pašto adresas
+                                    </label>
+                                    <input type="email"
+                                           class="form-control"
+                                           placeholder="vardas.pavarde@imone.lt"
+                                           disabled />
+                                </div>
+
+                                <p class="small text-muted mb-1">
+                                    Įveskite elektroninio pašto adresą, kuriuo bus išsiųsta
+                                    slaptažodžio atkūrimo nuoroda.
+                                </p>
+
+                                <input type="hidden" name="view" value="week" />
+                                <button class="btn btn-outline-secondary w-100" type="submit">
+                                    Pereiti prie tvarkaraščio
+                                </button>
+                            </form>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
