@@ -1,8 +1,7 @@
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
 @{
     var today = DateTime.Today;
-    var plannedEnd = Model.PlannedPeriodEnd == default ? today : Model.PlannedPeriodEnd.Date;
-    var firstFreeDay = plannedEnd.AddDays(1);
+    var firstFreeDay = Model.FirstFreeDate == default ? today : Model.FirstFreeDate.Date;
     var startValue = firstFreeDay < today ? today : firstFreeDay;
     var startValueStr = startValue.ToString("yyyy-MM-dd");
     var minDateStr = startValueStr; // prevent selecting dates that are already planned
@@ -22,7 +21,7 @@
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <label class="form-label small mb-1">Pradzios data</label>
-                                <input type="date" class="form-control" id="createStartDate" value="@startValueStr" min="@minDateStr" readonly />
+                                <input type="date" class="form-control" id="createStartDate" value="@startValueStr" min="@minDateStr" disabled />
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label small mb-1">Pabaigos data</label>
@@ -89,53 +88,16 @@
         const startInput = document.querySelector('#createStartDate');
         const endInput = document.querySelector('#createEndDate');
         const scheduleContainer = document.querySelector('#scheduleTables');
-        if (!startInput || !endInput) return;
+        const dateHelper = window.schedulePlanningDates;
+        if (!startInput || !endInput || !dateHelper) return;
 
-        const todayIso = new Date().toISOString().slice(0, 10);
-        const iso = (d) => d.toISOString().slice(0, 10);
-        const addDays = (date, days) => {
-            const d = new Date(date);
-            d.setDate(d.getDate() + days);
-            return d;
-        };
-
-        const syncStartFromActive = () => {
-            const firstFreeAttr = scheduleContainer?.getAttribute('data-first-free');
-            const activeEndIso = scheduleContainer?.getAttribute('data-active-end');
-            let firstFree = firstFreeAttr || startInput.min || todayIso;
-            if (!firstFree && activeEndIso) {
-                const parsed = new Date(activeEndIso + 'T00:00:00');
-                if (!isNaN(parsed)) {
-                    firstFree = iso(addDays(parsed, 1));
-                }
-            }
-            if (firstFree < todayIso) firstFree = todayIso;
-            startInput.min = firstFree;
-            if (!startInput.value || startInput.value < firstFree) {
-                startInput.value = firstFree;
-            }
-        };
-
-        const syncEndMin = () => {
-            const startMin = startInput.min || todayIso;
-            const startVal = startInput.value || startMin;
-            const minEnd = startVal < startMin ? startMin : startVal;
-            endInput.setAttribute('min', minEnd);
-            if (!endInput.value || endInput.value < minEnd) {
-                endInput.value = minEnd;
-            }
-        };
-
-        const refreshDates = () => {
-            syncStartFromActive();
-            syncEndMin();
-        };
+        const createModal = document.getElementById('createTaskModal');
+        const refreshDates = () => dateHelper.syncStartEndMins({ scheduleContainer, startInput, endInput });
 
         // Re-evaluate on every modal open so min follows the latest active window
-        const createModal = document.getElementById('createTaskModal');
         createModal?.addEventListener('show.bs.modal', refreshDates);
 
-        syncEndMin();
-        startInput.addEventListener('change', syncEndMin);
+        refreshDates();
+        startInput.addEventListener('change', refreshDates);
     });
 </script>

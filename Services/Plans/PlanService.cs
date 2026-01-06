@@ -64,27 +64,37 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                 .ToListAsync(cancellationToken);
 
             var firstFreeDay = lastPlannedEnd.Date.AddDays(1);
-            // Clamp requested start to the first free day after the last existing plan to avoid overlap.
-            var startDate = requestedStart.HasValue && requestedStart.Value.Date > firstFreeDay
-                ? requestedStart.Value.Date
-                : firstFreeDay;
-            DateTime endDate;
-            if (requestedEnd.HasValue && requestedEnd.Value.Date >= startDate)
+            var requestedStartDate = requestedStart?.Date;
+            var requestedEndDate = requestedEnd?.Date;
+
+            if ((requestedStartDate.HasValue && requestedStartDate.Value < firstFreeDay) ||
+                (requestedEndDate.HasValue && requestedEndDate.Value < firstFreeDay))
             {
-                endDate = requestedEnd.Value.Date;
-            }
-            else if (requestedWeeks.HasValue && requestedWeeks.Value > 0)
-            {
-                endDate = startDate.AddDays(requestedWeeks.Value * 7 - 1);
-            }
-            else
-            {
-                var fallbackWeeks = activePlan.Weeks > 0 ? activePlan.Weeks : 4;
-                endDate = startDate.AddDays(fallbackWeeks * 7 - 1);
+                throw new InvalidOperationException($"Drafts may start from {firstFreeDay:yyyy-MM-dd}.");
             }
 
-            var totalDays = (endDate - startDate).Days + 1;
-            var weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
+            // Keep the user's requested span (N days) but clamp the start forward to avoid overlap.
+            var requestedSpanDays = requestedStartDate.HasValue && requestedEndDate.HasValue && requestedEndDate.Value >= requestedStartDate.Value
+                ? (requestedEndDate.Value - requestedStartDate.Value).Days + 1
+                : 0;
+
+            var startDate = requestedStartDate.HasValue && requestedStartDate.Value >= firstFreeDay
+                ? requestedStartDate.Value
+                : firstFreeDay;
+
+            var plannedSpanDays = requestedSpanDays > 0
+                ? requestedSpanDays
+                : requestedWeeks.HasValue && requestedWeeks.Value > 0
+                    ? requestedWeeks.Value * 7
+                    : (activePlan.Weeks > 0 ? activePlan.Weeks : 4) * 7;
+
+            if (plannedSpanDays < 1)
+            {
+                plannedSpanDays = 1;
+            }
+
+            var endDate = startDate.AddDays(plannedSpanDays - 1);
+            var weeks = Math.Max(1, (int)Math.Ceiling(plannedSpanDays / 7.0));
 
             await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 

@@ -1,8 +1,7 @@
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
 @{
     var today = DateTime.Today;
-    var plannedEnd = Model.PlannedPeriodEnd == default ? today : Model.PlannedPeriodEnd.Date;
-    var firstFreeDay = plannedEnd.AddDays(1);
+    var firstFreeDay = Model.FirstFreeDate == default ? today : Model.FirstFreeDate.Date;
     var startValue = firstFreeDay < today ? today : firstFreeDay;
     var startValueStr = startValue.ToString("yyyy-MM-dd");
 }
@@ -92,39 +91,9 @@
         if (!createModal || !summaryModal) return;
         const startInput = document.querySelector('#createStartDate');
         const endInput = document.querySelector('#createEndDate');
-        const todayIso = new Date().toISOString().slice(0, 10);
-        const iso = (d) => d.toISOString().slice(0, 10);
-        const addDays = (date, days) => {
-            const d = new Date(date);
-            d.setDate(d.getDate() + days);
-            return d;
-        };
-        const syncFromActive = () => {
-            if (!startInput) return;
-            const firstFreeAttr = scheduleContainer?.getAttribute('data-first-free');
-            const activeEndIso = scheduleContainer?.getAttribute('data-active-end');
-            let firstFree = firstFreeAttr || startInput.min || startInput.value || todayIso;
-            if (!firstFree && activeEndIso) {
-                const parsed = new Date(activeEndIso + 'T00:00:00');
-                if (!isNaN(parsed)) {
-                    firstFree = iso(addDays(parsed, 1));
-                }
-            }
-            if (firstFree < todayIso) firstFree = todayIso;
-            startInput.min = firstFree;
-            if (!startInput.value || startInput.value < firstFree) {
-                startInput.value = firstFree;
-            }
-            if (endInput) {
-                const startVal = startInput.value || firstFree;
-                const minEnd = startVal < firstFree ? firstFree : startVal;
-                endInput.min = minEnd;
-                if (!endInput.value || endInput.value < minEnd) {
-                    endInput.value = minEnd;
-                }
-            }
-        };
-        syncFromActive();
+        const dateHelper = window.schedulePlanningDates;
+        const refreshDates = () => dateHelper?.syncStartEndMins({ scheduleContainer, startInput, endInput });
+        refreshDates();
 
         const copyValue = function (sourceId, targetId, isCheckbox, isSelect, isRadio) {
             const source = createModal.querySelector('#' + sourceId);
@@ -152,7 +121,7 @@
             copyValue('createMaxShifts', 'summaryMaxShifts');
             copyValue('createAllowOvertime', 'summaryAllowOvertime', true);
             copyValue('createIncludeWeekends', 'summaryIncludeWeekends', true);
-            syncFromActive();
+            refreshDates();
         });
 
         const confirmBtn = summaryModal.querySelector('#summaryConfirmBtn');
@@ -203,7 +172,17 @@
                         })
                     }));
                     if (!resp.ok) {
-                        throw new Error('Request failed');
+                        let message = 'Nepavyko sukurti juodrascio.';
+                        try {
+                            const data = await resp.json();
+                            if (data?.message) {
+                                message = data.message;
+                            }
+                        } catch (_) {
+                            const text = await resp.text();
+                            if (text) message = text;
+                        }
+                        throw new Error(message);
                     }
                     logger?.log('info', 'ui.plan.draft.created', { startDate, endDate, weeks });
 
@@ -218,7 +197,7 @@
                     window.location.href = url;
                 } catch (err) {
                     console.error('Nepavyko sukurti juodrascio', err);
-                    alert('Nepavyko sukurti juodrascio. Bandykite dar karta.');
+                    alert(err?.message || 'Nepavyko sukurti juodrascio. Bandykite dar karta.');
                     setBusy(false);
                 }
             });

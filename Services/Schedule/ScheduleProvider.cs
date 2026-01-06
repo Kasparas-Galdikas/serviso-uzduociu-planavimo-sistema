@@ -143,6 +143,25 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 .Select(p => new { p.PeriodStart, p.PeriodEnd })
                 .FirstOrDefault();
 
+            // Use the furthest known end date (plan or task) to avoid enabling days still covered by active work.
+            var candidates = new List<DateTime?>();
+            if (draftPlan != null) candidates.Add(draftPlan.PeriodEnd);
+            if (activePlan != null) candidates.Add(activePlan.PeriodEnd);
+            if (latestEnd != null) candidates.Add(latestEnd);
+            if (lastPlanPeriod != null) candidates.Add(lastPlanPeriod.PeriodEnd);
+
+            var plannedPeriodEnd = candidates
+                .Where(c => c.HasValue)
+                .Select(c => c!.Value.Date)
+                .DefaultIfEmpty(default)
+                .Max();
+            var today = DateTime.Today;
+            var firstFreeDate = plannedPeriodEnd == default ? today : plannedPeriodEnd.Date.AddDays(1);
+            if (firstFreeDate < today)
+            {
+                firstFreeDate = today;
+            }
+
             (technicians, tasks) = ApplyLocationFilter(location, technicians, tasks);
             (technicians, tasks) = ApplyStatusFilter(status, technicians, tasks);
 
@@ -166,8 +185,9 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 CurrentPlanId = (draftPlan ?? activePlan)?.Id,
                 CurrentPlanStatus = planStatusText,
                 PlannedPeriodStart = draftPlan?.PeriodStart ?? activePlan?.PeriodStart ?? lastPlanPeriod?.PeriodStart ?? default,
-                PlannedPeriodEnd = draftPlan?.PeriodEnd ?? activePlan?.PeriodEnd ?? latestEnd ?? lastPlanPeriod?.PeriodEnd ?? default,
-                PlannedWeeks = draftPlan?.Weeks ?? activePlan?.Weeks ?? 1
+                PlannedPeriodEnd = plannedPeriodEnd,
+                PlannedWeeks = draftPlan?.Weeks ?? activePlan?.Weeks ?? 1,
+                FirstFreeDate = firstFreeDate
             };
         }
 

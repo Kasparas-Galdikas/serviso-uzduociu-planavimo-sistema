@@ -59,7 +59,7 @@
 
 @{
     var activeEnd = Model.PlannedPeriodEnd == default ? DateTime.Today : Model.PlannedPeriodEnd.Date;
-    var firstFree = activeEnd.AddDays(1);
+    var firstFree = Model.FirstFreeDate == default ? activeEnd.AddDays(1) : Model.FirstFreeDate;
 }
 <div id="scheduleTables"
      data-current-view="@Model.ViewMode"
@@ -85,6 +85,7 @@
 
 
 @section Scripts {
+    <script src="~/js/schedule-planning-dates.js" asp-append-version="true"></script>
     <script src="~/js/schedule-logger.js" asp-append-version="true"></script>
     <script src="~/js/schedule-filters.js" asp-append-version="true"></script>
     <script src="~/js/schedule-debug-drawer.js" asp-append-version="true"></script>
