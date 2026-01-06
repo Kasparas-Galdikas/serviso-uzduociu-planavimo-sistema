@@ -13,7 +13,7 @@
             data-bs-toggle="modal"
             data-bs-target="#filterConsoleModal"
             aria-label="Atidaryti filtravimo konsole">
-        <i class="bi bi-sliders2-vertical fs-4"></i>
+        <i class="bi bi-calendar2-week fs-4"></i>
     </button>
     <div class="filter-console-hint shadow-sm">
         Filtrai ir veiksmai
@@ -28,6 +28,8 @@
      data-initial-view="@Model.ViewMode"
      data-selected-date="@Model.SelectedDate.ToString("yyyy-MM-dd")"
      data-week-start="@Model.WeekStart.ToString("yyyy-MM-dd")"
+     data-planned-period-start="@Model.PlannedPeriodStart.ToString("yyyy-MM-dd")"
+     data-planned-period-end="@Model.PlannedPeriodEnd.ToString("yyyy-MM-dd")"
      data-selected-location="@selectedLocation"
      data-selected-status="@selectedStatus"
      data-date-param="@selectedDateParam"
@@ -39,7 +41,7 @@
                     <p class="text-muted small mb-1">Greita prieiga</p>
                     <h5 class="modal-title" id="filterConsoleLabel">Filtru ir valdikliu konsole</h5>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Uzdaryti"></button>
+                
             </div>
 
             <div class="modal-body pt-0">
@@ -51,42 +53,10 @@
             <div class="modal-footer border-0 pt-0">
                 <div class="w-100 d-flex flex-wrap align-items-center gap-2 justify-content-between">
                     <div class="d-flex gap-2 ms-auto">
-                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Uzdaryti</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Uzdaryti</button>
                         <button type="button" class="btn btn-primary" id="applyFiltersBtn">Taikyti filtrus</button>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Konsoles problemu modalas -->
-<div class="modal fade" id="consoleIssuesModal" tabindex="-1" aria-labelledby="consoleIssuesLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header border-0">
-                <h5 class="modal-title" id="consoleIssuesLabel">Dienos problemos</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Uzdaryti"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-warning d-flex align-items-start gap-2">
-                    <i class="bi bi-exclamation-triangle-fill text-warning"></i>
-                    <div>
-                        <div class="fw-semibold">Konfliktas Klaipedoje</div>
-                        <div class="small text-muted">Perjungimas persidengia su Vilniaus darbu 16:00-18:00.</div>
-                    </div>
-                </div>
-                <div class="alert alert-info d-flex align-items-start gap-2">
-                    <i class="bi bi-info-circle-fill text-info"></i>
-                    <div>
-                        <div class="fw-semibold">Apkrovos perziura</div>
-                        <div class="small text-muted">Kaunas virsija dienos limita +1h.</div>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer border-0">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Uzdaryti</button>
-                <button type="button" class="btn btn-primary">Atidaryti sprendimus</button>
             </div>
         </div>
     </div>

@@ -1,70 +1,392 @@
-.tech-cell { background: transparent; border: 0; padding: 6px 8px; position: relative; z-index: 2; }
-.tech-name { font-weight: 700; color: var(--base-900); }
-.tech-meta { line-height: 1.2; font-size: 0.9rem; color: var(--text-muted); }
-.day-cell { background: transparent; border: 0; border-radius: 0; padding: 6px; min-height: 96px; display: flex; gap: 6px; flex-wrap: wrap; align-content: flex-start; position: relative; }
-.day-cell + .day-cell { border-top: 1px solid #eef1f5; }
-.day-cell > * { position: relative; z-index: 1; }
-.empty-slot { color: var(--text-muted); font-size: 0.9rem; background: #f8fafc; border: 1px dashed var(--border); border-radius: 8px; padding: 8px; }
-.task-card { background: #fff; border-radius: 10px; padding: 6px 8px; border: 1px solid #d2ddec; min-width: 110px; min-height: 64px; display: flex; flex-direction: column; gap: 4px; position: relative; transition: box-shadow 0.15s ease; }
-.task-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-.task-card.is-normal,
-.task-card.task-normal { background: var(--positive-100); border-color: #b6e3bd; }
-.task-card.is-load,
-.task-card.task-load { background: #fff7ec; border-color: #f1c98a; }
-.task-card.is-conflict,
-.task-card.task-conflict { background: #ffe7e7; border-color: var(--conflict-500); }
-.task-card.is-travel,
-.task-card.task-travel { background: var(--positive-100); border-color: #b6e3bd; }
-.task-main { gap: 4px; }
-.task-title { font-weight: 700; color: var(--base-900); font-size: 0.95rem; }
-.task-time { font-weight: 600; font-size: 0.9rem; color: #0f3057; }
-.task-location { font-size: 0.85rem; color: var(--text-muted); }
-.indicator { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 10px 0 0 10px; }
-.indicator.is-conflict { background: var(--conflict-500); }
-.indicator.is-load { background: #f1c98a; }
-.indicator.is-travel { background: var(--positive-500); }
-.indicator.is-normal { background: var(--positive-500); }
-.state-dot-only { width: 12px; height: 12px; border-radius: 999px; border: 1px solid transparent; }
-.state-dot-only.is-conflict { background: #ffe1e1; border-color: var(--conflict-500); }
-.state-dot-only.is-load { background: #fff3df; border-color: #f1c98a; }
-.state-dot-only.is-travel { background: var(--positive-500); border-color: var(--positive-500); }
-.state-dot-only.is-normal { background: var(--positive-500); border-color: var(--positive-500); }
-.highlight { box-shadow: 0 0 0 2px #1d4f8b inset, 0 0 0 2px #1d4f8b; }
-.edit-mode .empty-slot { border-style: solid; }
-.today-label { color: #32cd32; }
-.schedule-table .time-header.today-label { color: #32cd32; }
+/* =========================================================
+   Technician column
+   ========================================================= */
 
-.table-fixed-head { position: relative; max-height: 70vh; overflow: auto; }
-.table-fixed-head .table { margin-bottom: 0; border-collapse: collapse; }
-.table-fixed-head .thead-top th { position: sticky; top: 0; z-index: 6; background: #f8f9fa; box-shadow: inset 0 -1px 0 var(--border), 0 2px 0 rgba(0,0,0,0.03); border: 0; background-clip: padding-box; }
-.table-fixed-head .thead-top th::before { content: ""; position: absolute; inset: -0.5px; border: 1px solid #c5ced8; pointer-events: none; }
-.table-fixed-head .thead-top th::after { content: ""; position: absolute; top: -1px; left: 0; right: 0; height: 1px; background: #c5ced8; pointer-events: none; }
-.table-fixed-head .thead-top th + th { border-left: 0; box-shadow: inset -0.5px 0 0 #c5ced8; }
-.schedule-table .time-cell { min-width: 0; border-right: 1px solid var(--border); padding: 4px; white-space: nowrap; display: flex; align-items: center; justify-content: center; }
-.schedule-table .time-cell:last-child { border-right: 0; }
-.schedule-table .schedule-cell { min-height: 72px; position: relative; overflow: visible; padding: 3px; vertical-align: top; }
-.schedule-table .task-card { position: relative; top: 0; background: var(--positive-100); border: 1px solid #b6e3bd; border-radius: 10px; padding: 8px 10px; min-height: 64px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); width: 100%; height: 100%; box-sizing: border-box; }
-.schedule-table .task-time { font-weight: 600; font-size: 0.9rem; color: #0f3057; }
-.schedule-table .task-title { font-weight: 700; color: var(--base-900); font-size: 0.95rem; }
-.schedule-table .task-location { font-size: 0.85rem; color: var(--text-muted); }
-.schedule-table .task-card.is-normal,
-.schedule-table .task-card.task-normal { background: var(--positive-100); border-color: #b6e3bd; }
-.schedule-table .task-card.is-load,
-.schedule-table .task-card.task-load { background: #fff7ec; border-color: #f1c98a; }
-.schedule-table .task-card.is-conflict,
-.schedule-table .task-card.task-conflict { background: #ffe7e7; border-color: var(--conflict-500); }
-.schedule-table .task-card.is-travel,
-.schedule-table .task-card.task-travel { background: var(--positive-100); border-color: #b6e3bd; }
-.schedule-table td.schedule-cell { border: 0; }
-.weekly-card { min-height: 92px; display: flex; align-items: stretch; }
-.weekly-facts { display: flex; flex-direction: column; gap: 2px; line-height: 1.2; }
-.weekly-facts .fact-line { font-size: 0.95rem; }
-.weekly-facts .fact-line.text-muted { font-size: 0.9rem; }
-.weekly-card { background: #fff; border-color: var(--border); box-shadow: none; }
-.schedule-table thead th:first-child { border: 1px solid var(--border); }
-.schedule-table th.tech-cell { border: 1px solid var(--border); border-left-width: 1px; border-right-width: 1px; border-top-width: 1px; border-bottom-width: 1px; }
-.badge.bg-info.text-dark { background: var(--positive-100); color: var(--positive-500); border: 1px solid #b6e3bd; font-weight: 600; }
+.tech-cell {
+  background: transparent;
+  border: 0;
+  padding: 6px 8px;
+  position: relative;
+  z-index: 2;
+}
+
+/* Technician text sizing */
+.tech-cell .fw-semibold { font-size: 0.85rem; }
+.tech-cell .text-muted.small { font-size: 0.70rem; }
+
+.schedule-table th.tech-cell,
+.schedule-table td.tech-cell {
+  background: linear-gradient(
+    90deg,
+    var(--neutral-100) 0%,
+    var(--neutral-50) 60%,
+    transparent 100%
+  );
+
+  border-right: 2px solid var(--neutral-300);
+}
+
+/* =========================================================
+   Day cell
+   ========================================================= */
+
+.day-cell {
+  background: transparent;
+  border: 0;
+  padding: 6px;
+  min-height: 96px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  position: relative;
+}
+
+.day-cell + .day-cell {
+  border-top: 1px solid var(--neutral-200);
+}
+
+.day-cell > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Empty slot */
+
+.empty-slot {
+  background: var(--neutral-50);
+  border: 1px dashed var(--neutral-300);
+  border-radius: var(--radius-md);
+  padding: 8px;
+  font-size: 0.85rem;
+  color: var(--neutral-500);
+}
+
+/* =========================================================
+   Task card (base)
+   ========================================================= */
+
+.task-card {
+  background: linear-gradient(180deg, #ffffff, var(--neutral-50));
+  border-radius: var(--radius-md);
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--neutral-200);
+  min-width: 110px;
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+  box-shadow: var(--shadow-sm);
+  transition:
+    box-shadow 0.15s ease,
+    transform 0.1s ease,
+    border-color 0.15s ease;
+}
+
+.task-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 4px;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.task-card.task-normal::before {
+  background: var(--success-500);
+}
+
+.task-card.task-load::before {
+  background: var(--warning-500);
+}
+
+.task-card.task-conflict::before {
+  background: var(--danger-500);
+}
+
+.task-card.task-travel::before {
+  background: var(--info-500);
+}
+/* Editable affordance */
+
+.task-card[data-editable="true"] {
+  cursor: pointer;
+}
+
+.task-card[data-editable="true"]:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+/* Read-only affordance */
+
+.task-card[data-editable="false"] {
+  cursor: default;
+  opacity: 0.9;
+}
+
+/* =========================================================
+   Task content
+   ========================================================= */
+
+.task-time { 
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--neutral-700);
+}
+
+.task-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--neutral-900);
+}
+
+.task-location {
+  font-size: 0.8rem;
+  color: var(--neutral-500);
+}
+
+/* =========================================================
+   Load / conflict / travel state
+   ========================================================= */
+
+.task-card.task-normal {
+  background: var(--success-100);
+  border-color: var(--success-500);
+}
+
+.task-card.task-load {
+  background: var(--warning-100);
+  border-color: var(--warning-500);
+}
+
+.task-card.task-conflict {
+  background: var(--danger-100);
+  border-color: var(--danger-500);
+}
+
+.task-card.task-travel {
+  background: var(--info-100);
+  border-color: var(--info-500);
+}
+
+/* =========================================================
+   Plan source: Active vs Draft
+   ========================================================= */
+
+.task-card.task-active {
+  border-color: var(--state-readonly-border);
+  box-shadow: inset 0 0 0 1px var(--state-readonly-border);
+}
+
+.task-card.task-draft {
+  border-color: var(--state-draft-border);
+  box-shadow: inset 0 0 0 1px var(--state-draft-border);
+}
+
+.task-card.task-superseded {
+  opacity: 0.75;
+  border-color: var(--neutral-300);
+  box-shadow: inset 0 0 0 1px var(--neutral-300);
+}
+
+.indicator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 4px 0 0 4px;
+}
+
+.indicator.is-conflict { background: var(--danger-500); }
+.indicator.is-load     { background: var(--warning-500); }
+.indicator.is-travel,
+.indicator.is-normal   { background: var(--success-500); }
+
+.state-dot-only {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.state-dot-only.is-conflict {
+  background: var(--danger-100);
+  border-color: var(--danger-500);
+}
+
+.state-dot-only.is-load {
+  background: var(--warning-100);
+  border-color: var(--warning-500);
+}
+
+.state-dot-only.is-normal {
+  background: var(--success-100);
+  border-color: var(--success-500);
+}
+
+/* =========================================================
+   Table head & scrolling (UNCHANGED structurally)
+   ========================================================= */
+.table-fixed-head {
+  position: relative;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.table-fixed-head .table {
+  margin-bottom: 0;
+  border-collapse: collapse;
+}
+
+.table-fixed-head .thead-top th {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: var(--neutral-100);
+  border: 1px solid var(--neutral-200);
+}
+
+.schedule-table thead th {
+   font-weight: 600;
+  font-size: 0.9rem;
+
+  padding: 8px 6px;
+  text-align: center;
+
+  border: 1px solid var(--neutral-200);
+  border-bottom-color: var(--neutral-300);
+}
+
+/* Time text tightening */
+.schedule-table .time-header {
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* =========================================================
+   Weekly view cards
+   ========================================================= */
+
+.weekly-card {
+  background: #ffffff;
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.04),
+    0 4px 10px rgba(0,0,0,0.03);
+
+  padding: 10px 12px;
+  position: relative;
+
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+
+.weekly-card:hover {
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    var(--neutral-100) 100%
+  );
+
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.05),
+    0 8px 20px rgba(15, 48, 87, 0.08);
+}
+
+.weekly-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.35;
+}
+
+.weekly-facts .fact-line {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--neutral-900);
+}
+
+.weekly-facts .fact-line.text-muted {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--neutral-500);
+}
+
+/* =========================================================
+   Today label
+   ========================================================= */
+
+.today-label {
+  color: #32cd32;
+}
+.schedule-table thead th.today-label {
+  color: #32cd32;
+}
+
+/* =========================================================
+   Responsive (visual only)
+   ========================================================= */
+@media (min-width: 1440px) {
+
+  /* Technician column */
+  .tech-cell .fw-semibold { font-size: 0.85rem; }
+  .tech-cell .text-muted.small { font-size: 0.75rem; }
+
+  /* Task cards */
+  .task-title { font-size: 1rem; }
+  .task-time { font-size: 0.9rem; }
+  .task-location { font-size: 0.85rem; }
+
+  /* Weekly cards */
+  .weekly-facts .fact-line { font-size: 1rem; }
+  .weekly-facts .fact-line.text-muted { font-size: 0.9rem; }
+}
+
+@media (max-width: 1024px) {
+
+  /* Technician column */
+  .tech-cell .fw-semibold { font-size: 0.78rem; }
+  .tech-cell .text-muted.small { font-size: 0.68rem; }
+
+  /* Task cards */
+  .task-title { font-size: 0.9rem; }
+  .task-time { font-size: 0.8rem; }
+  .task-location { font-size: 0.75rem; }
+
+  /* Weekly cards */
+  .weekly-facts .fact-line { font-size: 0.9rem; }
+  .weekly-facts .fact-line.text-muted { font-size: 0.8rem; }
+}
+
 
 @media (max-width: 992px) {
-    .day-cell { min-height: auto; }
+  .day-cell {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 576px) {
+
+  /* Technician column */
+  .tech-cell .fw-semibold { font-size: 0.75rem; }
+  .tech-cell .text-muted.small { font-size: 0.65rem; }
+
+  /* Task cards */
+  .task-title { font-size: 0.85rem; }
+  .task-time { font-size: 0.75rem; }
+  .task-location { font-size: 0.7rem; }
+
+  /* Weekly cards */
+  .weekly-facts .fact-line { font-size: 0.85rem; }
+  .weekly-facts .fact-line.text-muted { font-size: 0.75rem; }
 }

@@ -1,13 +1,16 @@
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+@{
+    var canEdit = Model.IsManager;
+}
 <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mt-3">
     <div class="d-flex flex-wrap gap-2 filter-console-actions">
-        <button class="btn btn-primary btn-sm d-flex align-items-center gap-1" data-edit-action data-bs-toggle="modal" data-bs-target="#createTaskModal">
-            <i class="bi bi-plus-lg"></i> Sukurti tvarkarašti
+        <button class="btn btn-primary btn-sm d-flex align-items-center gap-1 @(canEdit ? string.Empty : "disabled")" data-edit-action data-bs-toggle="modal" data-bs-target="#createTaskModal" @(canEdit ? "" : "disabled")>
+            <i class="bi bi-plus-lg"></i> Sukurti tvarkarasti
         </button>
-        <button class="btn btn-secondary btn-sm d-flex align-items-center gap-1" data-edit-action data-bs-toggle="modal" data-bs-target="#editTasksModal">
-            <i class="bi bi-pencil-square"></i> Redaguoti tvarkarašti
+        <button class="btn btn-primary btn-sm d-flex align-items-center gap-1 @(canEdit ? string.Empty : "disabled")" data-edit-action data-bs-toggle="modal" data-bs-target="#editTasksModal" @(canEdit ? "" : "disabled")>
+            <i class="bi bi-pencil-square"></i> Redaguoti tvarkarasti
         </button>
-        <button class="btn btn-warning btn-sm d-flex align-items-center gap-1" data-edit-action data-bs-toggle="modal" data-bs-target="#consoleIssuesModal">
+        <button class="btn btn-primary btn-sm d-flex align-items-center gap-1" data-edit-action data-bs-toggle="modal" data-bs-target="#consoleIssuesModal">
             <i class="bi bi-exclamation-triangle"></i> Dienos problemos
         </button>
     </div>

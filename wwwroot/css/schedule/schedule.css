@@ -1,4 +1,5 @@
 @import url("./tokens/planning-tokens.css");
+@import url("../tokens/theme-tokens.css");
 @import url("./base/planning-core.css");
 @import url("./planning/planning-filters.css");
 @import url("./planning/planning-tables.css");

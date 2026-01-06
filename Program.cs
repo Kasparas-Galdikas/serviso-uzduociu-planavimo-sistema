@@ -2,7 +2,13 @@ using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Schedule;
+using ServiceTaskPlanningSystem.Services.Plans;
+using ServiceTaskPlanningSystem.Services.Planning;
+using ServiceTaskPlanningSystem.Services.Evaluation;
+using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Configuration;
+using ServiceTaskPlanningSystem.Middleware;
+using ServiceTaskPlanningSystem.Infrastructure.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +16,12 @@ var configuration = ConfigurationLoader.Build(builder.Environment.ContentRootPat
 builder.Configuration.AddConfiguration(configuration);
 
 var connectionString = ConfigurationLoader.GetRequiredConnectionString(configuration);
+
+var traceFilterOptions = new TraceFilterOptions();
+var traceLogStore = new TraceLogStore(traceFilterOptions);
+builder.Services.AddSingleton(traceFilterOptions);
+builder.Services.AddSingleton(traceLogStore);
+builder.Logging.AddProvider(new TraceInMemoryLoggerProvider(traceLogStore, traceFilterOptions));
 
 // Add services to the container.
 builder.Services.AddDbContext<ScheduleDbContext>(options =>
@@ -24,8 +36,13 @@ builder.Services.AddDbContext<ScheduleDbContext>(options =>
     }).UseSnakeCaseNamingConvention());
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
+builder.Services.AddScoped<IPlanService, PlanService>();
+builder.Services.AddScoped<IEvaluationEngine, TaskEvaluationEngine>();
+builder.Services.AddScoped<IPlanningCalendar, PlanningCalendar>();
+builder.Services.AddScoped<ITaskPermissionService, TaskPermissionService>();
 builder.Services.AddTransient<DatabaseSeeder>();
 builder.Services.AddSingleton<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
+builder.Services.AddHostedService<EvaluationRepairService>();
 
 var app = builder.Build();
 
@@ -38,6 +55,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseMiddleware<TraceMiddleware>();
 app.UseRouting();
 
 app.UseAuthorization();

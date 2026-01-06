@@ -1,0 +1,62 @@
+<div class="modal fade" id="taskDetailModal" tabindex="-1" aria-labelledby="taskDetailLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="taskDetailLabel">Uzduoties informacija</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Uzdaryti"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small">Pavadinimas</label>
+                        <input type="text" class="form-control" id="taskDetailTitle" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small">Lokacija</label>
+                        <input type="text" class="form-control" id="taskDetailLocation" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small">Pradzia</label>
+                        <input type="datetime-local" class="form-control" id="taskDetailStart" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small">Pabaiga</label>
+                        <input type="datetime-local" class="form-control" id="taskDetailEnd" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small">Prioritetas</label>
+                        <select class="form-select" id="taskDetailPriority">
+                            <option value="Low">Zemas</option>
+                            <option value="Medium">Vidutinis</option>
+                            <option value="High">Aukstas</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small">Statusas</label>
+                        <select class="form-select" id="taskDetailStatus">
+                            <option value="Planned">Planuojama</option>
+                            <option value="InProgress">Vykdoma</option>
+                            <option value="Completed">Baigta</option>
+                            <option value="Canceled">Atsaukta</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="alert alert-info mt-3 d-none" id="taskDetailReadonlyNote">
+                    Aktyvaus plano uzduotys yra tik perziurai. Redaguoti galima tik juodrascio uzduotis.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Uzdaryti</button>
+                <button type="button" class="btn btn-primary" id="taskDetailSave">Issaugoti</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('schedule:table:updated', () => {
+        const tables = document.getElementById('scheduleTables');
+        if (!tables) return;
+        tables.setAttribute('data-is-manager', tables.dataset.isManager || '');
+    });
+</script>

@@ -4,19 +4,27 @@
     var issues = Model.Issues ?? new List<ServiceTaskPlanningSystem.Models.Planning.IssueItem>();
     var isWeekly = string.Equals(Model.ViewMode, "week", StringComparison.OrdinalIgnoreCase);
 }
-
-<div class="page-header d-flex align-items-center mb-2 @(Model.IsManager ? "edit-mode" : string.Empty)">
+<div class="page-header @(Model.IsManager ? "edit-mode" : string.Empty)">
     <div>
         <h1 class="h4 mb-0">@((isWeekly ? "Savaites grafikas" : "Dienos grafikas"))</h1>
     </div>
     <div class="ms-auto d-flex align-items-center gap-2">
         <span class="badge bg-secondary">Role: @(Model.IsManager ? "Vadovas" : "Technikas")</span>
+        @if (Model.CurrentPlanId.HasValue)
+        {
+            <span class="badge bg-light text-dark border">Planas #@Model.CurrentPlanId (@Model.CurrentPlanStatus)</span>
+        }
+        @if (Model.HasDraft)
+        {
+            <span class="badge bg-warning text-dark">Juodrastis aktyvus</span>
+        }
         @if (Model.IsManager)
         {
-            <span class="badge bg-primary-subtle text-dark">Redagavimo rezimas ijungtas (mock)</span>
+            <span class="badge bg-primary-subtle text-dark">Redagavimo rezimas ijungtas </span>
         }
     </div>
 </div>
+
 <div class="console-banner alert alert-info d-flex align-items-center justify-content-between mb-3">
     <div class="d-flex align-items-center gap-2">
         <i class="bi bi-sliders2-vertical"></i>
@@ -33,27 +41,33 @@
 @if (Model.IsPreviewMode)
 {
     var currentDate = isWeekly ? Model.WeekStart : Model.SelectedDate;
-    var baseParams = new { view = Model.ViewMode, date = currentDate.ToString("yyyy-MM-dd") };
     <div class="alert alert-warning d-flex align-items-center justify-content-between mb-3 shadow-sm">
         <div class="d-flex align-items-center gap-2">
             <i class="bi bi-eye"></i>
             <div>
-                <div class="fw-semibold mb-0">Generavimo perziura</div>
+                <div class="fw-semibold mb-0">Planavimo rezimas (juodrastis)</div>
                 <div class="small mb-0">Perziurite suplanuota laikotarpi pries patvirtindami.</div>
             </div>
         </div>
         <div class="d-flex gap-2">
-            <a class="btn btn-outline-secondary btn-sm" href="@Url.Action("Index", "Schedule", baseParams)">Atsaukti</a>
-            <a class="btn btn-primary btn-sm" href="@Url.Action("Index", "Schedule", baseParams)">Patvirtinti</a>
+            <button type="button" class="btn btn-danger btn-sm" id="discardPlanBtn" data-redirect="@Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = currentDate.ToString("yyyy-MM-dd") })">Atsaukti</button>
+            <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createTaskModal">Grizti</button>
+            <button type="button" class="btn btn-primary btn-sm" id="publishPlanBtn" data-redirect="@Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = currentDate.ToString("yyyy-MM-dd") })">Patvirtinti</button>
         </div>
     </div>
 }
 
+@{
+    var activeEnd = Model.PlannedPeriodEnd == default ? DateTime.Today : Model.PlannedPeriodEnd.Date;
+    var firstFree = Model.FirstFreeDate == default ? activeEnd.AddDays(1) : Model.FirstFreeDate;
+}
 <div id="scheduleTables"
      data-current-view="@Model.ViewMode"
-     data-preview="@Model.IsPreviewMode.ToString().ToLower()"
-     data-planned-start="@(Model.PlannedPeriodStart == default(DateTime) ? string.Empty : Model.PlannedPeriodStart.ToString("yyyy-MM-dd"))"
-     data-planned-weeks="@Model.PlannedWeeks">
+     data-plan-status="@Model.CurrentPlanStatus"
+     data-plan-id="@Model.CurrentPlanId"
+     data-is-manager="@(Model.IsManager.ToString().ToLowerInvariant())"
+     data-active-end="@(activeEnd.ToString("yyyy-MM-dd"))"
+     data-first-free="@(firstFree.ToString("yyyy-MM-dd"))">
     @if (isWeekly)
     {
         @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_WeeklyTable.cshtml", Model)
@@ -67,10 +81,15 @@
 @await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsole.cshtml", Model)
 @await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_CreateScheduleModal.cshtml", Model)
 @await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_SummaryScheduleModal.cshtml", Model)
+@await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TaskDetailModal.cshtml")
+@await Html.PartialAsync("~/Views/Shared/_ScheduleDebugDrawer.cshtml")
 
 
 @section Scripts {
+    <script src="~/js/schedule-planning-dates.js" asp-append-version="true"></script>
+    <script src="~/js/schedule-logger.js" asp-append-version="true"></script>
     <script src="~/js/schedule-filters.js" asp-append-version="true"></script>
+    <script src="~/js/schedule-debug-drawer.js" asp-append-version="true"></script>
     <script>
         // scroll highlight for issues from modal
         document.querySelectorAll('.issue-scroll').forEach(btn => {
@@ -89,5 +108,64 @@
                 }, 200);
             });
         });
+
+        const discardBtn = document.getElementById('discardPlanBtn');
+        if (discardBtn) {
+            discardBtn.addEventListener('click', async () => {
+                const redirect = discardBtn.getAttribute('data-redirect') || '/Schedule';
+                discardBtn.setAttribute('disabled', 'disabled');
+                discardBtn.setAttribute('aria-busy', 'true');
+                const logger = window.scheduleLogger;
+                try {
+                    const resp = await (logger?.fetchWithTrace('/Plans/discard', {
+                        method: 'POST'
+                    }, { event: 'ui.plan.discard' }) || fetch('/Plans/discard', {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    }));
+                    if (!resp.ok) {
+                        throw new Error('Nepavyko atsaukti juodrascio');
+                    }
+                    logger?.log('info', 'ui.plan.discard.ok');
+                    window.location.href = redirect;
+                } catch (err) {
+                    logger?.log('error', 'ui.plan.discard.error', { error: err?.message });
+                    alert('Nepavyko atsaukti juodrascio. Bandykite dar karta.');
+                } finally {
+                    discardBtn.removeAttribute('aria-busy');
+                    discardBtn.removeAttribute('disabled');
+                }
+            });
+        }
+
+        const publishBtn = document.getElementById('publishPlanBtn');
+        if (publishBtn) {
+            publishBtn.addEventListener('click', async () => {
+                const redirect = publishBtn.getAttribute('data-redirect') || '/Schedule';
+                publishBtn.setAttribute('disabled', 'disabled');
+                publishBtn.setAttribute('aria-busy', 'true');
+                const logger = window.scheduleLogger;
+                try {
+                    const resp = await (logger?.fetchWithTrace('/Plans/publish', {
+                        method: 'POST'
+                    }, { event: 'ui.plan.publish' }) || fetch('/Plans/publish', {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    }));
+                    if (!resp.ok) {
+                        const text = await resp.text();
+                        throw new Error(text || 'Nepavyko patvirtinti plano');
+                    }
+                    logger?.log('info', 'ui.plan.publish.ok');
+                    window.location.href = redirect;
+                } catch (err) {
+                    logger?.log('error', 'ui.plan.publish.error', { error: err?.message });
+                    alert(err?.message || 'Nepavyko patvirtinti plano. Bandykite dar karta.');
+                } finally {
+                    publishBtn.removeAttribute('aria-busy');
+                    publishBtn.removeAttribute('disabled');
+                }
+            });
+        }
     </script>
 }

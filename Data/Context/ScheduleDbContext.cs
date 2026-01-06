@@ -143,7 +143,8 @@ namespace ServiceTaskPlanningSystem.Data
                 .HasForeignKey(e => e.SupersededByPlanId)
                 .OnDelete(DeleteBehavior.SetNull);
             entity.HasIndex(e => e.Status)
-                .HasFilter("status = 'active'")
+                .HasDatabaseName("ix_plans_status_draft")
+                .HasFilter("status = 'draft'")
                 .IsUnique();
         }
 
@@ -211,6 +212,8 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.EvaluatedAt)
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");
+            entity.Property(e => e.Status)
+                .HasColumnType("load_state");
 
             entity.HasOne(e => e.Task)
                 .WithOne(t => t.Evaluation)

@@ -90,20 +90,20 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             }
 
             var weekStart = WeekCalculator.GetWeekStart(DateTime.Today);
-            var weekEnd = WeekCalculator.GetWeekEnd(DateTime.Today);
+            var baseTasks = MockScheduleData.SeedTasksRange(weekStart, 5, false);
+            var periodStart = baseTasks.Min(t => t.Start.Date);
+            var periodEnd = baseTasks.Max(t => t.End.Date);
 
             var activePlan = new PlanEntity
             {
-                PeriodStart = weekStart.Date,
-                PeriodEnd = weekEnd.Date,
+                PeriodStart = periodStart,
+                PeriodEnd = periodEnd,
                 Weeks = 1,
                 Status = PlanStatus.Active,
                 CreatedAt = DateTime.UtcNow
             };
             _db.Plans.Add(activePlan);
             await _db.SaveChangesAsync();
-
-            var baseTasks = MockScheduleData.SeedTasksRange(weekStart, 5, false);
             var mockTechById = mockTechnicians.ToDictionary(t => t.Id);
 
             var taskEntities = new List<TaskEntity>();
@@ -146,7 +146,9 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                 TaskId = entity.Id,
                 RiskLevel = MapRiskLevel(mock.Risk),
                 IsConflict = mock.IsConflict,
-                IsOverloaded = mock.IsLoad,
+                HasConflict = mock.IsConflict,
+                Status = mock.IsConflict ? LoadState.Conflict : mock.IsLoad ? LoadState.Load : LoadState.Normal,
+                IsOverloaded = mock.IsConflict || mock.IsLoad,
                 TravelRequired = mock.IsTravelSwitch,
                 LoadHours = (decimal?)(mock.End - mock.Start).TotalHours,
                 EvaluatedAt = DateTime.UtcNow

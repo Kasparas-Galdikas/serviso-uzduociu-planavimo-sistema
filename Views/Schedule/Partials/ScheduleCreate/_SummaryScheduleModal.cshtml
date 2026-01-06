@@ -1,4 +1,10 @@
-﻿@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+@{
+    var today = DateTime.Today;
+    var firstFreeDay = Model.FirstFreeDate == default ? today : Model.FirstFreeDate.Date;
+    var startValue = firstFreeDay < today ? today : firstFreeDay;
+    var startValueStr = startValue.ToString("yyyy-MM-dd");
+}
 <!-- Planavimo santraukos modalas -->
 <div class="modal fade" id="planningSummaryModal" tabindex="-1" aria-labelledby="planningSummaryLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
@@ -14,21 +20,14 @@
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <label class="form-label small mb-1">Pradzios data</label>
-                                <input type="date" class="form-control" id="summaryStartDate" value="@Model.SelectedDate.ToString("yyyy-MM-dd")" disabled />
+                                <input type="date" class="form-control" id="summaryStartDate" value="@startValueStr" disabled />
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label small mb-1">Trukme</label>
-                                <input type="number" class="form-control" id="summaryDuration" min="1" max="52" placeholder="Pvz.: 4" disabled />
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label small mb-1">Vienetas</label>
-                                <select class="form-select" id="summaryUnit" disabled>
-                                    <option value="weeks">Savaites</option>
-                                    <option value="months">Menesiai</option>
-                                </select>
+                                <label class="form-label small mb-1">Pabaigos data</label>
+                                <input type="date" class="form-control" id="summaryEndDate" disabled />
                             </div>
                         </div>
-                        <div class="form-text">Santrauka rodo pasirinktą laikotarpį.</div>
+                        <div class="form-text">Santrauka rodo pasirinkta laikotarpi.</div>
                     </section>
 
                     <section>
@@ -43,7 +42,7 @@
                                 <label class="form-check-label" for="summaryStrategyMinimize">Minimizuoti perkrova</label>
                             </div>
                         </div>
-                        <div class="form-text">Strategija fiksuota pagal pasirinktą konfigūraciją.</div>
+                        <div class="form-text">Strategija fiksuota pagal pasirinkta konfiguracija.</div>
                     </section>
 
                     <section>
@@ -52,16 +51,16 @@
                             <div class="col-md-4">
                                 <label class="form-label small mb-1">Maks. val. technikui per diena</label>
                                 <input type="number" class="form-control" id="summaryDailyMax" min="4" max="12" placeholder="Pvz.: 8" disabled />
-                                <div class="form-text">Maksimalus darbo krūvis.</div>
+                                <div class="form-text">Maksimalus darbo kruvis.</div>
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label small mb-1">Maks. is eilės pamainų</label>
+                                <label class="form-label small mb-1">Maks. is eiles pamainu</label>
                                 <input type="number" class="form-control" id="summaryMaxShifts" min="1" max="14" placeholder="Pvz.: 5" disabled />
                             </div>
                             <div>
                                 <div class="form-check mt-2">
                                     <input class="form-check-input" type="checkbox" id="summaryAllowOvertime" disabled>
-                                    <label class="form-check-label" for="summaryAllowOvertime">Leisti viršvalandžius prireikus</label>
+                                    <label class="form-check-label" for="summaryAllowOvertime">Leisti virsvalandzius prireikus</label>
                                 </div>
 
                                 <div class="form-check mt-2">
@@ -75,7 +74,7 @@
             </div>
             <div class="modal-footer border-0">
                 <div class="d-flex w-100 align-items-center justify-content-between gap-2">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#createTaskModal">Grižti</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#createTaskModal">Grizti</button>
                     <button type="button" class="btn btn-primary" id="summaryConfirmBtn" data-base-url="@Url.Action("Index", "Schedule")">Patvirtinti generavima</button>
                 </div>
             </div>
@@ -85,9 +84,16 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
+        const logger = window.scheduleLogger;
         const createModal = document.getElementById('createTaskModal');
         const summaryModal = document.getElementById('planningSummaryModal');
+        const scheduleContainer = document.querySelector('#scheduleTables');
         if (!createModal || !summaryModal) return;
+        const startInput = document.querySelector('#createStartDate');
+        const endInput = document.querySelector('#createEndDate');
+        const dateHelper = window.schedulePlanningDates;
+        const refreshDates = () => dateHelper?.syncStartEndMins({ scheduleContainer, startInput, endInput });
+        refreshDates();
 
         const copyValue = function (sourceId, targetId, isCheckbox, isSelect, isRadio) {
             const source = createModal.querySelector('#' + sourceId);
@@ -106,8 +112,7 @@
 
         summaryModal.addEventListener('show.bs.modal', function () {
             copyValue('createStartDate', 'summaryStartDate');
-            copyValue('createDuration', 'summaryDuration');
-            copyValue('createUnit', 'summaryUnit', false, true);
+            copyValue('createEndDate', 'summaryEndDate');
 
             copyValue('strategyBalanced', 'summaryStrategyBalanced', false, false, true);
             copyValue('strategyMinimize', 'summaryStrategyMinimize', false, false, true);
@@ -116,27 +121,85 @@
             copyValue('createMaxShifts', 'summaryMaxShifts');
             copyValue('createAllowOvertime', 'summaryAllowOvertime', true);
             copyValue('createIncludeWeekends', 'summaryIncludeWeekends', true);
+            refreshDates();
         });
 
         const confirmBtn = summaryModal.querySelector('#summaryConfirmBtn');
         if (confirmBtn) {
-            confirmBtn.addEventListener('click', function () {
+            confirmBtn.addEventListener('click', async function () {
                 const baseUrl = confirmBtn.getAttribute('data-base-url') || '/Schedule/Index';
                 const startInput = createModal.querySelector('#createStartDate');
-                const durationInput = createModal.querySelector('#createDuration');
-                const unitSelect = createModal.querySelector('#createUnit');
+                const endInput = createModal.querySelector('#createEndDate');
                 const startDate = startInput && startInput.value ? startInput.value : '';
-                const durationVal = durationInput && durationInput.value ? parseInt(durationInput.value, 10) : 1;
-                const plannedWeeks = isNaN(durationVal) ? 1 : durationVal;
-                const url = startDate
-                    ? `${baseUrl}?view=week&date=${encodeURIComponent(startDate)}&preview=true&plannedStart=${encodeURIComponent(startDate)}&plannedWeeks=${plannedWeeks}`
-                    : `${baseUrl}?view=week&preview=true&plannedWeeks=${plannedWeeks}`;
+                const endDate = endInput && endInput.value ? endInput.value : '';
 
-                const bsSummary = bootstrap.Modal.getInstance(summaryModal) || new bootstrap.Modal(summaryModal);
-                const bsCreate = bootstrap.Modal.getInstance(createModal);
-                bsSummary.hide();
-                bsCreate && bsCreate.hide();
-                window.location.href = url;
+                const setBusy = (state) => {
+                    confirmBtn.disabled = state;
+                    confirmBtn.setAttribute('aria-busy', state ? 'true' : 'false');
+                };
+
+                const toDate = (val) => val ? new Date(val + 'T00:00:00') : null;
+                const sDate = toDate(startDate);
+                const eDate = toDate(endDate);
+                let weeks = 4;
+                if (sDate && eDate && eDate >= sDate) {
+                    const diffDays = Math.floor((eDate - sDate) / (1000 * 60 * 60 * 24)) + 1;
+                    weeks = Math.max(1, Math.ceil(diffDays / 7));
+                }
+
+                setBusy(true);
+                try {
+                    const resp = await (logger?.fetchWithTrace('/Plans/draft', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            startDate: startDate || null,
+                            endDate: endDate || null,
+                            weeks
+                        })
+                    }, { event: 'ui.plan.draft.create', startDate, endDate, weeks }) || fetch('/Plans/draft', {
+                        method: 'POST',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            startDate: startDate || null,
+                            endDate: endDate || null,
+                            weeks
+                        })
+                    }));
+                    if (!resp.ok) {
+                        let message = 'Nepavyko sukurti juodrascio.';
+                        try {
+                            const data = await resp.json();
+                            if (data?.message) {
+                                message = data.message;
+                            }
+                        } catch (_) {
+                            const text = await resp.text();
+                            if (text) message = text;
+                        }
+                        throw new Error(message);
+                    }
+                    logger?.log('info', 'ui.plan.draft.created', { startDate, endDate, weeks });
+
+                    const url = startDate
+                        ? `${baseUrl}?view=week&date=${encodeURIComponent(startDate)}`
+                        : `${baseUrl}?view=week`;
+
+                    const bsSummary = bootstrap.Modal.getInstance(summaryModal) || new bootstrap.Modal(summaryModal);
+                    const bsCreate = bootstrap.Modal.getInstance(createModal);
+                    bsSummary.hide();
+                    bsCreate && bsCreate.hide();
+                    window.location.href = url;
+                } catch (err) {
+                    console.error('Nepavyko sukurti juodrascio', err);
+                    alert(err?.message || 'Nepavyko sukurti juodrascio. Bandykite dar karta.');
+                    setBusy(false);
+                }
             });
         }
     });

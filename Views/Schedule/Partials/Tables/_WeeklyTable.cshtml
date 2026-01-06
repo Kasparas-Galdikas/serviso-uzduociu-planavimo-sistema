@@ -15,7 +15,6 @@
                    Model.PlannedPeriodStart != default(DateTime) &&
                    Model.WeekStart.Date >= Model.PlannedPeriodStart.Date &&
                    Model.WeekStart.Date <= Model.PlannedPeriodEnd.Date;
-    var baseParams = new { view = Model.ViewMode, date = Model.WeekStart.ToString("yyyy-MM-dd"), preview = true };
 }
 
 <div class="card p-3 mb-4">
