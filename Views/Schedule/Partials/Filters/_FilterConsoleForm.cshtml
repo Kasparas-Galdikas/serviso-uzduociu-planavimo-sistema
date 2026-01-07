@@ -1,25 +1,36 @@
 @using System.Linq
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
 @{
+    var prefix = (ViewData["FilterPrefix"] as string) ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(prefix))
+    {
+        throw new InvalidOperationException("FilterPrefix is required");
+    }
+
     var isWeek = string.Equals(Model.ViewMode, "week", StringComparison.OrdinalIgnoreCase);
     var dayBtnClass = isWeek ? "btn btn-outline-secondary btn-sm" : "btn btn-primary btn-sm active";
     var weekBtnClass = isWeek ? "btn btn-primary btn-sm active" : "btn btn-outline-secondary btn-sm";
     var locationOptions = Model.AvailableLocations ?? new List<string>();
     var statusOptions = Model.AvailableStatuses ?? new List<string>();
+
+    var dayDateId = $"{prefix}-filterDayDate";
+    var weekDateId = $"{prefix}-filterWeekDate";
+    var locationId = $"{prefix}-filterLocation";
+    var statusId = $"{prefix}-filterStatus";
 }
 
 <div class="row g-3 mb-2">
     <div class="col-12 col-md-6" data-view-target="day">
-        <label class="form-label small mb-1" for="filterDayDate">Diena</label>
-        <input type="date" class="form-control" id="filterDayDate" value="@Model.SelectedDate.ToString("yyyy-MM-dd")" />
+        <label class="form-label small mb-1" for="@dayDateId">Diena</label>
+        <input type="date" class="form-control" id="@dayDateId" data-filter="dayDate" value="@Model.SelectedDate.ToString("yyyy-MM-dd")" />
     </div>
     <div class="col-12 col-md-6" data-view-target="week">
-        <label class="form-label small mb-1" for="filterWeekDate">Savaite nuo</label>
-        <input type="date" class="form-control" id="filterWeekDate" value="@Model.WeekStart.ToString("yyyy-MM-dd")" />
+        <label class="form-label small mb-1" for="@weekDateId">Savaite nuo</label>
+        <input type="date" class="form-control" id="@weekDateId" data-filter="weekDate" value="@Model.WeekStart.ToString("yyyy-MM-dd")" />
     </div>
     <div class="col-12 col-md-6">
-        <label class="form-label small mb-1" for="filterLocation">Lokacija / regionas</label>
-        <select class="form-select" id="filterLocation">
+        <label class="form-label small mb-1" for="@locationId">Lokacija / regionas</label>
+        <select class="form-select" id="@locationId" data-filter="location">
             <option value="">Visos</option>
             @foreach (var loc in locationOptions)
             {
@@ -31,8 +42,8 @@
 
 <div class="row g-3">
     <div class="col-12 col-md-6">
-        <label class="form-label small mb-1" for="filterStatus">Statusas / apkrova</label>
-        <select class="form-select" id="filterStatus">
+        <label class="form-label small mb-1" for="@statusId">Statusas / apkrova</label>
+        <select class="form-select" id="@statusId" data-filter="status">
             @foreach (var status in statusOptions)
             {
                 <option value="@status">@status</option>
@@ -40,10 +51,10 @@
         </select>
     </div>
     <div class="col-12 col-md-6">
-        <label class="form-label small mb-1">Rodinys</label>
+        <label class="form-label small mb-1">Lentelės tipas</label>
         <div class="btn-group w-100">
-            <button type="button" class="@dayBtnClass" data-view-mode="day">Diena</button>
-            <button type="button" class="@weekBtnClass" data-view-mode="week">Savaite</button>
+            <button type="button" class="@dayBtnClass" data-view-mode="day">Dieninė</button>
+            <button type="button" class="@weekBtnClass" data-view-mode="week">Savaitinė</button>
         </div>
         <div class="form-text text-muted small">Pasirinkite rodini pagal, kuri kalendoriu norite matyti.</div>
     </div>

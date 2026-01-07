@@ -1,0 +1,13 @@
+@model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+
+<div class="schedule-filter-bar d-none d-md-block" data-schedule-filters="true" data-schedule-filters-root="inline">
+    @await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsoleForm.cshtml", Model, new ViewDataDictionary(ViewData) { ["FilterPrefix"] = "inline" })
+
+    @await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsoleActions.cshtml", Model, new ViewDataDictionary(ViewData) { ["FilterPrefix"] = "inline" })
+
+    <div class="d-flex align-items-center justify-content-center mb-3 mt-3">
+        <button type="button" class="btn btn-primary btn-sm px-4" style="min-width: 220px;" data-filter-apply>
+            Taikyti
+        </button>
+    </div>
+</div>

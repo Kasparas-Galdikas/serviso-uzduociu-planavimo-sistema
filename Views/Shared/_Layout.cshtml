@@ -11,10 +11,20 @@
     <link rel="stylesheet" href="~/ServiceTaskPlanningSystem.styles.css" asp-append-version="true" />
 </head>
 <body>
+    @{
+        var isAuthPage = Context?.Request?.Path.StartsWithSegments("/Authentication") ?? false;
+        var currentRole = (Context?.Request?.Cookies["stsps_role"] ?? string.Empty).ToLowerInvariant();
+        var currentEmail = Context?.Request?.Cookies["stsps_email"] ?? string.Empty;
+        var isLoggedIn = !string.IsNullOrWhiteSpace(currentRole) || !string.IsNullOrWhiteSpace(currentEmail);
+        var roleLabel = currentRole == "technician" ? "Technikas" : "Vadovas";
+        var initial = !string.IsNullOrWhiteSpace(currentEmail)
+            ? currentEmail.Trim().Substring(0, 1).ToUpperInvariant()
+            : "A";
+    }
     <header>
         <nav class="navbar navbar-expand-sm navbar-light bg-white border-bottom box-shadow mb-3">
             <div class="container-fluid">
-                <a class="navbar-brand" asp-area="" asp-controller="Schedule" asp-action="Index">Planavimo sistema</a>
+                <a class="navbar-brand" asp-area="" asp-controller="Schedule" asp-action="Index" asp-route-role="@(isLoggedIn ? currentRole : null)">Planavimo sistema</a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
                         aria-expanded="false" aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
@@ -22,12 +32,49 @@
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
                     <ul class="navbar-nav flex-grow-1">
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Schedule" asp-action="Index">Tvarkaraštis</a>
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Schedule" asp-action="Index" asp-route-role="@(isLoggedIn ? currentRole : null)">Tvarkaraštis</a>
                         </li>
                     </ul>
                     <div class="d-flex align-items-center gap-2">
-                        <span class="badge bg-secondary">Role: Vadovas</span>
-                        <a class="nav-link" href="#">Prisijungti</a>
+                        @if (!isAuthPage && isLoggedIn)
+                        {
+
+                            <div class="dropdown">
+                                <button class="btn p-0 border-0 bg-transparent nav-avatar-btn dropdown-toggle d-flex align-items-center"
+                                        type="button"
+                                        data-bs-toggle="dropdown"
+                                        aria-expanded="false"
+                                        aria-label="Profilio meniu">
+                                    <span class="nav-avatar d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white">
+                                        @initial
+                                    </span>
+                                    <i class="bi bi-chevron-down nav-avatar-chevron" aria-hidden="true"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end shadow-sm nav-account-menu">
+                                    <li class="nav-account-header">
+                                        <div class="small text-muted">Prisijungta kaip</div>
+                                        <div class="fw-semibold">@roleLabel</div>
+                                        @if (!string.IsNullOrWhiteSpace(currentEmail))
+                                        {
+                                            <div class="small text-muted">@currentEmail</div>
+                                        }
+                                    </li>
+                                    <li><hr class="dropdown-divider" /></li>
+                                    <li><a class="dropdown-item" href="#">Profilis</a></li>
+                                    <li><a class="dropdown-item" href="#">Nustatymai</a></li>
+                                    <li><hr class="dropdown-divider" /></li>
+                                    <li>
+                                        <a class="dropdown-item text-danger" asp-controller="Authentication" asp-action="Logout">
+                                            Atsijungti
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                        }
+                        else
+                        {
+                            <a class="nav-link" asp-controller="Authentication" asp-action="Index">Prisijungti</a>
+                        }
                     </div>
                 </div>
             </div>
@@ -38,6 +85,8 @@
             @RenderBody()
         </div>
     </main>
+
+    @await RenderSectionAsync("Overlays", required: false)
 
     <footer class="footer text-muted">
         <div class="container d-flex justify-content-center align-items-center">
