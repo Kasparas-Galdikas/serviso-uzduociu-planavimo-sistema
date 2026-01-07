@@ -123,6 +123,24 @@
    Tablet – landscape (≤ 1024px)
    ========================================================= */
 
+/* =========================================================
+   Inline filter bar (desktop/tablet)
+   ========================================================= */
+
+.schedule-filter-bar {
+  border: 1px solid var(--neutral-200);
+  border-radius: 16px;
+  background: var(--neutral-0);
+  box-shadow: var(--shadow-sm);
+  padding: 12px 12px 6px;
+  margin-bottom: 12px;
+}
+
+.schedule-filter-bar .form-label {
+  color: var(--accent-700);
+  font-weight: 600;
+}
+
 @media (max-width: 1024px) {
   .filter-console-btn {
     width: 54px;

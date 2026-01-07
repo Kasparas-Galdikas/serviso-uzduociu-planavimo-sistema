@@ -25,6 +25,8 @@
      tabindex="-1"
      aria-labelledby="filterConsoleLabel"
      aria-hidden="true"
+     data-schedule-filters="true"
+     data-schedule-filters-root="modal"
      data-initial-view="@Model.ViewMode"
      data-selected-date="@Model.SelectedDate.ToString("yyyy-MM-dd")"
      data-week-start="@Model.WeekStart.ToString("yyyy-MM-dd")"
@@ -45,16 +47,16 @@
             </div>
 
             <div class="modal-body pt-0">
-                @await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsoleForm.cshtml", Model)
+                @await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsoleForm.cshtml", Model, new ViewDataDictionary(ViewData) { ["FilterPrefix"] = "modal" })
                 <hr class="my-3" />
-                @await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsoleActions.cshtml", Model)
+                @await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsoleActions.cshtml", Model, new ViewDataDictionary(ViewData) { ["FilterPrefix"] = "modal" })
             </div>
 
             <div class="modal-footer border-0 pt-0">
                 <div class="w-100 d-flex flex-wrap align-items-center gap-2 justify-content-between">
                     <div class="d-flex gap-2 ms-auto">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Uzdaryti</button>
-                        <button type="button" class="btn btn-primary" id="applyFiltersBtn">Taikyti filtrus</button>
+                        <button type="button" class="btn btn-primary" data-filter-apply>Taikyti filtrus</button>
                     </div>
                 </div>
             </div>

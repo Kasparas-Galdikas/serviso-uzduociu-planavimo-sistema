@@ -1,6 +1,13 @@
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
 @{
     var canEdit = Model.IsManager;
+    var prefix = (ViewData["FilterPrefix"] as string) ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(prefix))
+    {
+        throw new InvalidOperationException("FilterPrefix is required");
+    }
+
+    var editModeId = $"{prefix}-consoleEditMode";
 }
 <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mt-3">
     <div class="d-flex flex-wrap gap-2 filter-console-actions">
@@ -17,8 +24,8 @@
     @if (Model.IsManager)
     {
         <div class="form-check form-switch mb-0">
-            <input class="form-check-input" type="checkbox" role="switch" id="consoleEditMode" checked>
-            <label class="form-check-label" for="consoleEditMode">Redagavimo rezimas</label>
+            <input class="form-check-input" type="checkbox" role="switch" id="@editModeId" data-edit-toggle checked>
+            <label class="form-check-label" for="@editModeId">Redagavimo rezimas</label>
         </div>
     }
     else

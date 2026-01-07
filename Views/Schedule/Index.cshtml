@@ -25,7 +25,9 @@
     </div>
 </div>
 
-<div class="console-banner alert alert-info d-flex align-items-center justify-content-between mb-3">
+@await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_InlineFilterBar.cshtml", Model)
+
+<div class="console-banner alert alert-info d-flex d-md-none align-items-center justify-content-between mb-3">
     <div class="d-flex align-items-center gap-2">
         <i class="bi bi-sliders2-vertical"></i>
         <div>
@@ -77,12 +79,15 @@
         @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_DailyTable.cshtml", Model)
     }
 </div>
-@await Html.PartialAsync("~/Views/Schedule/Partials/Issues/_IssuesModal.cshtml", issues)
-@await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsole.cshtml", Model)
-@await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_CreateScheduleModal.cshtml", Model)
-@await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_SummaryScheduleModal.cshtml", Model)
-@await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TaskDetailModal.cshtml")
-@await Html.PartialAsync("~/Views/Shared/_ScheduleDebugDrawer.cshtml")
+
+@section Overlays {
+    @await Html.PartialAsync("~/Views/Schedule/Partials/Issues/_IssuesModal.cshtml", issues)
+    @await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsole.cshtml", Model)
+    @await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_CreateScheduleModal.cshtml", Model)
+    @await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_SummaryScheduleModal.cshtml", Model)
+    @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TaskDetailModal.cshtml")
+    @await Html.PartialAsync("~/Views/Shared/_ScheduleDebugDrawer.cshtml")
+}
 
 
 @section Scripts {

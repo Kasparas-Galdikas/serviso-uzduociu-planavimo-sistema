@@ -8,6 +8,7 @@ html {
   position: relative;
   min-height: 100%;
   font-size: 16px;
+  --offcanvas-push: 0px;
 }
 
 body {
@@ -27,6 +28,13 @@ body {
   margin: 0 auto;
   padding: 16px;
   padding-bottom: 64px; /* ensure content clears footer */
+  transition: transform 0.2s ease;
+}
+
+@media (min-width: 992px) {
+  .offcanvas-push-open .page-container {
+    transform: translateX(calc(-1 * var(--offcanvas-push)));
+  }
 }
 
 .page-header {
@@ -293,6 +301,24 @@ textarea:focus {
 
 .modal-footer {
   border-top: 1px solid var(--neutral-200);
+}
+
+/* =========================================================
+   Offcanvas (task detail panel)
+   ========================================================= */
+
+.task-detail-panel {
+  --bs-offcanvas-width: min(520px, 100%);
+  border-left: 1px solid var(--neutral-200);
+  box-shadow: var(--shadow-lg);
+}
+
+.task-detail-panel .offcanvas-header {
+  border-bottom: 1px solid var(--neutral-200);
+}
+
+.task-detail-panel .offcanvas-body {
+  padding-bottom: 24px;
 }
 
 /* =========================================================

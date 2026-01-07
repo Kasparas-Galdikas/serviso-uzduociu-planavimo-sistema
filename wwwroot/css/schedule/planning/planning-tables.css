@@ -71,6 +71,7 @@
   border-radius: var(--radius-md);
   padding: 6px 8px 6px 12px;
   border: 1px solid var(--neutral-200);
+  --task-accent: var(--neutral-300);
   min-width: 110px;
   min-height: 64px;
   display: flex;
@@ -156,21 +157,25 @@
 .task-card.task-normal {
   background: var(--success-100);
   border-color: var(--success-500);
+  --task-accent: var(--success-500);
 }
 
 .task-card.task-load {
   background: var(--warning-100);
   border-color: var(--warning-500);
+  --task-accent: var(--warning-500);
 }
 
 .task-card.task-conflict {
   background: var(--danger-100);
   border-color: var(--danger-500);
+  --task-accent: var(--danger-500);
 }
 
 .task-card.task-travel {
   background: var(--info-100);
   border-color: var(--info-500);
+  --task-accent: var(--info-500);
 }
 
 /* =========================================================
@@ -180,17 +185,31 @@
 .task-card.task-active {
   border-color: var(--state-readonly-border);
   box-shadow: inset 0 0 0 1px var(--state-readonly-border);
+  --task-accent: var(--state-readonly-border);
 }
 
 .task-card.task-draft {
   border-color: var(--state-draft-border);
   box-shadow: inset 0 0 0 1px var(--state-draft-border);
+  --task-accent: var(--state-draft-border);
 }
 
 .task-card.task-superseded {
   opacity: 0.75;
   border-color: var(--neutral-300);
   box-shadow: inset 0 0 0 1px var(--neutral-300);
+  --task-accent: var(--neutral-300);
+}
+
+.task-card.is-active {
+  border-width: 2px;
+  border-color: var(--task-accent);
+  box-shadow: 0 0 0 2px var(--task-accent), var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.task-card.is-active::before {
+  width: 6px;
 }
 
 .indicator {
