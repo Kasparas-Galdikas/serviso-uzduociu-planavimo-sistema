@@ -397,6 +397,13 @@
       try {
         setActiveCard(card);
 
+        // If the detail panel is minimized, expand it before showing new content.
+        const detailPanel = document.getElementById("taskDetailModal");
+        if (detailPanel?.classList?.contains("is-collapsed")) {
+          detailPanel.classList.remove("is-collapsed");
+          detailPanel.dispatchEvent(new CustomEvent("schedule:panel:collapse-changed"));
+        }
+
         const resp =
           (await logger?.fetchWithTrace(
             `/tasks/${taskId}`,
@@ -412,7 +419,6 @@
         }
 
         const data = await resp.json();
-        const detailPanel = document.getElementById("taskDetailModal");
         if (!detailPanel) return;
 
         populateTaskModal(detailPanel, data, data.isEditable);
@@ -491,12 +497,21 @@
     if (detailPanel) {
       const root = document.documentElement;
       const supportsPush = () => window.matchMedia("(min-width: 992px)").matches;
+      const expandedMaxWidth = 560;
+      const collapsedCssWidth = 25;
+      const collapseThreshold = 60;
 
       const applyPush = () => {
         if (!supportsPush()) return;
-        const rect = detailPanel.getBoundingClientRect();
-        const rawWidth = rect.width || 0;
-        const push = Math.min(Math.max(rawWidth, 0), 560);
+        const isCollapsed = detailPanel.classList.contains("is-collapsed");
+        if (isCollapsed) {
+          root.classList.remove("offcanvas-push-open");
+          root.style.setProperty("--offcanvas-push", "0px");
+          return;
+        }
+
+        const measuredWidth = detailPanel.getBoundingClientRect().width || 0;
+        const push = Math.min(Math.max(measuredWidth, 0), expandedMaxWidth);
         root.style.setProperty("--offcanvas-push", `${push}px`);
         root.classList.add("offcanvas-push-open");
       };
@@ -506,8 +521,127 @@
         root.style.setProperty("--offcanvas-push", "0px");
       };
 
+      const setPanelWidth = (px) => {
+        if (!px || Number.isNaN(px)) {
+          detailPanel.style.removeProperty("--bs-offcanvas-width");
+          return;
+        }
+        detailPanel.style.setProperty("--bs-offcanvas-width", `${px}px`);
+      };
+
+      const getExpandedWidth = () => {
+        const stored = Number(detailPanel.dataset.expandedWidth || "");
+        if (stored && !Number.isNaN(stored)) return stored;
+        return Math.min(520, expandedMaxWidth);
+      };
+
+      const collapsePanel = () => {
+        // Save last expanded width before collapsing.
+        const current = detailPanel.getBoundingClientRect().width || getExpandedWidth();
+        if (current > collapseThreshold) {
+          detailPanel.dataset.expandedWidth = String(Math.min(current, expandedMaxWidth));
+        }
+        detailPanel.classList.add("is-collapsed");
+        setPanelWidth(null);
+        detailPanel.dispatchEvent(new CustomEvent("schedule:panel:collapse-changed"));
+      };
+
+      const expandPanel = (width) => {
+        detailPanel.classList.remove("is-collapsed");
+        const next = Math.min(Math.max(width || getExpandedWidth(), collapseThreshold), expandedMaxWidth);
+        detailPanel.dataset.expandedWidth = String(next);
+        setPanelWidth(next);
+        detailPanel.dispatchEvent(new CustomEvent("schedule:panel:collapse-changed"));
+      };
+
+      const toggleBtn = detailPanel.querySelector("[data-panel-toggle]");
+      const toggleIcon = detailPanel.querySelector("[data-panel-toggle-icon]");
+      const syncToggleIcon = () => {
+        if (!toggleBtn || !toggleIcon) return;
+        const collapsed = detailPanel.classList.contains("is-collapsed");
+        toggleBtn.setAttribute("aria-pressed", collapsed ? "true" : "false");
+        // Keep a simple affordance: '>' means open/expand again.
+        toggleIcon.textContent = collapsed ? ">" : "<";
+      };
+
+      if (toggleBtn) {
+        syncToggleIcon();
+        toggleBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          if (detailPanel.classList.contains("is-collapsed")) {
+            expandPanel();
+          } else {
+            collapsePanel();
+          }
+        });
+      }
+
+      // Re-sync layout after collapse/expand changes (including when a task click forces expand).
+      detailPanel.addEventListener("schedule:panel:collapse-changed", () => {
+        syncToggleIcon();
+        applyPush();
+        setTimeout(() => applyPush(), 260);
+      });
+
+      // Drag-to-resize handle on the left edge of the panel.
+      const resizeHandle = detailPanel.querySelector("[data-panel-resize]");
+      if (resizeHandle) {
+        resizeHandle.addEventListener("pointerdown", (e) => {
+          if (!supportsPush()) return;
+          e.preventDefault();
+          e.stopPropagation();
+
+          detailPanel.classList.add("is-resizing");
+          resizeHandle.setPointerCapture?.(e.pointerId);
+
+          const startClientX = e.clientX;
+          const startWidth = detailPanel.classList.contains("is-collapsed")
+            ? collapsedCssWidth
+            : (detailPanel.getBoundingClientRect().width || getExpandedWidth());
+
+          const onMove = (ev) => {
+            const dx = startClientX - ev.clientX;
+            const nextWidth = Math.min(Math.max(startWidth + dx, collapsedCssWidth), expandedMaxWidth);
+
+            if (nextWidth <= collapseThreshold) {
+              detailPanel.classList.add("is-collapsed");
+              setPanelWidth(null);
+            } else {
+              detailPanel.classList.remove("is-collapsed");
+              detailPanel.dataset.expandedWidth = String(nextWidth);
+              setPanelWidth(nextWidth);
+            }
+
+            syncToggleIcon();
+            applyPush();
+          };
+
+          const onUp = () => {
+            detailPanel.classList.remove("is-resizing");
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+
+            // Snap to collapsed if near the edge.
+            if (detailPanel.classList.contains("is-collapsed")) {
+              setPanelWidth(null);
+            } else {
+              // Ensure we keep a reasonable expanded width stored.
+              const w = detailPanel.getBoundingClientRect().width || getExpandedWidth();
+              detailPanel.dataset.expandedWidth = String(Math.min(w, expandedMaxWidth));
+            }
+
+            detailPanel.dispatchEvent(new CustomEvent("schedule:panel:collapse-changed"));
+          };
+
+          window.addEventListener("pointermove", onMove);
+          window.addEventListener("pointerup", onUp);
+        });
+      }
+
       detailPanel.addEventListener("shown.bs.offcanvas", () => {
         requestAnimationFrame(() => applyPush());
+        setTimeout(() => applyPush(), 260);
+        syncToggleIcon();
       });
       detailPanel.addEventListener("hidden.bs.offcanvas", clearPush);
 

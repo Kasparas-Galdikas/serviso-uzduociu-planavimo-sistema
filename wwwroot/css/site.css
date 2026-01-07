@@ -326,6 +326,84 @@ textarea:focus {
   --bs-offcanvas-width: min(520px, 100%);
   border-left: 1px solid var(--neutral-200);
   box-shadow: var(--shadow-lg);
+  transition: width 0.25s ease;
+}
+
+.task-detail-panel.is-resizing {
+  transition: none;
+  user-select: none;
+}
+
+.task-detail-panel.is-collapsed {
+  --bs-offcanvas-width: 25px;
+  background: transparent;
+  background-color: transparent !important;
+  border-left: 0;
+  box-shadow: none;
+}
+
+.task-detail-panel.is-collapsed .offcanvas-body {
+  display: none;
+}
+
+.task-detail-panel.is-collapsed .offcanvas-header > div {
+  display: none;
+}
+
+.task-detail-panel.is-collapsed .btn-close {
+  display: none;
+}
+
+.task-detail-panel.is-collapsed .offcanvas-header {
+  border-bottom: 0;
+  padding: 0;
+  min-height: 0;
+}
+
+.task-detail-collapse {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translate(-80%, -50%);
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--neutral-200);
+  box-shadow: var(--shadow-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 1090;
+}
+
+.task-detail-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+  z-index: 1089;
+}
+
+.task-detail-resize-handle::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 56px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--neutral-200);
+  opacity: 0.6;
+}
+
+.task-detail-resize-handle:hover::before {
+  opacity: 1;
+  background: var(--neutral-300);
 }
 
 .task-detail-panel .offcanvas-header {
@@ -335,6 +413,32 @@ textarea:focus {
 .task-detail-panel .offcanvas-body {
   padding-bottom: 24px;
   overscroll-behavior: contain;
+}
+
+.task-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.task-section-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.task-section-toggle .bi {
+  transition: transform 0.18s ease;
+}
+
+.task-section-toggle[aria-expanded="true"] .bi {
+  transform: rotate(180deg);
 }
 
 /* =========================================================
