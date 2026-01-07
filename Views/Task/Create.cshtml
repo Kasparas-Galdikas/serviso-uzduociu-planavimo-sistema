@@ -1,0 +1,218 @@
+@model ServiceTaskPlanningSystem.Models.Tasks.TaskCreateViewModel
+@using ServiceTaskPlanningSystem.Data
+@{
+    ViewData["Title"] = "Kurti uzduoti";
+    var created = (ViewData["Created"] as bool?) ?? false;
+}
+
+<div class="page-header">
+    <div>
+        <h1 class="h4 mb-0">Kurti uzduoti</h1>
+        <div class="text-muted small">Forma (be saugojimo) – skirta UI ir lauku suderinimui.</div>
+    </div>
+</div>
+
+@if (created)
+{
+    <div class="alert alert-success shadow-sm">
+        Uzduotis uzpildyta (mock). Backend saugojimas dar neintegruotas.
+    </div>
+}
+
+<form asp-action="Create" method="post" class="card p-3 shadow-sm">
+    @Html.AntiForgeryToken()
+
+    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+    <section class="mb-4 task-section">
+        <div class="task-section-header"
+             role="button"
+             tabindex="0"
+             data-bs-toggle="collapse"
+             data-bs-target="#taskSecPlanningCreate"
+             aria-expanded="true"
+             aria-controls="taskSecPlanningCreate">
+            <h6 class="text-uppercase small mb-0 task-section-title" data-task-section-title="true">
+                Planavimas
+            </h6>
+            <button type="button"
+                    class="btn btn-sm btn-ghost task-section-toggle"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#taskSecPlanningCreate"
+                    aria-expanded="true"
+                    aria-controls="taskSecPlanningCreate">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+        </div>
+
+        <div class="collapse show" id="taskSecPlanningCreate">
+            <div class="row g-3 mt-1">
+                <div class="col-md-6">
+                    <label class="form-label small">Pavadinimas</label>
+                    <input asp-for="Title" type="text" class="form-control" />
+                    <span asp-validation-for="Title" class="text-danger small"></span>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label small">Priskirtas darbuotojas</label>
+                    <select asp-for="Assignee" class="form-select">
+                        <option value="">(nepasirinkta)</option>
+                        <option value="Tech-1">Tech-1</option>
+                        <option value="Tech-2">Tech-2</option>
+                        <option value="Tech-3">Tech-3</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label small">Pradzia</label>
+                    <input asp-for="StartAt" type="datetime-local" class="form-control" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label small">Pabaiga</label>
+                    <input asp-for="EndAt" type="datetime-local" class="form-control" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label small">Pamaina</label>
+                    <select asp-for="Shift" class="form-select">
+                        <option value="Day">Dienine</option>
+                        <option value="Night">Naktine</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label small">Trukme (val.)</label>
+                    <input asp-for="DurationHours" type="number" step="0.5" class="form-control" />
+                    <span asp-validation-for="DurationHours" class="text-danger small"></span>
+                </div>
+            </div>
+        </div>
+        <hr />
+    </section>
+
+    <section class="mb-4 task-section">
+        <div class="task-section-header"
+             role="button"
+             tabindex="0"
+             data-bs-toggle="collapse"
+             data-bs-target="#taskSecParamsCreate"
+             aria-expanded="true"
+             aria-controls="taskSecParamsCreate">
+            <h6 class="text-uppercase small mb-0 task-section-title" data-task-section-title="true">
+                Uzduoties parametrai
+            </h6>
+            <button type="button"
+                    class="btn btn-sm btn-ghost task-section-toggle"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#taskSecParamsCreate"
+                    aria-expanded="true"
+                    aria-controls="taskSecParamsCreate">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+        </div>
+
+        <div class="collapse show" id="taskSecParamsCreate">
+            <div class="row g-3 mt-1">
+                <div class="col-md-6">
+                    <label class="form-label small">Uzduoties tipas</label>
+                    <select asp-for="Type" class="form-select">
+                        <option value="Patrol">Patruliavimas</option>
+                        <option value="Inspection">Apziura</option>
+                        <option value="Repair">Gedimo salinimas</option>
+                        <option value="Monitoring">Stebejimas</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label small">Reikalingas kvalifikacijos lygis</label>
+                    <select asp-for="Skill" class="form-select">
+                        <option value="Basic">Bazinis</option>
+                        <option value="Advanced">Pazenges</option>
+                        <option value="Certified">Sertifikuotas</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label small">Prioritetas</label>
+                    <select asp-for="Priority" class="form-select">
+                        <option value="@TaskPriority.Low">Zemas</option>
+                        <option value="@TaskPriority.Medium">Vidutinis</option>
+                        <option value="@TaskPriority.High">Aukstas</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label small">Statusas</label>
+                    <select asp-for="Status" class="form-select">
+                        <option value="@ScheduleTaskStatus.Planned">Planuojama</option>
+                        <option value="@ScheduleTaskStatus.InProgress">Vykdoma</option>
+                        <option value="@ScheduleTaskStatus.Completed">Baigta</option>
+                        <option value="@ScheduleTaskStatus.Canceled">Atsaukta</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <hr />
+    </section>
+
+    <section class="mb-4 task-section">
+        <div class="task-section-header"
+             role="button"
+             tabindex="0"
+             data-bs-toggle="collapse"
+             data-bs-target="#taskSecAssetCreate"
+             aria-expanded="false"
+             aria-controls="taskSecAssetCreate">
+            <h6 class="text-uppercase small mb-0 task-section-title" data-task-section-title="true">
+                Saugomas objektas
+            </h6>
+            <button type="button"
+                    class="btn btn-sm btn-ghost task-section-toggle"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#taskSecAssetCreate"
+                    aria-expanded="false"
+                    aria-controls="taskSecAssetCreate">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+        </div>
+
+        <div class="collapse" id="taskSecAssetCreate">
+            <div class="row g-3 mt-1">
+                <div class="col-md-6">
+                    <label class="form-label small">Objektas</label>
+                    <input asp-for="ObjectName" type="text" class="form-control" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label small">Objekto tipas</label>
+                    <select asp-for="ObjectType" class="form-select">
+                        <option value="Building">Pastatas</option>
+                        <option value="Territory">Teritorija</option>
+                        <option value="Gate">Vartai</option>
+                        <option value="Warehouse">Sandelis</option>
+                    </select>
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label small">Lokacija / pastabos</label>
+                    <input asp-for="Location" type="text" class="form-control" />
+                </div>
+            </div>
+        </div>
+        <hr />
+    </section>
+
+    <div class="d-flex gap-2 justify-content-end">
+        <a class="btn btn-outline-secondary" asp-controller="Schedule" asp-action="Index">Atgal</a>
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check2-circle me-1"></i>
+            Registruoti (mock)
+        </button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
+

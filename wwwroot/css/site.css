@@ -31,6 +31,7 @@ body {
   transition: max-width 0.30s ease, margin 0.30s ease, padding 0.30s ease;
 }
 
+
 @media (min-width: 992px) {
   .offcanvas-push-open .page-container {
     max-width: min(1200px, calc(100vw - var(--offcanvas-push) - 24px));
@@ -109,13 +110,147 @@ body {
    Navbar & Footer
    ========================================================= */
 .navbar {
-  background: #fff;
+  background: var(--neutral-0);
   border-bottom: 1px solid var(--neutral-200);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+  box-shadow: var(--shadow-sm);
+  padding: 0.5rem 1rem;
 }
-.navbar .nav-link { color: var(--neutral-700); }
-.navbar .nav-link:hover { color: var(--accent-700); }
-.navbar .nav-link.active { color: var(--accent-700); border-bottom: 2px solid var(--accent-700); }
+
+/* Brand */
+.navbar .navbar-brand {
+  font-weight: 600;
+  color: var(--neutral-900);
+}
+
+.navbar .navbar-brand:hover {
+  color: var(--accent-700);
+}
+
+/* Nav links */
+.navbar .nav-link {
+  color: var(--neutral-700);
+  font-weight: 500;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.navbar .nav-link:hover {
+  color: var(--accent-700);
+  background-color: var(--neutral-50);
+}
+
+.navbar .nav-link.active {
+  color: var(--accent-700);
+  background-color: var(--accent-100);
+}
+
+/* Primary action button in navbar */
+.navbar .nav-action-btn,
+.navbar .btn-primary {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.navbar .btn-primary {
+  background-color: var(--accent-700);
+  border-color: var(--accent-700);
+}
+
+.navbar .btn-primary:hover {
+  background-color: var(--accent-800);
+  border-color: var(--accent-800);
+}
+
+/* Avatar / account button */
+.navbar .nav-avatar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.navbar .nav-avatar-btn:hover,
+.navbar .nav-avatar-btn:focus {
+  background: var(--neutral-100);
+  border-color: var(--neutral-200);
+}
+
+.navbar .nav-avatar-btn::after {
+  display: none;
+}
+
+/* Avatar circle */
+.navbar .nav-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-300);
+  color: var(--accent-800);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Chevron */
+.navbar .nav-avatar-chevron {
+  font-size: 0.75rem;
+  color: var(--neutral-500);
+}
+
+/* Account dropdown menu */
+.navbar .nav-account-menu {
+  min-width: 260px;
+  padding: 6px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--neutral-200);
+  background: var(--neutral-0);
+  box-shadow: var(--shadow-md);
+}
+
+.navbar .nav-account-header {
+  padding: 10px;
+  border-bottom: 1px solid var(--neutral-200);
+  margin-bottom: 6px;
+}
+
+.navbar .nav-account-menu .dropdown-item {
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  font-weight: 500;
+  color: var(--neutral-700);
+  transition: background-color 0.15s ease;
+}
+
+.navbar .nav-account-menu .dropdown-item:hover,
+.navbar .nav-account-menu .dropdown-item:focus {
+  background: var(--neutral-100);
+  color: var(--neutral-900);
+}
+
+.navbar .nav-account-menu .dropdown-item.text-danger {
+  color: var(--danger-600);
+}
+
+.navbar .nav-account-menu .dropdown-item.text-danger:hover,
+.navbar .nav-account-menu .dropdown-item.text-danger:focus {
+  background: var(--danger-100);
+}
+
+/* Focus accessibility */
+.navbar a:focus-visible,
+.navbar button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-shadow);
+}
+
 
 .footer {
   background: #fff;
@@ -154,6 +289,16 @@ a {
 a:hover {
   color: var(--accent-700);
   text-decoration: underline;
+}
+
+/* Avoid underlines in navigation/UI chrome (keep default underline for content links). */
+.navbar a:hover,
+.navbar a:focus,
+.dropdown-menu a:hover,
+.dropdown-menu a:focus,
+a.btn:hover,
+a.btn:focus {
+  text-decoration: none;
 }
 
 /* =========================================================
