@@ -496,20 +496,7 @@
         if (!supportsPush()) return;
         const rect = detailPanel.getBoundingClientRect();
         const rawWidth = rect.width || 0;
-        const nudgeFactor = 0.6; // 0..1: how much the page moves left
-        const maxNudge = 280; // px cap to avoid over-shifting
-        const minLeftGap = 12; // keep some space from the left edge
-        const container = document.querySelector(".page-container");
-        const containerRect = container?.getBoundingClientRect?.();
-        const maxShiftByLeftGap = containerRect
-          ? Math.max(containerRect.left - minLeftGap, 0)
-          : maxNudge;
-
-        const push = Math.min(
-          Math.max(rawWidth * nudgeFactor, 0),
-          maxNudge,
-          maxShiftByLeftGap,
-        );
+        const push = Math.min(Math.max(rawWidth, 0), 560);
         root.style.setProperty("--offcanvas-push", `${push}px`);
         root.classList.add("offcanvas-push-open");
       };

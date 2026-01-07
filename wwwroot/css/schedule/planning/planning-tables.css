@@ -20,10 +20,35 @@
     90deg,
     var(--neutral-100) 0%,
     var(--neutral-50) 60%,
-    transparent 100%
+    var(--neutral-50) 100%
   );
 
   border-right: 2px solid var(--neutral-300);
+}
+
+.schedule-table th.tech-col-head,
+.schedule-table th.tech-cell,
+.schedule-table td.tech-cell {
+  position: sticky;
+  left: 0;
+}
+
+.schedule-table th.tech-col-head {
+  z-index: 8;
+}
+
+.schedule-table th.tech-cell,
+.schedule-table td.tech-cell {
+  z-index: 5;
+  box-shadow: 10px 0 12px rgba(0, 0, 0, 0.06);
+}
+
+/* Sticky table head + sticky technician column intersection */
+.table-fixed-head .thead-top th.tech-col-head {
+  top: 0;
+  left: 0;
+  z-index: 12;
+  background: var(--neutral-100);
 }
 
 /* =========================================================

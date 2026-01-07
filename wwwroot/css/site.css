@@ -28,12 +28,27 @@ body {
   margin: 0 auto;
   padding: 16px;
   padding-bottom: 64px; /* ensure content clears footer */
-  transition: transform 0.2s ease;
+  transition: max-width 0.30s ease, margin 0.30s ease, padding 0.30s ease;
 }
 
 @media (min-width: 992px) {
   .offcanvas-push-open .page-container {
-    transform: translateX(calc(-1 * var(--offcanvas-push)));
+    max-width: min(1200px, calc(100vw - var(--offcanvas-push) - 24px));
+    margin-left: 12px;
+    margin-right: auto;
+    transform: none;
+    font-size: 15px;
+  }
+
+  .offcanvas-push-open .page-container .btn {
+    padding: 0.28rem 0.65rem;
+    font-size: 0.95em;
+  }
+
+  .offcanvas-push-open .page-container .form-control,
+  .offcanvas-push-open .page-container .form-select {
+    padding: 0.32rem 0.6rem;
+    font-size: 0.95em;
   }
 }
 
@@ -319,6 +334,7 @@ textarea:focus {
 
 .task-detail-panel .offcanvas-body {
   padding-bottom: 24px;
+  overscroll-behavior: contain;
 }
 
 /* =========================================================
