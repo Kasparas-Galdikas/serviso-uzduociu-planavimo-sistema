@@ -1,4 +1,4 @@
-@import url("./tokens/theme-tokens.css");
+﻿@import url("./tokens/theme-tokens.css");
 
 /* =========================================================
    Base document
@@ -423,6 +423,14 @@ textarea:focus {
   margin-bottom: 6px;
 }
 
+.task-detail-panel .task-section-header h6 {
+  transition: color 0.05s ;
+}
+
+.task-detail-panel .task-section-header:hover h6 {
+  color: var(--info-500)!important;
+}
+
 .task-section-toggle {
   width: 34px;
   height: 34px;
@@ -568,3 +576,8 @@ textarea:focus {
     #e9ecef 100%
   );
 }
+
+
+
+
+

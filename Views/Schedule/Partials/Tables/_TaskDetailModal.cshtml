@@ -1,10 +1,15 @@
-<div class="offcanvas offcanvas-end task-detail-panel" tabindex="-1" id="taskDetailModal"
+﻿<div class="offcanvas offcanvas-end task-detail-panel" tabindex="-1" id="taskDetailModal"
     aria-labelledby="taskDetailLabel" data-bs-scroll="true" data-bs-backdrop="false">
 
-    <div class="task-detail-resize-handle" data-panel-resize aria-label="Keisti skydelio plotį"></div>
+    <div class="task-detail-resize-handle"
+         data-panel-resize
+         aria-label="Keisti skydelio plotį"></div>
 
-    <button type="button" class="btn btn-light task-detail-collapse" data-panel-toggle
-        aria-label="Suskleisti / išskleisti skydelį" aria-pressed="false">
+    <button type="button"
+            class="btn btn-light task-detail-collapse"
+            data-panel-toggle
+            aria-label="Suskleisti / išskleisti skydelį"
+            aria-pressed="false">
         <span data-panel-toggle-icon>&gt;</span>
     </button>
 
@@ -13,7 +18,10 @@
             <h5 class="offcanvas-title" id="taskDetailLabel">Užduoties informacija</h5>
             <small class="text-muted" id="taskDetailCode">Kodas: —</small>
         </div>
-        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Uždaryti"></button>
+        <button type="button"
+                class="btn-close"
+                data-bs-dismiss="offcanvas"
+                aria-label="Uždaryti"></button>
     </div>
 
     <div class="offcanvas-body">
@@ -23,17 +31,34 @@
             Redaguoti galima tik juodraščio plano užduotis.
         </div>
 
+        <!-- PLANAVIMAS -->
         <section class="mb-4 task-section">
-            <div class="task-section-header">
-                <h6 class="text-uppercase text-muted small mb-0">Planavimas</h6>
-                <button type="button" class="btn btn-sm btn-ghost task-section-toggle" data-bs-toggle="collapse"
-                    data-bs-target="#taskSecPlanning" aria-expanded="true" aria-controls="taskSecPlanning">
+            <div class="task-section-header"
+                 role="button"
+                 tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecPlanning"
+                 aria-expanded="true"
+                 aria-controls="taskSecPlanning">
+
+                <h6 class="text-uppercase small mb-0 task-section-title"
+                    data-task-section-title="true">
+                    Planavimas
+                </h6>
+
+                <button type="button"
+                        class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecPlanning"
+                        aria-expanded="true"
+                        aria-controls="taskSecPlanning">
                     <i class="bi bi-chevron-down"></i>
                 </button>
             </div>
 
             <div class="collapse show" id="taskSecPlanning">
                 <div class="row g-3 mt-1">
+
                     <div class="col-md-6">
                         <label class="form-label small">Pavadinimas</label>
                         <input type="text" class="form-control" id="taskDetailTitle">
@@ -66,23 +91,40 @@
                         <label class="form-label small">Trukmė (val.)</label>
                         <input type="number" step="0.5" class="form-control" id="taskDetailDuration">
                     </div>
+
                 </div>
-               
             </div>
-             <hr >
+            <hr>
         </section>
 
+        <!-- UŽDUOTIES PARAMETRAI -->
         <section class="mb-4 task-section">
-            <div class="task-section-header">
-                <h6 class="text-uppercase text-muted small mb-0">Užduoties parametrai</h6>
-                <button type="button" class="btn btn-sm btn-ghost task-section-toggle" data-bs-toggle="collapse"
-                    data-bs-target="#taskSecParams" aria-expanded="true" aria-controls="taskSecParams">
+            <div class="task-section-header"
+                 role="button"
+                 tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecParams"
+                 aria-expanded="true"
+                 aria-controls="taskSecParams">
+
+                <h6 class="text-uppercase small mb-0 task-section-title"
+                    data-task-section-title="true">
+                    Užduoties parametrai
+                </h6>
+
+                <button type="button"
+                        class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecParams"
+                        aria-expanded="true"
+                        aria-controls="taskSecParams">
                     <i class="bi bi-chevron-down"></i>
                 </button>
             </div>
 
             <div class="collapse show" id="taskSecParams">
                 <div class="row g-3 mt-1">
+
                     <div class="col-md-6">
                         <label class="form-label small">Užduoties tipas</label>
                         <select class="form-select" id="taskDetailType">
@@ -120,22 +162,36 @@
                             <option value="Canceled">Atšaukta</option>
                         </select>
                     </div>
+
                 </div>
             </div>
-              <hr >
+            <hr>
         </section>
 
-          <section class="mb-4 task-section">
-            <div class="task-section-header">
-                <h6 class="text-uppercase text-muted small mb-0">Saugomas objektas</h6>
-                <button type="button" class="btn btn-sm btn-ghost task-section-toggle" data-bs-toggle="collapse"
-                    data-bs-target="#taskSecAsset" aria-expanded="false" aria-controls="taskSecAsset">
+        <!-- SAUGOMAS OBJEKTAS -->
+        <section class="mb-4 task-section">
+            <div class="task-section-header"
+                 role="button"
+                 tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecAsset">
+
+                <h6 class="text-uppercase small mb-0 task-section-title"
+                    data-task-section-title="true">
+                    Saugomas objektas
+                </h6>
+
+                <button type="button"
+                        class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecAsset">
                     <i class="bi bi-chevron-down"></i>
                 </button>
             </div>
 
             <div class="collapse" id="taskSecAsset">
                 <div class="row g-3 mt-1">
+
                     <div class="col-md-6">
                         <label class="form-label small">Objektas</label>
                         <input type="text" class="form-control" id="taskDetailObject">
@@ -155,22 +211,36 @@
                         <label class="form-label small">Lokacija / pastabos</label>
                         <input type="text" class="form-control" id="taskDetailLocation">
                     </div>
+
                 </div>
             </div>
-              <hr >
+            <hr>
         </section>
 
+        <!-- INSTRUKCIJOS IR SAUGA -->
         <section class="mb-4 task-section">
-            <div class="task-section-header">
-                <h6 class="text-uppercase text-muted small mb-0">Instrukcijos ir sauga</h6>
-                <button type="button" class="btn btn-sm btn-ghost task-section-toggle" data-bs-toggle="collapse"
-                    data-bs-target="#taskSecSafety" aria-expanded="false" aria-controls="taskSecSafety">
+            <div class="task-section-header"
+                 role="button"
+                 tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecSafety">
+
+                <h6 class="text-uppercase small mb-0 task-section-title"
+                    data-task-section-title="true">
+                    Instrukcijos ir sauga
+                </h6>
+
+                <button type="button"
+                        class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecSafety">
                     <i class="bi bi-chevron-down"></i>
                 </button>
             </div>
 
             <div class="collapse" id="taskSecSafety">
                 <div class="row g-3 mt-1">
+
                     <div class="col-12">
                         <label class="form-label small">Instrukcijos darbuotojui</label>
                         <textarea class="form-control" rows="3" id="taskDetailInstructions"></textarea>
@@ -184,16 +254,29 @@
                             <option value="Restricted">Ribota prieiga</option>
                         </select>
                     </div>
+
                 </div>
             </div>
-              <hr >
+            <hr>
         </section>
 
+        <!-- VYKDYMAS -->
         <section class="mb-4 task-section">
-            <div class="task-section-header">
-                <h6 class="text-uppercase text-muted small mb-0">Vykdymas</h6>
-                <button type="button" class="btn btn-sm btn-ghost task-section-toggle" data-bs-toggle="collapse"
-                    data-bs-target="#taskSecExecution" aria-expanded="false" aria-controls="taskSecExecution">
+            <div class="task-section-header"
+                 role="button"
+                 tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecExecution">
+
+                <h6 class="text-uppercase small mb-0 task-section-title"
+                    data-task-section-title="true">
+                    Vykdymas
+                </h6>
+
+                <button type="button"
+                        class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecExecution">
                     <i class="bi bi-chevron-down"></i>
                 </button>
             </div>
@@ -209,78 +292,34 @@
             <hr>
         </section>
 
-         <section class="mb-4 task-section" id="taskConflictSection" data-task-conflicts>
+        <!-- KONFLIKTAI -->
+        <section class="mb-4 task-section" id="taskConflictSection" data-task-conflicts">
+            <div class="task-section-header"
+                 role="button"
+                 tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecConflicts">
 
-            <div class="task-section-header">
-                <h6 class="text-uppercase text-muted small mb-0">
+                <h6 class="text-uppercase small mb-0 task-section-title"
+                    data-task-section-title="true">
                     Konfliktai ir poveikis
                 </h6>
 
-                <button type="button" class="btn btn-sm btn-ghost task-section-toggle" data-bs-toggle="collapse"
-                    data-bs-target="#taskSecConflicts" aria-expanded="false" aria-controls="taskSecConflicts">
+                <button type="button"
+                        class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecConflicts">
                     <i class="bi bi-chevron-down"></i>
                 </button>
             </div>
 
             <div class="collapse" id="taskSecConflicts">
-
-                <!-- SUMMARY -->
                 <div class="alert alert-warning small mb-3" data-conflict-summary>
                     <strong>Rasta galimų konfliktų:</strong>
                     <span data-conflict-count>0</span>.
                     Pakeitimai leidžiami, tačiau rekomenduojama peržiūrėti žemiau pateiktą informaciją.
                 </div>
 
-                <!-- CONFLICT LIST -->
-                <ul class="list-group list-group-flush mb-3" data-conflict-list>
-
-
-                    <li class="list-group-item px-0">
-                        <div class="d-flex gap-2">
-                            <i class="bi bi-exclamation-triangle text-warning mt-1"></i>
-                            <div>
-                                <div class="fw-semibold small">
-                                    Darbuotojo užimtumo konfliktas
-                                </div>
-                                <div class="text-muted small">
-                                    Jonas jau turi suplanuotą užduotį
-                                    <strong>08:00–12:00</strong>.
-                                </div>
-                            </div>
-                        </div>
-                    </li>
-
-                </ul>
-
-                <!-- RECOMMENDATIONS -->
-                <div class="mb-2">
-                    <div class="fw-semibold small mb-2 text-muted">
-                        Rekomenduojami sprendimai
-                    </div>
-
-                    <ul class="list-group" data-conflict-recommendations>
-
-
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <div>
-                                <div class="fw-semibold small">
-                                    Petras
-                                </div>
-                                <div class="text-muted small">
-                                    Laisvas, tinkama kvalifikacija, normali apkrova
-                                </div>
-                            </div>
-
-                            <button type="button" class="btn btn-outline-primary btn-sm" data-recommendation-apply
-                                data-technician-id="123">
-                                Pasirinkti
-                            </button>
-                        </li>
-
-                    </ul>
-                </div>
-
-                <!-- IMPACT PREVIEW -->
                 <div class="mt-3 small text-muted border-top pt-2" data-conflict-impact>
                     <div>
                         <strong>Apkrovos poveikis:</strong>
@@ -292,19 +331,24 @@
                     </div>
                 </div>
 
-                <hr />
+                <hr>
             </div>
         </section>
 
-        <!-- FOOTER ACTIONS -->
+        <!-- FOOTER -->
         <div class="d-flex justify-content-between gap-2 border-top pt-3 mt-4">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="offcanvas">
+            <button type="button"
+                    class="btn btn-secondary"
+                    data-bs-dismiss="offcanvas">
                 Uždaryti
             </button>
-            <button type="button" class="btn btn-primary" id="taskDetailSave">
+            <button type="button"
+                    class="btn btn-primary"
+                    id="taskDetailSave">
                 Išsaugoti
             </button>
         </div>
+
     </div>
 </div>
 
