@@ -13,8 +13,9 @@
   schedule.panel?.initOnce?.();
   schedule.table?.initNavOnce?.();
   schedule.tasks?.initOnce?.();
+  schedule.dragdrop?.initOnce?.();
+  schedule.selection?.initOnce?.();
   schedule.filters?.initOnce?.();
 
   schedule.state?.emitViewChanged?.(schedule.state?.getQuery?.());
 })();
-

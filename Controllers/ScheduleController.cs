@@ -37,11 +37,11 @@ namespace ServiceTaskPlanningSystem.Controllers
 
             var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role);
             vm.IsManager = isManager;
-            if (vm.Tasks != null)
+            if (!vm.IsManager && vm.Tasks != null)
             {
                 foreach (var t in vm.Tasks)
                 {
-                    t.IsEditable = vm.IsManager || false;
+                    t.IsEditable = false;
                 }
             }
             vm = EnrichWithLayout(vm);
@@ -76,11 +76,11 @@ namespace ServiceTaskPlanningSystem.Controllers
 
             var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role);
             vm.IsManager = isManager;
-            if (vm.Tasks != null)
+            if (!vm.IsManager && vm.Tasks != null)
             {
                 foreach (var t in vm.Tasks)
                 {
-                    t.IsEditable = vm.IsManager || false;
+                    t.IsEditable = false;
                 }
             }
             vm = EnrichWithLayout(vm);

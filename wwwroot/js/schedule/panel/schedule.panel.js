@@ -4,6 +4,7 @@
 
   window.schedule = window.schedule || {};
   const schedule = window.schedule;
+  const selection = schedule.selection;
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
@@ -58,6 +59,7 @@
     if (detailPanel && filterTrigger) {
       const hideTrigger = () => filterTrigger.classList.add("d-none");
       const showTrigger = () => filterTrigger.classList.remove("d-none");
+      detailPanel.addEventListener("show.bs.offcanvas", () => selection?.clearSelection?.("panel.open"));
       detailPanel.addEventListener("show.bs.offcanvas", hideTrigger);
       detailPanel.addEventListener("hidden.bs.offcanvas", showTrigger);
     }
@@ -242,4 +244,3 @@
     closeForNonDailyContext,
   };
 })();
-
