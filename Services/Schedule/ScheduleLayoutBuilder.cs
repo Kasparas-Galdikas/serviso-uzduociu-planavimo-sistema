@@ -19,9 +19,9 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
         {
             var day = viewModel.SelectedDate != default ? viewModel.SelectedDate : viewModel.WeekStart;
 
-            var startMinutes = 8 * 60; // 08:00
-            var endMinutes = 20 * 60; // 20:00
-            var slotSize = 30; // 30 min
+            var startMinutes = ScheduleGrid.DayStartMinutes;
+            var endMinutes = ScheduleGrid.DayEndMinutes;
+            var slotSize = ScheduleGrid.SlotSizeMinutes;
 
             var slots = Enumerable
                 .Range(0, (endMinutes - startMinutes) / slotSize + 1)
@@ -84,10 +84,12 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                             var loadClass = task.IsConflict
                                 ? "task-conflict"
                                 : (task.IsLoad || task.OverloadHours > 0) ? "task-load" : "task-normal";
+                            var durationMinutes = (int)Math.Round((task.End - task.Start).TotalMinutes);
+                            var handleHtml = task.IsEditable ? @"<span class=""task-drag-handle"" draggable=""true"" aria-label=""Perkelti"" title=""Perkelti"">⋮⋮</span>" : string.Empty;
                             return $@"
 <div class=""task-card {dayState} {loadClass} {sourceClass} {editClass}"" data-plan=""{task.PlanId}"" data-task-id=""{task.Id}"" data-plan-source=""{task.Source.ToString().ToLowerInvariant()}""
-    data-editable=""{task.IsEditable.ToString().ToLowerInvariant()}"">
-    <div class=""task-time"">{task.Start:HH:mm} - {task.End:HH:mm}</div>
+    data-editable=""{task.IsEditable.ToString().ToLowerInvariant()}"" data-task-version=""{task.Version}"" data-duration-minutes=""{durationMinutes}"">
+    <div class=""task-time"">{handleHtml}{task.Start:HH:mm} - {task.End:HH:mm}</div>
     <div class=""task-title"">{WebUtility.HtmlEncode(task.Title)}</div>
     <div class=""task-location"">{WebUtility.HtmlEncode(task.Location)}</div>
 </div>";
@@ -104,10 +106,11 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                     }
                     else
                     {
+                        var emptySlotStartMinutes = startMinutes + slotIndex * slotSize;
                         cells.Add(new TableCell
                         {
                             CssClass = "schedule-cell empty-slot",
-                            ContentHtml = string.Empty
+                            ContentHtml = $@"<div class=""schedule-slot"" data-date=""{day:yyyy-MM-dd}"" data-tech-id=""{tech.Id}"" data-slot-start-minutes=""{emptySlotStartMinutes}""></div>"
                         });
                         slotIndex++;
                     }

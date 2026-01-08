@@ -23,6 +23,24 @@
     card.classList.add("is-active");
   };
 
+  const setActiveCardByTaskId = (taskId) => {
+    if (!taskId) return;
+    const card = document.querySelector(`.task-card[data-task-id="${CSS.escape(String(taskId))}"]`);
+    if (card) setActiveCard(card);
+  };
+
+  const fetchTask = async (taskId) => {
+    const resp =
+      (await logger?.fetchWithTrace?.(`/tasks/${taskId}`, {}, { event: "ui.task.fetch", taskId })) ||
+      (await fetch(`/tasks/${taskId}`, { headers: { "X-Requested-With": "XMLHttpRequest" } }));
+
+    if (!resp.ok) {
+      throw new Error("Nepavyko gauti uzduoties duomenu");
+    }
+
+    return await resp.json();
+  };
+
   const populateTaskModal = (modalEl, data, editable) => {
     const setVal = (selector, value) => {
       const el = modalEl.querySelector(selector);
@@ -38,6 +56,7 @@
 
     modalEl.dataset.taskId = data.id;
     modalEl.dataset.editable = editable ? "true" : "false";
+    if (data.version != null) modalEl.dataset.taskVersion = String(data.version);
 
     const inputs = modalEl.querySelectorAll("input, select, textarea");
     inputs.forEach((el) => {
@@ -122,6 +141,7 @@
     document.documentElement.dataset.scheduleTaskClickInit = "1";
 
     document.addEventListener("click", async (evt) => {
+      if (evt.target?.closest?.(".task-drag-handle")) return;
       const card = evt.target?.closest?.(".task-card");
       if (!card) return;
 
@@ -143,15 +163,7 @@
           detailPanel.dispatchEvent(new CustomEvent("schedule:panel:collapse-changed"));
         }
 
-        const resp =
-          (await logger?.fetchWithTrace(`/tasks/${taskId}`, {}, { event: "ui.task.fetch", taskId })) ||
-          (await fetch(`/tasks/${taskId}`, { headers: { "X-Requested-With": "XMLHttpRequest" } }));
-
-        if (!resp.ok) {
-          throw new Error("Nepavyko gauti uzduoties duomenu");
-        }
-
-        const data = await resp.json();
+        const data = await fetchTask(taskId);
         if (!detailPanel) return;
 
         populateTaskModal(detailPanel, data, data.isEditable);
@@ -165,6 +177,23 @@
     });
   };
 
-  schedule.tasks = { initOnce };
-})();
+  const refreshOpenTask = async (taskId) => {
+    const detailPanel = document.getElementById("taskDetailModal");
+    if (!detailPanel) return false;
+    if (!detailPanel.classList.contains("show")) return false;
+    if (String(detailPanel.dataset.taskId || "") !== String(taskId || "")) return false;
 
+    try {
+      const data = await fetchTask(taskId);
+      populateTaskModal(detailPanel, data, data.isEditable);
+      setActiveCardByTaskId(taskId);
+      logEvent("ui.task.refresh.ok", { taskId });
+      return true;
+    } catch (err) {
+      logEvent("ui.task.refresh.error", { taskId, error: err?.message }, "error");
+      return false;
+    }
+  };
+
+  schedule.tasks = { initOnce, refreshOpenTask, setActiveCardByTaskId };
+})();

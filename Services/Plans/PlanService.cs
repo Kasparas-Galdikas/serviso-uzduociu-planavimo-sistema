@@ -9,6 +9,7 @@ using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Planning;
+using ServiceTaskPlanningSystem.Services.Schedule;
 using ServiceTaskPlanningSystem.Services.Evaluation;
 using ServiceTaskPlanningSystem.Services.Authorization;
 
@@ -131,7 +132,119 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             {
                 await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
             }
-            return task;
+              return task;
+          }
+
+        public async Task<TaskMoveResult> MoveTaskAsync(long taskId, int targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, string role, CancellationToken cancellationToken = default)
+        {
+            var task = await _db.Tasks
+                .Include(t => t.Plan)
+                .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+
+            if (task == null)
+            {
+                return new TaskMoveResult(TaskMoveError.NotFound, $"Task {taskId} was not found.");
+            }
+
+            var currentVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
+            if (expectedVersion == 0 || expectedVersion != currentVersion)
+            {
+                return new TaskMoveResult(TaskMoveError.Stale, "Uzduotis pasikeite (stale). Atnaujinkite lentele ir bandykite dar karta.", CurrentVersion: currentVersion);
+            }
+
+            var duration = task.EndAt - task.StartAt;
+            var durationMinutesRaw = duration.TotalMinutes;
+            if (durationMinutesRaw <= 0 || Math.Abs(durationMinutesRaw - Math.Round(durationMinutesRaw)) > 0.0001)
+            {
+                return new TaskMoveResult(TaskMoveError.InvalidWindow, "Netinkama uzduoties trukme.");
+            }
+
+            var durationMinutes = (int)Math.Round(durationMinutesRaw);
+            if (targetSlotStartMinutes < 0 || targetSlotStartMinutes >= 24 * 60)
+            {
+                return new TaskMoveResult(TaskMoveError.InvalidWindow, "Netinkamas laiko langas.");
+            }
+
+            if (targetSlotStartMinutes % ScheduleGrid.SlotSizeMinutes != 0)
+            {
+                return new TaskMoveResult(TaskMoveError.InvalidWindow, "Laikas turi atitikti grafiko zingsni.");
+            }
+
+            if (targetSlotStartMinutes < ScheduleGrid.DayStartMinutes)
+            {
+                return new TaskMoveResult(TaskMoveError.InvalidWindow, "Per ankstyvas laikas.");
+            }
+
+            var endMinutes = targetSlotStartMinutes + durationMinutes;
+            if (endMinutes > ScheduleGrid.DayEndMinutes)
+            {
+                return new TaskMoveResult(TaskMoveError.InvalidWindow, "Uzduotis netelpa i darbo laika.");
+            }
+
+            var startAt = DateTime.SpecifyKind(targetDate.Date.AddMinutes(targetSlotStartMinutes), DateTimeKind.Utc);
+            var endAt = DateTime.SpecifyKind(targetDate.Date.AddMinutes(endMinutes), DateTimeKind.Utc);
+
+            var targetTech = await _db.Technicians
+                .AsNoTracking()
+                .Select(t => new { t.Id, t.RegionId })
+                .FirstOrDefaultAsync(t => t.Id == targetTechnicianId, cancellationToken);
+
+            if (targetTech == null)
+            {
+                return new TaskMoveResult(TaskMoveError.TechnicianNotFound, "Technikas nerastas.");
+            }
+
+            var permissionProbe = new TaskEntity
+            {
+                Id = task.Id,
+                PlanId = task.PlanId,
+                Plan = task.Plan,
+                TechnicianId = targetTech.Id,
+                RegionId = targetTech.RegionId,
+                StartAt = startAt,
+                EndAt = endAt,
+                Status = task.Status
+            };
+
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(permissionProbe, role, cancellationToken);
+            if (!canEdit)
+            {
+                return new TaskMoveResult(TaskMoveError.NotEditable, "Neturite teisiu perkelti sios uzduoties.");
+            }
+
+            var hasOverlap = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.Id != taskId)
+                .Where(t => t.TechnicianId == targetTech.Id)
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                .Where(t => t.StartAt < endAt && t.EndAt > startAt)
+                .AnyAsync(cancellationToken);
+
+            if (hasOverlap)
+            {
+                return new TaskMoveResult(TaskMoveError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).");
+            }
+
+            task.TechnicianId = targetTech.Id;
+            task.RegionId = targetTech.RegionId;
+            task.StartAt = startAt;
+            task.EndAt = endAt;
+
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return new TaskMoveResult(TaskMoveError.Stale, "Uzduotis pasikeite (stale). Atnaujinkite lentele ir bandykite dar karta.", CurrentVersion: currentVersion);
+            }
+
+            if (task.PlanId.HasValue)
+            {
+                await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
+            }
+
+            return new TaskMoveResult(TaskMoveError.None, Task: task, CurrentVersion: _db.Entry(task).Property<uint>("xmin").CurrentValue);
         }
 
         public async Task PublishDraftAsync(CancellationToken cancellationToken = default)

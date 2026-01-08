@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -67,6 +68,12 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc)
                 .ToListAsync();
 
+            var taskVersions = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc)
+                .Select(t => new { t.Id, Version = EF.Property<uint>(t, "xmin") })
+                .ToDictionaryAsync(x => x.Id, x => x.Version);
+
             var plansInView = taskEntities
                 .Select(t => t.Plan)
                 .Where(p => p != null)
@@ -112,7 +119,8 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                     PlanStatus.Superseded => TaskPlanSource.Superseded,
                     _ => TaskPlanSource.Active
                 };
-                var task = MapTask(t, technicians, planStatus);
+                taskVersions.TryGetValue(t.Id, out var version);
+                var task = MapTask(t, technicians, planStatus, version);
                 task.Source = source;
                 task.IsEditable = await _taskPermissionService.CanEditTaskAsync(t, role, CancellationToken.None);
                 tasks.Add(task);
@@ -177,7 +185,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             };
         }
 
-        private TaskItem MapTask(Data.TaskEntity task, List<Technician> technicians, PlanStatus planStatus)
+        private TaskItem MapTask(Data.TaskEntity task, List<Technician> technicians, PlanStatus planStatus, uint version)
         {
             var eval = task.Evaluation;
             var tech = technicians.FirstOrDefault(t => t.Id == task.TechnicianId);
@@ -189,6 +197,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 PlanId = task.PlanId ?? 0,
                 PlanStatus = planStatus,
                 TechnicianId = (int)task.TechnicianId,
+                Version = version,
                 Title = task.Title,
                 Location = task.Location,
                 Start = DateTime.SpecifyKind(task.StartAt, DateTimeKind.Utc),

@@ -52,6 +52,9 @@
 
       const html = await response.text();
       tables.innerHTML = html;
+      if (query?.get) {
+        tables.dataset.currentView = query.get("view") || tables.dataset.currentView || "day";
+      }
       logEvent("ui.table.fetch.ok", { url, status: response.status, length: html.length });
 
       if (updateUrl && state?.setQuery) {
@@ -120,4 +123,3 @@
     initNavOnce,
   };
 })();
-

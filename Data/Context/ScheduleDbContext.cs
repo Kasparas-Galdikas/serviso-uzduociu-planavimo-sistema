@@ -151,6 +151,11 @@ namespace ServiceTaskPlanningSystem.Data
         private static void ConfigureTasks(ModelBuilder modelBuilder)
         {
             var entity = modelBuilder.Entity<TaskEntity>();
+            entity.Property<uint>("xmin")
+                .HasColumnName("xmin")
+                .HasColumnType("xid")
+                .ValueGeneratedOnAddOrUpdate()
+                .IsConcurrencyToken();
             entity.ToTable("tasks", table =>
             {
                 table.HasCheckConstraint("ck_tasks_time_range", "end_at > start_at");

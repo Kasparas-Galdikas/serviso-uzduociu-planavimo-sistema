@@ -8,6 +8,7 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public int Id { get; set; }
         public long PlanId { get; set; }
         public int TechnicianId { get; set; }
+        public uint Version { get; set; }
         public string Title { get; set; } = string.Empty;
         public string Location { get; set; } = string.Empty;
         public DateTime Start { get; set; }

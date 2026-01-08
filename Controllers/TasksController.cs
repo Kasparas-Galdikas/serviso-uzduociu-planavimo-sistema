@@ -7,6 +7,7 @@ using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.Plans;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
 
 namespace ServiceTaskPlanningSystem.Controllers
 {
@@ -37,6 +38,14 @@ namespace ServiceTaskPlanningSystem.Controllers
             public ScheduleTaskStatus Status { get; set; }
         }
 
+        public class TaskMoveDto
+        {
+            public int TargetTechnicianId { get; set; }
+            public string TargetDate { get; set; } = string.Empty; // yyyy-MM-dd
+            public int TargetSlotStartMinutes { get; set; }
+            public uint ExpectedVersion { get; set; }
+        }
+
         [HttpGet("{id:long}")]
         public async Task<IActionResult> GetTask(long id, CancellationToken cancellationToken)
         {
@@ -50,6 +59,12 @@ namespace ServiceTaskPlanningSystem.Controllers
                 return NotFound();
             }
 
+            var version = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.Id == id)
+                .Select(t => EF.Property<uint>(t, "xmin"))
+                .FirstAsync(cancellationToken);
+
             var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
             var isEditable = await _taskPermissionService.CanEditTaskAsync(task, role, cancellationToken);
             _logger.LogInformation("api.task.get id={Id} editable={Editable}", id, isEditable);
@@ -57,6 +72,7 @@ namespace ServiceTaskPlanningSystem.Controllers
             return Ok(new
             {
                 task.Id,
+                version,
                 task.PlanId,
                 task.TechnicianId,
                 task.Title,
@@ -99,6 +115,66 @@ namespace ServiceTaskPlanningSystem.Controllers
                 _logger.LogWarning(ex, "api.task.update.conflict id={Id}", id);
                 return Conflict(new { message = ex.Message });
             }
+        }
+
+        [HttpPatch("{id:long}/move")]
+        public async Task<IActionResult> MoveTask(long id, [FromBody] TaskMoveDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                return ValidationProblem(ModelState);
+            }
+
+            if (!TryParseDate(dto.TargetDate, out var targetDate))
+            {
+                return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
+            }
+
+            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
+            var result = await _planService.MoveTaskAsync(
+                id,
+                dto.TargetTechnicianId,
+                targetDate,
+                dto.TargetSlotStartMinutes,
+                dto.ExpectedVersion,
+                role,
+                cancellationToken);
+
+            if (result.Ok && result.Task != null)
+            {
+                return Ok(new
+                {
+                    result.Task.Id,
+                    result.Task.TechnicianId,
+                    result.Task.StartAt,
+                    result.Task.EndAt,
+                    version = result.CurrentVersion
+                });
+            }
+
+            return result.Error switch
+            {
+                TaskMoveError.NotFound => NotFound(new { message = result.Message }),
+                TaskMoveError.TechnicianNotFound => UnprocessableEntity(new { message = result.Message }),
+                TaskMoveError.InvalidWindow => UnprocessableEntity(new { message = result.Message }),
+                TaskMoveError.NotEditable => StatusCode(403, new { message = result.Message }),
+                TaskMoveError.Overlap => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                TaskMoveError.Stale => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                _ => StatusCode(500, new { message = result.Message ?? "Unknown error" })
+            };
+        }
+
+        private static bool TryParseDate(string value, out DateTime parsed)
+        {
+            if (!string.IsNullOrWhiteSpace(value) &&
+                DateTime.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dt))
+            {
+                parsed = dt.Date;
+                return true;
+            }
+
+            parsed = default;
+            return false;
         }
     }
 }

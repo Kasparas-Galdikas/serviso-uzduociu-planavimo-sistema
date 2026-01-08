@@ -33,6 +33,19 @@ Events:
 - `.task-card`
   - Clickable element that opens task details (daily view only).
   - Must include `data-task-id="<id>"`.
+  - Must include `data-task-version="<uint>"` (Postgres `xmin` concurrency token).
+  - Must include `data-duration-minutes="<int>"` (UI hint only; server recomputes duration).
+  - Optional drag handle (daily view only):
+    - `.task-drag-handle[draggable="true"]` inside `.task-card` for editable tasks.
+
+### Day view drop slots
+
+- `.schedule-slot`
+  - Rendered only in **day** view, inside empty cells (no-overlap policy).
+  - Must include:
+    - `data-tech-id="<id>"`
+    - `data-date="YYYY-MM-DD"`
+    - `data-slot-start-minutes="<int>"`
 
 ### Task detail panel (offcanvas)
 
@@ -73,7 +86,7 @@ Events:
 
 - `GET /tasks/{id}`
   - Returns JSON with at least:
-    - `id`, `title`, `location`, `startAt`, `endAt`, `priority`, `status`, `isEditable`
+    - `id`, `title`, `location`, `startAt`, `endAt`, `priority`, `status`, `isEditable`, `version`
 
 ### Save task
 
@@ -89,3 +102,20 @@ Events:
 - `GET /Schedule/Table?{query}`
   - Returns HTML fragment rendered into `#scheduleTables`.
 
+### Move task (drag & drop)
+
+- `PATCH /tasks/{id}/move`
+  - Payload JSON (intent only):
+    - `{ targetTechnicianId, targetDate, targetSlotStartMinutes, expectedVersion }`
+  - Server behavior:
+    - Computes `StartAt/EndAt` from intent + persisted task duration.
+    - Validates slot grid + working hours.
+    - Forbids overlaps (`409`).
+  - Intentionally unsupported:
+    - Week view drag
+    - Resize via drag
+    - Multi-task drag
+  - Status handling:
+    - `409` ƒ+' stale or overlap (refresh table, show message)
+    - `422` ƒ+' invalid time window (refresh table, show message)
+    - `403` ƒ+' not editable (refresh table, show message)
