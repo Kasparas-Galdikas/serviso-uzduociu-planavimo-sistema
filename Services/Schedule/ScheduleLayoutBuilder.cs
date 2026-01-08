@@ -23,8 +23,10 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             var endMinutes = ScheduleGrid.DayEndMinutes;
             var slotSize = ScheduleGrid.SlotSizeMinutes;
 
+            // Columns represent time intervals, so we render only slot start times [DayStart, DayEnd).
+            var slotCount = (endMinutes - startMinutes) / slotSize;
             var slots = Enumerable
-                .Range(0, (endMinutes - startMinutes) / slotSize + 1)
+                .Range(0, slotCount)
                 .Select(i => startMinutes + i * slotSize)
                 .ToList();
 
@@ -57,7 +59,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 var cells = new List<TableCell>();
                 var slotIndex = 0;
 
-                while (slotIndex < slots.Count - 1)
+                while (slotIndex < slots.Count)
                 {
                     var slotStart = startMinutes + slotIndex * slotSize;
                     var slotTasks = tasks
@@ -69,7 +71,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                     {
                         var durationMinutes = slotTasks.Max(t => (t.End - t.Start).TotalMinutes);
                         var durationSlots = (int)Math.Ceiling(durationMinutes / slotSize);
-                        var remainingSlots = (slots.Count - 1) - slotIndex;
+                        var remainingSlots = slots.Count - slotIndex;
                         var colspan = Math.Max(1, Math.Min(durationSlots, remainingSlots));
 
                         var contentHtml = string.Join(string.Empty, slotTasks.Select(task =>
@@ -107,20 +109,15 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                     else
                     {
                         var emptySlotStartMinutes = startMinutes + slotIndex * slotSize;
+                        var timeLabel = TimeSpan.FromMinutes(emptySlotStartMinutes).ToString(@"hh\:mm");
                         cells.Add(new TableCell
                         {
                             CssClass = "schedule-cell empty-slot",
-                            ContentHtml = $@"<div class=""schedule-slot"" data-date=""{day:yyyy-MM-dd}"" data-tech-id=""{tech.Id}"" data-slot-start-minutes=""{emptySlotStartMinutes}""></div>"
+                            ContentHtml = $@"<div class=""schedule-slot"" role=""button"" tabindex=""0"" aria-label=""Pasirinkti laiko tarpa nuo {timeLabel}"" data-date=""{day:yyyy-MM-dd}"" data-tech-id=""{tech.Id}"" data-slot-start-minutes=""{emptySlotStartMinutes}""></div>"
                         });
                         slotIndex++;
                     }
                 }
-
-                cells.Add(new TableCell
-                {
-                    CssClass = "schedule-cell empty-slot",
-                    ContentHtml = string.Empty
-                });
 
                 rows.Add(new TableRow
                 {

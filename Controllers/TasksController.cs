@@ -46,6 +46,59 @@ namespace ServiceTaskPlanningSystem.Controllers
             public uint ExpectedVersion { get; set; }
         }
 
+        public class TaskCreateDto
+        {
+            public int TechnicianId { get; set; }
+            public string TargetDate { get; set; } = string.Empty; // yyyy-MM-dd
+            public int StartMinutes { get; set; }
+            public int EndMinutes { get; set; }
+            public string Title { get; set; } = string.Empty;
+            public string Location { get; set; } = string.Empty;
+            public TaskPriority Priority { get; set; } = TaskPriority.Medium;
+            public ScheduleTaskStatus Status { get; set; } = ScheduleTaskStatus.Planned;
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> CreateTask([FromBody] TaskCreateDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                return ValidationProblem(ModelState);
+            }
+
+            if (!TryParseDate(dto.TargetDate, out var targetDate))
+            {
+                return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
+            }
+
+            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
+            var result = await _planService.CreateTaskAsync(
+                dto.TechnicianId,
+                targetDate,
+                dto.StartMinutes,
+                dto.EndMinutes,
+                dto.Title,
+                dto.Location,
+                dto.Priority,
+                dto.Status,
+                role,
+                cancellationToken);
+
+            if (result.Ok && result.Task != null)
+            {
+                return Ok(new { id = result.Task.Id });
+            }
+
+            return result.Error switch
+            {
+                TaskCreateError.Overlap => Conflict(new { message = result.Message }),
+                TaskCreateError.NotEditable => StatusCode(403, new { message = result.Message }),
+                TaskCreateError.DraftNotFound => StatusCode(403, new { message = result.Message }),
+                TaskCreateError.TechnicianNotFound => UnprocessableEntity(new { message = result.Message }),
+                _ => UnprocessableEntity(new { message = result.Message ?? "Netinkamas laiko langas." })
+            };
+        }
+
         [HttpGet("{id:long}")]
         public async Task<IActionResult> GetTask(long id, CancellationToken cancellationToken)
         {

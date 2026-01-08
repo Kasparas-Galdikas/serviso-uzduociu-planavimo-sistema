@@ -7,6 +7,7 @@
   const state = schedule.state;
   const table = schedule.table;
   const tasks = schedule.tasks;
+  const selection = schedule.selection;
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
@@ -25,6 +26,13 @@
     durationSlots: null,
     lastPreviewOk: false,
     busy: false,
+    originTd: null,
+    scroll: {
+      container: null,
+      rafId: null,
+      velocityY: 0,
+      lastClientY: null,
+    },
   };
 
   const clearPreview = () => {
@@ -34,12 +42,85 @@
     });
   };
 
+  const getScrollContainer = () =>
+    tables.querySelector(".table-responsive") || tables.closest(".table-responsive") || null;
+
+  const onWheelDuringDrag = (evt) => {
+    if (!dragState.taskId || dragState.busy) return;
+    const container = dragState.scroll.container || getScrollContainer();
+    if (!container) return;
+
+    // Enable natural mouse wheel / trackpad scrolling while HTML5 dragging.
+    // Browsers often block default scroll during drag; we apply it manually.
+    const dy = Number(evt.deltaY || 0);
+    const dx = Number(evt.deltaX || 0);
+    if (!dy && !dx) return;
+
+    dragState.scroll.container = container;
+    if (dy) container.scrollTop += dy;
+    if (dx) container.scrollLeft += dx;
+
+    evt.preventDefault();
+  };
+
+  const stopAutoScroll = () => {
+    if (dragState.scroll.rafId) {
+      cancelAnimationFrame(dragState.scroll.rafId);
+    }
+    dragState.scroll.rafId = null;
+    dragState.scroll.velocityY = 0;
+    dragState.scroll.lastClientY = null;
+    dragState.scroll.container = null;
+  };
+
+  const tickAutoScroll = () => {
+    const container = dragState.scroll.container;
+    const vy = dragState.scroll.velocityY || 0;
+    if (!container || vy === 0) {
+      dragState.scroll.rafId = null;
+      return;
+    }
+
+    container.scrollTop += vy;
+    dragState.scroll.rafId = requestAnimationFrame(tickAutoScroll);
+  };
+
+  const updateAutoScroll = (clientY) => {
+    const container = dragState.scroll.container;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const threshold = 56; // px from edge
+    const maxSpeed = 22; // px per frame
+
+    const distTop = clientY - rect.top;
+    const distBottom = rect.bottom - clientY;
+
+    let velocityY = 0;
+    if (distTop >= 0 && distTop < threshold) {
+      const t = 1 - distTop / threshold;
+      velocityY = -Math.max(2, Math.round(maxSpeed * t));
+    } else if (distBottom >= 0 && distBottom < threshold) {
+      const t = 1 - distBottom / threshold;
+      velocityY = Math.max(2, Math.round(maxSpeed * t));
+    }
+
+    dragState.scroll.velocityY = velocityY;
+    dragState.scroll.lastClientY = clientY;
+    if (velocityY !== 0 && !dragState.scroll.rafId) {
+      dragState.scroll.rafId = requestAnimationFrame(tickAutoScroll);
+    }
+  };
+
   const clearDragState = () => {
     dragState.taskId = null;
     dragState.version = null;
     dragState.durationSlots = null;
     dragState.lastPreviewOk = false;
     dragState.busy = false;
+    dragState.originTd?.classList?.remove?.("is-drag-origin");
+    dragState.originTd = null;
+    stopAutoScroll();
     document.querySelectorAll(".task-card.is-dragging").forEach((el) => el.classList.remove("is-dragging"));
     document.querySelectorAll(".schedule-slot.is-over").forEach((el) => el.classList.remove("is-over"));
     clearPreview();
@@ -100,11 +181,18 @@
     if (document.documentElement.dataset.scheduleDragDropInit === "1") return;
     document.documentElement.dataset.scheduleDragDropInit = "1";
 
+    // Capture wheel events so we can apply manual scrolling while dragging.
+    // Some browsers suppress wheel events during native HTML5 drag; listening on window maximizes our chance (might still not work if broswer denies it).
+    tables.addEventListener("wheel", onWheelDuringDrag, { passive: false, capture: true });
+    window.addEventListener("wheel", onWheelDuringDrag, { passive: false, capture: true });
+
     tables.addEventListener("dragstart", (evt) => {
       const handle = evt.target?.closest?.(".task-drag-handle");
       if (!handle) return;
       const card = handle.closest?.(".task-card");
       if (!card) return;
+
+      selection?.clearSelection?.("task.drag.start");
 
       if (!isDayView() || !isEditModeEnabled() || (card.dataset.editable || "") !== "true") {
         evt.preventDefault();
@@ -124,6 +212,7 @@
           : 1;
       dragState.busy = false;
       dragState.lastPreviewOk = false;
+      dragState.scroll.container = getScrollContainer();
 
       evt.dataTransfer.effectAllowed = "move";
       evt.dataTransfer.setData("application/x-schedule-task-id", taskId);
@@ -137,25 +226,30 @@
       }
 
       card.classList.add("is-dragging");
+      dragState.originTd = card.closest("td");
+      dragState.originTd?.classList?.add?.("is-drag-origin");
       logEvent("ui.drag.start", { taskId, durationSlots: dragState.durationSlots || 1 });
     });
 
     tables.addEventListener("dragend", () => {
       logEvent("ui.drag.end", { taskId: dragState.taskId || "none" });
+      selection?.clearSelection?.("task.drag.end");
       clearDragState();
     });
 
     tables.addEventListener("dragover", (evt) => {
-      const slot = evt.target?.closest?.(".schedule-slot");
-      if (!slot) return;
-
       if (!isDayView()) return;
       if (!isEditModeEnabled()) return;
       if (!dragState.taskId || !dragState.version || dragState.busy) return;
 
-      applyPreviewRange(slot, dragState.durationSlots || 1, dragState.taskId);
+      updateAutoScroll(evt.clientY);
       evt.preventDefault();
       evt.dataTransfer.dropEffect = "move";
+
+      const slot = evt.target?.closest?.(".schedule-slot");
+      if (!slot) return;
+
+      applyPreviewRange(slot, dragState.durationSlots || 1, dragState.taskId);
     });
 
     tables.addEventListener("dragenter", (evt) => {
@@ -164,6 +258,7 @@
       if (!isDayView() || !isEditModeEnabled()) return;
       if (!dragState.taskId || !dragState.version || dragState.busy) return;
       slot.classList.add("is-over");
+      updateAutoScroll(evt.clientY);
       applyPreviewRange(slot, dragState.durationSlots || 1, dragState.taskId);
     });
 
@@ -183,6 +278,8 @@
 
       evt.preventDefault();
       slot.classList.remove("is-over");
+      selection?.clearSelection?.("task.drag.drop");
+      dragState.scroll.velocityY = 0;
       const previewOk = applyPreviewRange(slot, dragState.durationSlots || 1, dragState.taskId);
       if (!previewOk) {
         logEvent("ui.drag.drop.blocked.preview", { taskId: dragState.taskId || "none" }, "warn");

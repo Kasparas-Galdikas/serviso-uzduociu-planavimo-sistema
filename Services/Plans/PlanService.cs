@@ -32,6 +32,105 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             _logger = logger;
         }
 
+        private sealed record WorkingWindow(int StartMinutes, int EndMinutes);
+
+        private static WorkingWindow GetWorkingWindow(int technicianId, DateTime date) =>
+            new WorkingWindow(ScheduleGrid.DayStartMinutes, ScheduleGrid.DayEndMinutes);
+
+        private enum PlacementError
+        {
+            None,
+            InvalidWindow,
+            Overlap,
+            TechnicianNotFound,
+            NotEditable
+        }
+
+        private async Task<(PlacementError Error, string Message, DateTime StartAt, DateTime EndAt, long? RegionId)> ValidatePlacementAsync(
+            long? ignoreTaskId,
+            int targetTechnicianId,
+            DateTime targetDate,
+            int startMinutes,
+            int endMinutes,
+            PlanEntity? plan,
+            ScheduleTaskStatus status,
+            string role,
+            bool requireEndAligned,
+            CancellationToken cancellationToken)
+        {
+            if (startMinutes < 0 || startMinutes >= 24 * 60 || endMinutes <= 0 || endMinutes > 24 * 60 || endMinutes <= startMinutes)
+            {
+                return (PlacementError.InvalidWindow, "Netinkamas laiko langas.", default, default, null);
+            }
+
+            if (startMinutes % ScheduleGrid.SlotSizeMinutes != 0)
+            {
+                return (PlacementError.InvalidWindow, "Laikas turi atitikti grafiko zingsni.", default, default, null);
+            }
+
+            if (requireEndAligned && (endMinutes % ScheduleGrid.SlotSizeMinutes != 0))
+            {
+                return (PlacementError.InvalidWindow, "Pabaigos laikas turi atitikti grafiko zingsni.", default, default, null);
+            }
+
+            var window = GetWorkingWindow(targetTechnicianId, targetDate);
+            if (startMinutes < window.StartMinutes)
+            {
+                return (PlacementError.InvalidWindow, "Per ankstyvas laikas.", default, default, null);
+            }
+
+            if (endMinutes > window.EndMinutes)
+            {
+                return (PlacementError.InvalidWindow, "Uzduotis netelpa i darbo laika.", default, default, null);
+            }
+
+            var startAt = DateTime.SpecifyKind(targetDate.Date.AddMinutes(startMinutes), DateTimeKind.Utc);
+            var endAt = DateTime.SpecifyKind(targetDate.Date.AddMinutes(endMinutes), DateTimeKind.Utc);
+
+            var targetTech = await _db.Technicians
+                .AsNoTracking()
+                .Select(t => new { t.Id, t.RegionId })
+                .FirstOrDefaultAsync(t => t.Id == targetTechnicianId, cancellationToken);
+
+            if (targetTech == null)
+            {
+                return (PlacementError.TechnicianNotFound, "Technikas nerastas.", default, default, null);
+            }
+
+            var permissionProbe = new TaskEntity
+            {
+                Id = ignoreTaskId ?? 0,
+                PlanId = plan?.Id,
+                Plan = plan,
+                TechnicianId = targetTech.Id,
+                RegionId = targetTech.RegionId,
+                StartAt = startAt,
+                EndAt = endAt,
+                Status = status
+            };
+
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(permissionProbe, role, cancellationToken);
+            if (!canEdit)
+            {
+                return (PlacementError.NotEditable, "Neturite teisiu atlikti sio veiksmo.", default, default, null);
+            }
+
+            var hasOverlap = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => ignoreTaskId == null || t.Id != ignoreTaskId.Value)
+                .Where(t => t.TechnicianId == targetTech.Id)
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                .Where(t => t.StartAt < endAt && t.EndAt > startAt)
+                .AnyAsync(cancellationToken);
+
+            if (hasOverlap)
+            {
+                return (PlacementError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).", default, default, null);
+            }
+
+            return (PlacementError.None, string.Empty, startAt, endAt, targetTech.RegionId);
+        }
+
         public Task<PlanEntity?> GetActivePlanAsync(CancellationToken cancellationToken = default) =>
             _db.Plans
                .AsNoTracking()
@@ -109,6 +208,61 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             return draftPlan;
         }
 
+        public async Task<TaskCreateResult> CreateTaskAsync(int technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, string location, TaskPriority priority, ScheduleTaskStatus status, string role, CancellationToken cancellationToken = default)
+        {
+            var draft = await _db.Plans.FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
+            if (draft == null)
+            {
+                return new TaskCreateResult(TaskCreateError.DraftNotFound, "Juodrastis nerastas. Uzduotis galima kurti tik juodrascio plane.");
+            }
+
+            var normalizedTitle = string.IsNullOrWhiteSpace(title) ? "Nauja uzduotis" : title.Trim();
+            var normalizedLocation = string.IsNullOrWhiteSpace(location) ? string.Empty : location.Trim();
+
+            var validation = await ValidatePlacementAsync(
+                ignoreTaskId: null,
+                targetTechnicianId: technicianId,
+                targetDate: targetDate,
+                startMinutes: startMinutes,
+                endMinutes: endMinutes,
+                plan: draft,
+                status: status,
+                role: role,
+                requireEndAligned: true,
+                cancellationToken: cancellationToken);
+
+            if (validation.Error != PlacementError.None)
+            {
+                return validation.Error switch
+                {
+                    PlacementError.NotEditable => new TaskCreateResult(TaskCreateError.NotEditable, validation.Message),
+                    PlacementError.TechnicianNotFound => new TaskCreateResult(TaskCreateError.TechnicianNotFound, validation.Message),
+                    PlacementError.Overlap => new TaskCreateResult(TaskCreateError.Overlap, validation.Message),
+                    _ => new TaskCreateResult(TaskCreateError.InvalidWindow, validation.Message)
+                };
+            }
+
+            var task = new TaskEntity
+            {
+                PlanId = draft.Id,
+                TechnicianId = technicianId,
+                RegionId = validation.RegionId,
+                Title = normalizedTitle,
+                Location = normalizedLocation,
+                StartAt = validation.StartAt,
+                EndAt = validation.EndAt,
+                Priority = priority,
+                Status = status,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _db.Tasks.Add(task);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
+            return new TaskCreateResult(TaskCreateError.None, Task: task);
+        }
+
         public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, string role, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
@@ -160,75 +314,35 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             }
 
             var durationMinutes = (int)Math.Round(durationMinutesRaw);
-            if (targetSlotStartMinutes < 0 || targetSlotStartMinutes >= 24 * 60)
-            {
-                return new TaskMoveResult(TaskMoveError.InvalidWindow, "Netinkamas laiko langas.");
-            }
-
-            if (targetSlotStartMinutes % ScheduleGrid.SlotSizeMinutes != 0)
-            {
-                return new TaskMoveResult(TaskMoveError.InvalidWindow, "Laikas turi atitikti grafiko zingsni.");
-            }
-
-            if (targetSlotStartMinutes < ScheduleGrid.DayStartMinutes)
-            {
-                return new TaskMoveResult(TaskMoveError.InvalidWindow, "Per ankstyvas laikas.");
-            }
-
             var endMinutes = targetSlotStartMinutes + durationMinutes;
-            if (endMinutes > ScheduleGrid.DayEndMinutes)
+
+            var validation = await ValidatePlacementAsync(
+                ignoreTaskId: taskId,
+                targetTechnicianId: targetTechnicianId,
+                targetDate: targetDate,
+                startMinutes: targetSlotStartMinutes,
+                endMinutes: endMinutes,
+                plan: task.Plan,
+                status: task.Status,
+                role: role,
+                requireEndAligned: false,
+                cancellationToken: cancellationToken);
+
+            if (validation.Error != PlacementError.None)
             {
-                return new TaskMoveResult(TaskMoveError.InvalidWindow, "Uzduotis netelpa i darbo laika.");
+                return validation.Error switch
+                {
+                    PlacementError.NotEditable => new TaskMoveResult(TaskMoveError.NotEditable, "Neturite teisiu perkelti sios uzduoties."),
+                    PlacementError.TechnicianNotFound => new TaskMoveResult(TaskMoveError.TechnicianNotFound, validation.Message),
+                    PlacementError.Overlap => new TaskMoveResult(TaskMoveError.Overlap, validation.Message),
+                    _ => new TaskMoveResult(TaskMoveError.InvalidWindow, validation.Message)
+                };
             }
 
-            var startAt = DateTime.SpecifyKind(targetDate.Date.AddMinutes(targetSlotStartMinutes), DateTimeKind.Utc);
-            var endAt = DateTime.SpecifyKind(targetDate.Date.AddMinutes(endMinutes), DateTimeKind.Utc);
-
-            var targetTech = await _db.Technicians
-                .AsNoTracking()
-                .Select(t => new { t.Id, t.RegionId })
-                .FirstOrDefaultAsync(t => t.Id == targetTechnicianId, cancellationToken);
-
-            if (targetTech == null)
-            {
-                return new TaskMoveResult(TaskMoveError.TechnicianNotFound, "Technikas nerastas.");
-            }
-
-            var permissionProbe = new TaskEntity
-            {
-                Id = task.Id,
-                PlanId = task.PlanId,
-                Plan = task.Plan,
-                TechnicianId = targetTech.Id,
-                RegionId = targetTech.RegionId,
-                StartAt = startAt,
-                EndAt = endAt,
-                Status = task.Status
-            };
-
-            var canEdit = await _taskPermissionService.CanEditTaskAsync(permissionProbe, role, cancellationToken);
-            if (!canEdit)
-            {
-                return new TaskMoveResult(TaskMoveError.NotEditable, "Neturite teisiu perkelti sios uzduoties.");
-            }
-
-            var hasOverlap = await _db.Tasks
-                .AsNoTracking()
-                .Where(t => t.Id != taskId)
-                .Where(t => t.TechnicianId == targetTech.Id)
-                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
-                .Where(t => t.StartAt < endAt && t.EndAt > startAt)
-                .AnyAsync(cancellationToken);
-
-            if (hasOverlap)
-            {
-                return new TaskMoveResult(TaskMoveError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).");
-            }
-
-            task.TechnicianId = targetTech.Id;
-            task.RegionId = targetTech.RegionId;
-            task.StartAt = startAt;
-            task.EndAt = endAt;
+            task.TechnicianId = targetTechnicianId;
+            task.RegionId = validation.RegionId;
+            task.StartAt = validation.StartAt;
+            task.EndAt = validation.EndAt;
 
             try
             {

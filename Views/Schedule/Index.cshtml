@@ -1,4 +1,5 @@
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
+@using ServiceTaskPlanningSystem.Services.Schedule
 @{
     ViewData["Title"] = "Tvarkarastis";
     var issues = Model.Issues ?? new List<ServiceTaskPlanningSystem.Models.Planning.IssueItem>();
@@ -68,6 +69,9 @@
      data-plan-status="@Model.CurrentPlanStatus"
      data-plan-id="@Model.CurrentPlanId"
      data-is-manager="@(Model.IsManager.ToString().ToLowerInvariant())"
+     data-day-start-minutes="@ScheduleGrid.DayStartMinutes"
+     data-day-end-minutes="@ScheduleGrid.DayEndMinutes"
+     data-slot-size-minutes="@ScheduleGrid.SlotSizeMinutes"
      data-active-end="@(activeEnd.ToString("yyyy-MM-dd"))"
      data-first-free="@(firstFree.ToString("yyyy-MM-dd"))">
     @if (isWeekly)
@@ -98,6 +102,7 @@
     <script src="~/js/schedule/table/schedule.table.js" asp-append-version="true"></script>
     <script src="~/js/schedule/tasks/schedule.tasks.js" asp-append-version="true"></script>
     <script src="~/js/schedule/dragdrop/schedule.dragdrop.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/selection/schedule.selection.js" asp-append-version="true"></script>
     <script src="~/js/schedule/filters/schedule.filters.js" asp-append-version="true"></script>
     <script src="~/js/schedule/debug/schedule.debug.js" asp-append-version="true"></script>
     <script src="~/js/schedule/init/schedule.init.js" asp-append-version="true"></script>

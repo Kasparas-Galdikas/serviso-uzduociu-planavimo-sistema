@@ -7,6 +7,7 @@
   const state = schedule.state;
   const table = schedule.table;
   const panel = schedule.panel;
+  const selection = schedule.selection;
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
@@ -144,6 +145,8 @@
       if (evt.target?.closest?.(".task-drag-handle")) return;
       const card = evt.target?.closest?.(".task-card");
       if (!card) return;
+
+      selection?.clearSelection?.("task.open");
 
       const taskId = card.getAttribute("data-task-id");
       if (!taskId) return;
