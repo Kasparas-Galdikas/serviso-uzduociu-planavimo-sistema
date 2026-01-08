@@ -23,8 +23,8 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             var endMinutes = ScheduleGrid.DayEndMinutes;
             var slotSize = ScheduleGrid.SlotSizeMinutes;
 
-            // Columns represent time intervals, so we render only slot start times [DayStart, DayEnd).
-            var slotCount = (endMinutes - startMinutes) / slotSize;
+            // Columns represent time intervals, including both start and end time slots
+            var slotCount = (endMinutes - startMinutes) / slotSize + 1;
             var slots = Enumerable
                 .Range(0, slotCount)
                 .Select(i => startMinutes + i * slotSize)

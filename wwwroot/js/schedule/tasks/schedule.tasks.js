@@ -57,7 +57,8 @@
 
     modalEl.dataset.taskId = data.id;
     modalEl.dataset.editable = editable ? "true" : "false";
-    if (data.version != null) modalEl.dataset.taskVersion = String(data.version);
+    // Store version from response for optimistic concurrency control
+    if (data.version != null) modalEl.dataset.version = String(data.version);
 
     const inputs = modalEl.querySelectorAll("input, select, textarea");
     inputs.forEach((el) => {
@@ -87,6 +88,7 @@
     const endAt = modalEl.querySelector("#taskDetailEnd")?.value || "";
     const priority = modalEl.querySelector("#taskDetailPriority")?.value || "";
     const status = modalEl.querySelector("#taskDetailStatus")?.value || "";
+    const version = modalEl.dataset.version || 0;
 
     const saveBtn = modalEl.querySelector("#taskDetailSave");
     const setBusy = (state) => {
@@ -98,13 +100,28 @@
 
     setBusy(true);
     try {
+      // Capture browser timezone offset (in minutes)
+      const timezoneOffset = Math.abs(new Date().getTimezoneOffset());
+
+      // Build request using UpdateTaskRequestDto schema
+      const requestBody = JSON.stringify({
+        title,
+        location,
+        startAt,
+        endAt,
+        priority: parseInt(priority) || 1,
+        status: parseInt(status) || 0,
+        version: parseInt(version) || 0,
+        timezoneOffsetMinutes: timezoneOffset
+      });
+
       const resp =
         (await logger?.fetchWithTrace(
           `/tasks/${taskId}`,
           {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title, location, startAt, endAt, priority, status }),
+            body: requestBody,
           },
           { event: "ui.task.save", taskId },
         )) ||
@@ -114,7 +131,7 @@
             "X-Requested-With": "XMLHttpRequest",
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ title, location, startAt, endAt, priority, status }),
+          body: requestBody,
         }));
 
       if (resp.status === 409 || resp.status === 403) {
@@ -122,6 +139,12 @@
       } else if (!resp.ok) {
         throw new Error("Nepavyko issaugoti uzduoties");
       } else {
+        // Response is TaskCreatedOrUpdatedResponseDto with id and version
+        const responseData = await resp.json().catch(() => null);
+        if (responseData?.version) {
+          modalEl.dataset.version = responseData.version;
+        }
+
         const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
         if (!query.has("view")) query.set("view", "day");
         await table?.fetchAndRender?.(query, { updateUrl: false });

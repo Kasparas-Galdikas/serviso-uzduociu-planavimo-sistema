@@ -377,6 +377,8 @@
 
     const title = (window.prompt("Uzduoties pavadinimas:", "Nauja uzduotis") || "").trim();
     if (!title) return;
+    // Capture browser timezone offset (in minutes)
+    const timezoneOffset = Math.abs(new Date().getTimezoneOffset());
 
     const body = JSON.stringify({
       technicianId: selection.techId,
@@ -384,6 +386,10 @@
       startMinutes: selection.startMinutes,
       endMinutes: selection.endMinutes,
       title,
+      location: "",
+      priority: 1,
+      status: 0,
+      timezoneOffsetMinutes: timezoneOffset
     });
 
     try {
@@ -423,7 +429,10 @@
         return;
       }
 
-      const id = (await resp.json().catch(() => null))?.id;
+      // Response now includes TaskCreatedOrUpdatedResponseDto with id and version
+      const responseData = await resp.json().catch(() => null);
+      const id = responseData?.id;
+      
       const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
       if (!query.has("view")) query.set("view", "day");
       clearSelection("create.ok");
@@ -545,7 +554,40 @@
 
       const hit = evt.target?.closest?.("[data-slot-hit]");
       if (hit) {
-        showChooserAt(selection.barEl || hit);
+        // Open right-side panel to edit/create task in the selected slot
+        const panelEl = document.getElementById("taskDetailModal");
+        if (panelEl && selection.active) {
+          // Store selection context for panel to use
+          panelEl.dataset.slotContext = JSON.stringify({
+            techId: selection.techId,
+            date: selection.date,
+            startMinutes: selection.startMinutes,
+            endMinutes: selection.endMinutes,
+            isNewTask: true
+          });
+          
+          // Populate time fields immediately
+          const date = selection.date ? new Date(selection.date) : null;
+          if (date) {
+            const startTime = minutesToTime(selection.startMinutes || 0);
+            const endTime = minutesToTime(selection.endMinutes || 0);
+            
+            const [startH, startM] = startTime.split(":");
+            const [endH, endM] = endTime.split(":");
+            
+            // Format as YYYY-MM-DDTHH:MM for datetime-local input
+            const dateStr = date.toISOString().substring(0, 10);
+            
+            const startInput = panelEl.querySelector("#taskDetailStart");
+            const endInput = panelEl.querySelector("#taskDetailEnd");
+            
+            if (startInput) startInput.value = `${dateStr}T${startH}:${startM}`;
+            if (endInput) endInput.value = `${dateStr}T${endH}:${endM}`;
+          }
+          
+          bootstrap?.Offcanvas?.getOrCreateInstance?.(panelEl)?.show();
+          logEvent("ui.slot.selection.panel.open", { techId: selection.techId, date: selection.date });
+        }
         return;
       }
 

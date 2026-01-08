@@ -176,7 +176,7 @@
   border: 0;
   background: transparent;
   color: var(--neutral-700);
-  width: 64px;
+  width: 32px;
   height: 100%;
   min-height: 44px;
   display: inline-flex;
@@ -187,11 +187,11 @@
 }
 
 .slot-selection-handle[data-slot-handle="left"] {
-  left: -22px;
+  left: -6px;
 }
 
 .slot-selection-handle[data-slot-handle="right"] {
-  right: -22px;
+  right: -6px;
 }
 
 .slot-selection-handle-pill {
@@ -522,9 +522,10 @@ td.is-drag-origin .task-card.is-dragging {
 .table-fixed-head .thead-top th {
   position: sticky;
   top: 0;
-  z-index: 6;
+  z-index: 7;
   background: var(--neutral-100);
   border: 1px solid var(--neutral-200);
+  border-bottom-color: var(--neutral-300);
 }
 
 .schedule-table thead th {

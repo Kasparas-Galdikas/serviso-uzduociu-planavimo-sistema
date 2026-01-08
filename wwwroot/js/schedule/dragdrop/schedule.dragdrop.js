@@ -305,11 +305,17 @@
 
       try {
         const url = `/tasks/${taskId}/move`;
+        
+        // Capture browser timezone offset (in minutes)
+        const timezoneOffset = Math.abs(new Date().getTimezoneOffset());
+
+        // Build request using MoveTaskRequestDto schema
         const body = JSON.stringify({
           targetTechnicianId,
           targetDate,
           targetSlotStartMinutes,
-          expectedVersion,
+          version: expectedVersion,
+          timezoneOffsetMinutes: timezoneOffset
         });
 
         const resp =

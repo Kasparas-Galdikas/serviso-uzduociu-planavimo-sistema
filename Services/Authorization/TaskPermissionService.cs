@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.Planning;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.Authorization
 {
@@ -10,11 +11,13 @@ namespace ServiceTaskPlanningSystem.Services.Authorization
     {
         private readonly ScheduleDbContext _db;
         private readonly IPlanningCalendar _planningCalendar;
+        private readonly IScheduleTimeService _timeService;
 
-        public TaskPermissionService(ScheduleDbContext db, IPlanningCalendar planningCalendar)
+        public TaskPermissionService(ScheduleDbContext db, IPlanningCalendar planningCalendar, IScheduleTimeService timeService)
         {
             _db = db;
             _planningCalendar = planningCalendar;
+            _timeService = timeService;
         }
 
         public async Task<bool> CanEditTaskAsync(TaskEntity task, string role, CancellationToken cancellationToken = default)
@@ -22,8 +25,8 @@ namespace ServiceTaskPlanningSystem.Services.Authorization
             var isManager = role == "manager" || role == "planuotojas" || string.IsNullOrWhiteSpace(role);
             if (!isManager) return false;
 
-            var now = DateTime.UtcNow;
-            if (task.EndAt <= now)
+            // Check if task has already ended (single source of truth)
+            if (!_timeService.IsTaskStillEditable(task.EndAt))
             {
                 return false;
             }
@@ -34,8 +37,8 @@ namespace ServiceTaskPlanningSystem.Services.Authorization
                 .MaxAsync(p => (DateTime?)p.PeriodEnd, cancellationToken);
 
             var hasOccupiedPlans = occupiedEnd.HasValue;
-            var occupiedEndDate = hasOccupiedPlans ? occupiedEnd!.Value.Date : now.Date;
-            var firstFreeDate = hasOccupiedPlans ? occupiedEndDate.AddDays(1) : now.Date;
+            var occupiedEndDate = hasOccupiedPlans ? occupiedEnd!.Value.Date : _timeService.GetLocalToday();
+            var firstFreeDate = hasOccupiedPlans ? occupiedEndDate.AddDays(1) : _timeService.GetLocalToday();
 
             var draftExists = await _db.Plans.AnyAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
 
@@ -55,7 +58,7 @@ namespace ServiceTaskPlanningSystem.Services.Authorization
                     return false;
                 }
 
-                return task.StartAt.Date >= now.Date && task.StartAt.Date <= occupiedEndDate;
+                return task.StartAt.Date >= _timeService.GetLocalToday() && task.StartAt.Date <= occupiedEndDate;
             }
 
             return false;
