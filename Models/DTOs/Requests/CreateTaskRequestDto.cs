@@ -36,9 +36,32 @@ public class CreateTaskRequestDto
     public ScheduleTaskStatus Status { get; set; } = ScheduleTaskStatus.Planned;
 
     /// <summary>
-    /// Browser timezone offset in minutes (from Date.getTimezoneOffset()).
-    /// Absolute value - used to convert local times to UTC for storage.
+    /// Browser timezone offset in minutes (negative for UTC+, positive for UTC-).
+    /// Used to convert local times to UTC for storage.
+    /// Example: UTC+2 (EET) = -120, UTC-5 (EST) = 300
     /// </summary>
-    [Range(0, 1440, ErrorMessage = "Timezone offset must be between 0 and 1440 minutes.")]
+    [Range(-1440, 1440, ErrorMessage = "Timezone offset must be between -1440 and 1440 minutes.")]
     public int TimezoneOffsetMinutes { get; set; }
+
+    // Additional fields for comprehensive task creation
+    [StringLength(50, ErrorMessage = "Shift cannot exceed 50 characters.")]
+    public string? Shift { get; set; }
+
+    [StringLength(100, ErrorMessage = "Task type cannot exceed 100 characters.")]
+    public string? TaskType { get; set; }
+
+    [StringLength(100, ErrorMessage = "Skill level cannot exceed 100 characters.")]
+    public string? SkillLevel { get; set; }
+
+    [StringLength(200, ErrorMessage = "Object name cannot exceed 200 characters.")]
+    public string? ObjectName { get; set; }
+
+    [StringLength(100, ErrorMessage = "Object type cannot exceed 100 characters.")]
+    public string? ObjectType { get; set; }
+
+    [StringLength(2000, ErrorMessage = "Instructions cannot exceed 2000 characters.")]
+    public string? Instructions { get; set; }
+
+    [StringLength(100, ErrorMessage = "Safety requirements cannot exceed 100 characters.")]
+    public string? SafetyRequirements { get; set; }
 }

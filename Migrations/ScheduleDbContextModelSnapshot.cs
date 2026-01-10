@@ -186,6 +186,12 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("text")
                         .HasColumnName("title");
 
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id")
                         .HasName("pk_tasks");
 

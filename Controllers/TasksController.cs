@@ -268,13 +268,15 @@ namespace ServiceTaskPlanningSystem.Controllers
         /// <summary>
         /// Extract browser timezone offset from request headers.
         /// Default to 0 if not provided.
+        /// Note: The offset is already signed correctly from JavaScript (-120 for UTC+2),
+        /// so we don't apply Math.Abs() here.
         /// </summary>
         private int GetBrowserTimezoneOffset()
         {
             if (Request.Headers.TryGetValue("X-Timezone-Offset", out var tzHeader) &&
                 int.TryParse(tzHeader.ToString(), out var offset))
             {
-                return Math.Abs(offset);
+                return offset;
             }
             return 0;
         }

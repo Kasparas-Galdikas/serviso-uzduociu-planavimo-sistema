@@ -8,6 +8,7 @@
   const table = schedule.table;
   const tasks = schedule.tasks;
   const selection = schedule.selection;
+  const refresh = schedule.refresh;
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
@@ -274,57 +275,110 @@
 
       if (!isDayView()) return;
       if (!isEditModeEnabled()) return;
-      if (!dragState.taskId || !dragState.version || dragState.busy) return;
 
       evt.preventDefault();
       slot.classList.remove("is-over");
       selection?.clearSelection?.("task.drag.drop");
       dragState.scroll.velocityY = 0;
-      const previewOk = applyPreviewRange(slot, dragState.durationSlots || 1, dragState.taskId);
+
+      const technicianId = parseIntSafe(slot.dataset.techId);
+      const startMinutes = parseIntSafe(slot.dataset.slotStartMinutes);
+      const targetDate = slot.dataset.date || "";
+
+      if (!technicianId || startMinutes == null || !targetDate) {
+        clearDragState();
+        return;
+      }
+
+      /**
+       * ============================================================
+       * 🆕 CREATE MODE (no taskId → create new task)
+       * ============================================================
+       */
+      if (!dragState.taskId) {
+        logEvent("ui.drag.drop.create", {
+          technicianId,
+          targetDate,
+          startMinutes,
+        });
+
+        await schedule.tasks?.openTaskPanel?.({
+          technicianId,
+          targetDate,
+          startMinutes,
+          endMinutes: startMinutes + 30, // default slot length
+        });
+
+        clearDragState();
+        return;
+      }
+
+      /**
+       * ============================================================
+       * ✏️ MOVE / EDIT MODE (existing task)
+       * ============================================================
+       */
+      if (!dragState.version || dragState.busy) {
+        clearDragState();
+        return;
+      }
+
+      const previewOk = applyPreviewRange(
+        slot,
+        dragState.durationSlots || 1,
+        dragState.taskId
+      );
+
       if (!previewOk) {
-        logEvent("ui.drag.drop.blocked.preview", { taskId: dragState.taskId || "none" }, "warn");
-        alert("Uzduotis netelpa i laisva laiko tarpa.");
+        logEvent(
+          "ui.drag.drop.blocked.preview",
+          { taskId: dragState.taskId },
+          "warn"
+        );
+        alert("Užduotis netelpa į laisvą laiko tarpą.");
         clearDragState();
         return;
       }
 
       const taskId = dragState.taskId;
       const expectedVersion = parseIntSafe(dragState.version);
-      const targetTechnicianId = parseIntSafe(slot.dataset.techId);
-      const targetSlotStartMinutes = parseIntSafe(slot.dataset.slotStartMinutes);
-      const targetDate = slot.dataset.date || "";
 
-      if (!expectedVersion || !targetTechnicianId || targetSlotStartMinutes == null || !targetDate) {
-        logEvent("ui.drag.drop.invalid", { taskId }, "warn");
+      if (!expectedVersion) {
         clearDragState();
         return;
       }
 
       dragState.busy = true;
-      logEvent("ui.drag.drop", { taskId, targetTechnicianId, targetSlotStartMinutes, targetDate });
+
+      logEvent("ui.drag.drop.move", {
+        taskId,
+        technicianId,
+        startMinutes,
+        targetDate,
+      });
 
       try {
-        const url = `/tasks/${taskId}/move`;
-        
-        // Capture browser timezone offset (in minutes)
-        const timezoneOffset = Math.abs(new Date().getTimezoneOffset());
+        const timezoneOffset = -new Date().getTimezoneOffset();
 
-        // Build request using MoveTaskRequestDto schema
         const body = JSON.stringify({
-          targetTechnicianId,
+          targetTechnicianId: technicianId,
           targetDate,
-          targetSlotStartMinutes,
+          targetSlotStartMinutes: startMinutes,
           version: expectedVersion,
-          timezoneOffsetMinutes: timezoneOffset
+          timezoneOffsetMinutes: timezoneOffset,
         });
 
         const resp =
           (await logger?.fetchWithTrace?.(
-            url,
-            { method: "PATCH", headers: { "Content-Type": "application/json" }, body },
-            { event: "ui.task.move", taskId },
+            `/tasks/${taskId}/move`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body,
+            },
+            { event: "ui.task.move", taskId }
           )) ||
-          (await fetch(url, {
+          (await fetch(`/tasks/${taskId}/move`, {
             method: "PATCH",
             headers: {
               "X-Requested-With": "XMLHttpRequest",
@@ -333,37 +387,48 @@
             body,
           }));
 
-        const ok = resp.ok;
-
-        if (resp.status === 409) {
-          const msg = (await resp.json().catch(() => null))?.message || "Persidengia uzduotys arba uzduotis pasikeite.";
-          alert(msg);
-        } else if (resp.status === 422) {
-          const msg = (await resp.json().catch(() => null))?.message || "Netinkamas laiko langas.";
-          alert(msg);
-        } else if (resp.status === 403) {
-          const msg = (await resp.json().catch(() => null))?.message || "Neturite teisiu perkelti sios uzduoties.";
+        if (resp.status === 409 || resp.status === 422 || resp.status === 403) {
+          const msg =
+            (await resp.json().catch(() => null))?.message ||
+            "Nepavyko perkelti užduoties.";
           alert(msg);
         } else if (!resp.ok) {
-          alert("Nepavyko perkelti uzduoties.");
-        }
+          throw new Error("Nepavyko perkelti užduoties.");
+        } else {
+          const query =
+            state?.getQuery?.() ||
+            new URLSearchParams(window.location.search || "");
+          if (!query.has("view")) query.set("view", "day");
 
-        const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
-        if (!query.has("view")) query.set("view", "day");
-        await table?.fetchAndRender?.(query, { updateUrl: false });
-        if (ok) {
+          await table?.fetchAndRender?.(query, {
+            updateUrl: false,
+            preserveScroll: true,
+          });
+
           await tasks?.refreshOpenTask?.(taskId);
         }
       } catch (err) {
-        logEvent("ui.drag.drop.error", { taskId, error: err?.message }, "error");
-        alert("Nepavyko perkelti uzduoties.");
-        const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
+        logEvent(
+          "ui.drag.drop.error",
+          { taskId, error: err?.message },
+          "error"
+        );
+        alert("Nepavyko perkelti užduoties.");
+
+        const query =
+          state?.getQuery?.() ||
+          new URLSearchParams(window.location.search || "");
         if (!query.has("view")) query.set("view", "day");
-        await table?.fetchAndRender?.(query, { updateUrl: false });
+
+        await table?.fetchAndRender?.(query, {
+          updateUrl: false,
+          preserveScroll: true,
+        });
       } finally {
         clearDragState();
       }
     });
+
 
     document.addEventListener("schedule:view:changed", () => {
       if (!isDayView()) clearDragState();

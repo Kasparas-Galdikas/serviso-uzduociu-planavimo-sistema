@@ -667,3 +667,126 @@ td.is-drag-origin .task-card.is-dragging {
   .weekly-facts .fact-line { font-size: 0.85rem; }
   .weekly-facts .fact-line.text-muted { font-size: 0.75rem; }
 }
+
+/* =========================================================
+   Optimistic UI Updates - Loading States
+   ========================================================= */
+
+/* Task card being moved (optimistic update) - NO spinner, subtle feedback */
+.task-card.task-card--moving {
+  opacity: 0.85;
+  filter: saturate(0.9) brightness(1.02);
+  box-shadow:
+    0 2px 8px rgba(15, 48, 87, 0.12),
+    0 0 0 2px rgba(13, 110, 253, 0.3);
+  transition:
+    opacity 0.15s ease,
+    filter 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+  transform: scale(1.01);
+  position: relative;
+  pointer-events: none;
+  z-index: 100;
+}
+
+/* Task card being rolled back (shows X icon) */
+.task-card.task-card--rollback {
+  opacity: 0.75;
+  filter: saturate(0.5) brightness(0.95);
+  box-shadow:
+    0 2px 8px rgba(220, 53, 69, 0.15),
+    0 0 0 2px rgba(220, 53, 69, 0.4);
+  position: relative;
+  pointer-events: none;
+  z-index: 100;
+  animation: shake 0.3s ease-in-out;
+}
+
+/* Shake animation for rollback */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* X icon for rollback (top-right corner) */
+.task-card.task-card--rollback::after {
+  content: "✕";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(220, 53, 69, 0.9);
+  color: white;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Task card being refreshed from server (with spinner) */
+.task-card.task-card--refreshing {
+  opacity: 0.6;
+  pointer-events: none;
+  position: relative;
+}
+
+/* Generic updating state for any element */
+.is-updating {
+  opacity: 0.7;
+  pointer-events: none;
+  position: relative;
+}
+
+/* Spinner ONLY for refreshing (not for moving) */
+.task-card.task-card--refreshing::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  border: 2px solid rgba(13, 110, 253, 0.2);
+  border-top-color: rgba(13, 110, 253, 0.8);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Smooth transition when finalizing move */
+.task-card {
+  transition:
+    opacity 0.2s ease,
+    filter 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+/* Success flash when move is finalized */
+@keyframes flash-success {
+  0% {
+    box-shadow: 0 0 0 0 rgba(25, 135, 84, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(25, 135, 84, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(25, 135, 84, 0);
+  }
+}
+
+/* You can add this class programmatically after successful finalization */
+.task-card.task-card--success-flash {
+  animation: flash-success 0.6s ease-out;
+}

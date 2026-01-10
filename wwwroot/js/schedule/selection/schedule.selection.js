@@ -375,21 +375,93 @@
       return;
     }
 
-    const title = (window.prompt("Uzduoties pavadinimas:", "Nauja uzduotis") || "").trim();
-    if (!title) return;
-    // Capture browser timezone offset (in minutes)
-    const timezoneOffset = Math.abs(new Date().getTimezoneOffset());
+    // Open task detail modal in CREATE mode
+    const modal = document.getElementById("taskDetailModal");
+    if (!modal) return;
 
-    const body = JSON.stringify({
+    // Clear the form and set to CREATE mode
+    const form = {
       technicianId: selection.techId,
       targetDate: selection.date,
       startMinutes: selection.startMinutes,
       endMinutes: selection.endMinutes,
-      title,
-      location: "",
-      priority: 1,
-      status: 0,
-      timezoneOffsetMinutes: timezoneOffset
+      date: selection.date,
+      startTime: minutesToTimeString(selection.startMinutes),
+      endTime: minutesToTimeString(selection.endMinutes),
+    };
+
+    // Store selection data for later submission
+    modal.dataset.mode = "create";
+    modal.dataset.technicianId = selection.techId;
+    modal.dataset.targetDate = selection.date;
+    modal.dataset.startMinutes = selection.startMinutes;
+    modal.dataset.endMinutes = selection.endMinutes;
+    delete modal.dataset.taskId;
+    delete modal.dataset.version;
+
+    // Calculate datetime-local values for form inputs
+    const startDateTime = `${selection.date}T${form.startTime}`;
+    const endDateTime = `${selection.date}T${form.endTime}`;
+
+    // Populate form fields
+    modal.querySelector("#taskDetailTitle").value = "";
+    modal.querySelector("#taskDetailLocation").value = "";
+    modal.querySelector("#taskDetailStart").value = startDateTime;
+    modal.querySelector("#taskDetailEnd").value = endDateTime;
+    modal.querySelector("#taskDetailPriority").value = "1"; // Medium
+    modal.querySelector("#taskDetailStatus").value = "0"; // Planned
+
+    // Set title
+    modal.querySelector("#taskDetailLabel").textContent = "Nauja užduotis";
+    modal.querySelector("#taskDetailCode").textContent = `Laikas: ${form.startTime} - ${form.endTime}`;
+
+    // Enable all inputs
+    const inputs = modal.querySelectorAll("input, select, textarea");
+    inputs.forEach((el) => el.removeAttribute("disabled"));
+
+    // Show save button
+    const saveBtn = modal.querySelector("#taskDetailSave");
+    if (saveBtn) {
+      saveBtn.classList.remove("d-none");
+      saveBtn.textContent = "Sukurti";
+    }
+
+    // Open the modal
+    const bsModal = window.bootstrap?.Offcanvas?.getOrCreateInstance?.(modal);
+    bsModal?.show?.();
+
+    logEvent("ui.task.create.form.open", { techId: selection.techId, date: selection.date });
+  };
+
+  // Helper to convert minutes to HH:MM format
+  const minutesToTimeString = (minutes) => {
+    const h = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const m = String(minutes % 60).padStart(2, "0");
+    return `${h}:${m}`;
+  };
+
+  // Export the createTask function so tasks.js can call the API
+  const submitCreateTask = async (formData) => {
+    const timezoneOffset = -new Date().getTimezoneOffset();
+
+    const body = JSON.stringify({
+      technicianId: formData.technicianId,
+      targetDate: formData.targetDate,
+      startMinutes: formData.startMinutes,
+      endMinutes: formData.endMinutes,
+      title: formData.title,
+      location: formData.location || "",
+      priority: formData.priority,
+      status: formData.status,
+      timezoneOffsetMinutes: timezoneOffset,
+      // Additional fields
+      shift: formData.shift,
+      taskType: formData.taskType,
+      skillLevel: formData.skillLevel,
+      objectName: formData.objectName,
+      objectType: formData.objectType,
+      instructions: formData.instructions,
+      safetyRequirements: formData.safetyRequirements,
     });
 
     try {
@@ -397,7 +469,7 @@
         (await logger?.fetchWithTrace?.(
           "/tasks",
           { method: "POST", headers: { "Content-Type": "application/json" }, body },
-          { event: "ui.task.create", techId: selection.techId, date: selection.date },
+          { event: "ui.task.create", techId: formData.technicianId, date: formData.targetDate },
         )) ||
         (await fetch("/tasks", {
           method: "POST",
@@ -407,45 +479,43 @@
 
       if (resp.status === 409) {
         const msg = (await resp.json().catch(() => null))?.message || "Laiko langas uzimtas.";
-        alert(msg);
-        clearSelection("create.conflict");
-        return;
+        throw new Error(msg);
       }
 
       if (resp.status === 422) {
         const msg = (await resp.json().catch(() => null))?.message || "Netinkamas laiko langas.";
-        alert(msg);
-        return;
+        throw new Error(msg);
       }
 
       if (resp.status === 403) {
         const msg = (await resp.json().catch(() => null))?.message || "Neturite teisiu kurti uzduoties.";
-        alert(msg);
-        return;
+        throw new Error(msg);
       }
 
       if (!resp.ok) {
-        alert("Nepavyko sukurti uzduoties.");
-        return;
+        throw new Error("Nepavyko sukurti uzduoties.");
       }
 
-      // Response now includes TaskCreatedOrUpdatedResponseDto with id and version
+      // Response includes TaskCreatedOrUpdatedResponseDto with id and version
       const responseData = await resp.json().catch(() => null);
       const id = responseData?.id;
-      
+
       const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
       if (!query.has("view")) query.set("view", "day");
       clearSelection("create.ok");
-      await table?.fetchAndRender?.(query, { updateUrl: false });
+      await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
 
       if (id) {
         const card = document.querySelector(`.task-card[data-task-id="${CSS.escape(String(id))}"]`);
         card?.scrollIntoView?.({ behavior: "smooth", block: "center" });
         card?.click?.();
       }
+
+      return { success: true, id };
     } catch (err) {
       logEvent("ui.task.create.error", { error: err?.message }, "error");
-      alert("Nepavyko sukurti uzduoties.");
+      alert(err?.message || "Nepavyko sukurti uzduoties.");
+      return { success: false, error: err?.message };
     }
   };
 
@@ -548,65 +618,56 @@
     });
 
     tables.addEventListener("click", (evt) => {
-      if (selection.isResizing) return;
-      if (Date.now() < (selection.suppressClickUntilTs || 0)) return;
-      if (evt.target?.closest?.("[data-slot-handle]")) return;
+  if (selection.isResizing) return;
+  if (Date.now() < (selection.suppressClickUntilTs || 0)) return;
+  if (evt.target?.closest?.("[data-slot-handle]")) return;
 
-      const hit = evt.target?.closest?.("[data-slot-hit]");
-      if (hit) {
-        // Open right-side panel to edit/create task in the selected slot
-        const panelEl = document.getElementById("taskDetailModal");
-        if (panelEl && selection.active) {
-          // Store selection context for panel to use
-          panelEl.dataset.slotContext = JSON.stringify({
-            techId: selection.techId,
-            date: selection.date,
-            startMinutes: selection.startMinutes,
-            endMinutes: selection.endMinutes,
-            isNewTask: true
-          });
-          
-          // Populate time fields immediately
-          const date = selection.date ? new Date(selection.date) : null;
-          if (date) {
-            const startTime = minutesToTime(selection.startMinutes || 0);
-            const endTime = minutesToTime(selection.endMinutes || 0);
-            
-            const [startH, startM] = startTime.split(":");
-            const [endH, endM] = endTime.split(":");
-            
-            // Format as YYYY-MM-DDTHH:MM for datetime-local input
-            const dateStr = date.toISOString().substring(0, 10);
-            
-            const startInput = panelEl.querySelector("#taskDetailStart");
-            const endInput = panelEl.querySelector("#taskDetailEnd");
-            
-            if (startInput) startInput.value = `${dateStr}T${startH}:${startM}`;
-            if (endInput) endInput.value = `${dateStr}T${endH}:${endM}`;
-          }
-          
-          bootstrap?.Offcanvas?.getOrCreateInstance?.(panelEl)?.show();
-          logEvent("ui.slot.selection.panel.open", { techId: selection.techId, date: selection.date });
-        }
-        return;
-      }
+  const hit = evt.target?.closest?.("[data-slot-hit]");
+  if (hit && selection.active) {
+    // ✅ OPEN PANEL IN CREATE MODE
+    const { techId, date, startMinutes, endMinutes } = selection;
 
-      const slot = evt.target?.closest?.(".schedule-slot");
-      if (!slot) return;
-      if (!isDayView()) return;
-
-      const td = slot.closest("td");
-      if (!td || !isEmptySlotCell(td)) return;
-
-      const d = readSlotData(slot);
-      if (!d) return;
-
-      clearChooser();
-      const ok = applySelectionRange(td, 1);
-      if (ok) {
-        logEvent("ui.slot.selected", { techId: d.techId, date: d.date, startMinutes: d.startMinutes });
-      }
+    schedule.tasks?.openTaskPanel?.({
+      technicianId: techId,
+      targetDate: date,
+      startMinutes,
+      endMinutes,
     });
+
+    return;
+  }
+
+  const card = evt.target?.closest?.(".task-card");
+  if (card) {
+    // ✅ OPEN PANEL IN EDIT MODE
+    const taskId = card.getAttribute("data-task-id");
+    if (taskId) {
+      schedule.tasks?.openTaskPanel?.({ taskId });
+    }
+    return;
+  }
+
+  const slot = evt.target?.closest?.(".schedule-slot");
+  if (!slot) return;
+  if (!isDayView()) return;
+
+  const td = slot.closest("td");
+  if (!td || !isEmptySlotCell(td)) return;
+
+  const d = readSlotData(slot);
+  if (!d) return;
+
+  clearChooser();
+  const ok = applySelectionRange(td, 1);
+  if (ok) {
+    logEvent("ui.slot.selected", {
+      techId: d.techId,
+      date: d.date,
+      startMinutes: d.startMinutes,
+    });
+  }
+});
+
 
     tables.addEventListener("keydown", (evt) => {
       const slot = evt.target?.closest?.(".schedule-slot");
@@ -654,5 +715,6 @@
   schedule.selection = {
     initOnce,
     clearSelection,
+    submitCreateTask,
   };
 })();
