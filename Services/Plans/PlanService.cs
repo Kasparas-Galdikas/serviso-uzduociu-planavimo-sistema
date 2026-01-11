@@ -12,6 +12,7 @@ using ServiceTaskPlanningSystem.Services.Planning;
 using ServiceTaskPlanningSystem.Services.Schedule;
 using ServiceTaskPlanningSystem.Services.Evaluation;
 using ServiceTaskPlanningSystem.Services.Authorization;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.Plans
 {
@@ -21,14 +22,16 @@ namespace ServiceTaskPlanningSystem.Services.Plans
         private readonly IEvaluationEngine _evaluationEngine;
         private readonly IPlanningCalendar _planningCalendar;
         private readonly ITaskPermissionService _taskPermissionService;
+        private readonly IScheduleTimeService _timeService;
         private readonly ILogger<PlanService> _logger;
 
-        public PlanService(ScheduleDbContext db, IEvaluationEngine evaluationEngine, IPlanningCalendar planningCalendar, ITaskPermissionService taskPermissionService, ILogger<PlanService> logger)
+        public PlanService(ScheduleDbContext db, IEvaluationEngine evaluationEngine, IPlanningCalendar planningCalendar, ITaskPermissionService taskPermissionService, IScheduleTimeService timeService, ILogger<PlanService> logger)
         {
             _db = db;
             _evaluationEngine = evaluationEngine;
             _planningCalendar = planningCalendar;
             _taskPermissionService = taskPermissionService;
+            _timeService = timeService;
             _logger = logger;
         }
 
@@ -55,6 +58,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             PlanEntity? plan,
             ScheduleTaskStatus status,
             string role,
+            int timezoneOffsetMinutes,
             bool requireEndAligned,
             CancellationToken cancellationToken)
         {
@@ -84,8 +88,9 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                 return (PlacementError.InvalidWindow, "Uzduotis netelpa i darbo laika.", default, default, null);
             }
 
-            var startAt = DateTime.SpecifyKind(targetDate.Date.AddMinutes(startMinutes), DateTimeKind.Utc);
-            var endAt = DateTime.SpecifyKind(targetDate.Date.AddMinutes(endMinutes), DateTimeKind.Utc);
+            // Convert local time to UTC for storage
+            var startAt = _timeService.CreateUtcFromDateAndMinutes(targetDate, startMinutes, timezoneOffsetMinutes);
+            var endAt = _timeService.CreateUtcFromDateAndMinutes(targetDate, endMinutes, timezoneOffsetMinutes);
 
             var targetTech = await _db.Technicians
                 .AsNoTracking()
@@ -109,7 +114,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                 Status = status
             };
 
-            var canEdit = await _taskPermissionService.CanEditTaskAsync(permissionProbe, role, cancellationToken);
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(permissionProbe, role, timezoneOffsetMinutes);
             if (!canEdit)
             {
                 return (PlacementError.NotEditable, "Neturite teisiu atlikti sio veiksmo.", default, default, null);
@@ -189,8 +194,14 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                 _db.Tasks.AddRange(seededTasks);
                 await _db.SaveChangesAsync(cancellationToken);
 
-                // Align PeriodEnd to actual task span (true inclusive horizon)
+                // Align PeriodStart and PeriodEnd to actual task span (true inclusive horizon)
+                var actualStart = seededTasks.Min(t => t.StartAt.Date);
                 var actualEnd = seededTasks.Max(t => t.EndAt.Date);
+
+                _logger.LogInformation("svc.plan.draft.task-span windowStart={WindowStart} windowEnd={WindowEnd} actualStart={ActualStart} actualEnd={ActualEnd}",
+                    window.Start, window.End, actualStart, actualEnd);
+
+                draftPlan.PeriodStart = actualStart;
                 draftPlan.PeriodEnd = actualEnd;
                 var totalDays = (draftPlan.PeriodEnd - draftPlan.PeriodStart).Days + 1;
                 draftPlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
@@ -208,12 +219,108 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             return draftPlan;
         }
 
-        public async Task<TaskCreateResult> CreateTaskAsync(int technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, string location, TaskPriority priority, ScheduleTaskStatus status, string role, CancellationToken cancellationToken = default)
+        private async Task<PlanEntity> GetOrExtendActivePlanAsync(PlanEntity? activePlan, DateTime taskDate, DateTime userLocalToday, CancellationToken cancellationToken)
         {
-            var draft = await _db.Plans.FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
-            if (draft == null)
+            if (activePlan != null)
             {
-                return new TaskCreateResult(TaskCreateError.DraftNotFound, "Juodrastis nerastas. Uzduotis galima kurti tik juodrascio plane.");
+                // Extend Active plan to cover the task date
+                if (taskDate > activePlan.PeriodEnd.Date)
+                {
+                    activePlan.PeriodEnd = taskDate;
+                    var totalDays = (activePlan.PeriodEnd - activePlan.PeriodStart).Days + 1;
+                    activePlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
+                    _db.Plans.Update(activePlan);
+                    await _db.SaveChangesAsync(cancellationToken);
+                    _logger.LogInformation("svc.plan.extend-active planId={PlanId} newEnd={NewEnd}", activePlan.Id, activePlan.PeriodEnd);
+                    return activePlan;
+                }
+                else if (taskDate < activePlan.PeriodStart.Date)
+                {
+                    activePlan.PeriodStart = taskDate;
+                    var totalDays = (activePlan.PeriodEnd - activePlan.PeriodStart).Days + 1;
+                    activePlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
+                    _db.Plans.Update(activePlan);
+                    await _db.SaveChangesAsync(cancellationToken);
+                    _logger.LogInformation("svc.plan.extend-active planId={PlanId} newStart={NewStart}", activePlan.Id, activePlan.PeriodStart);
+                    return activePlan;
+                }
+                return activePlan;
+            }
+            else
+            {
+                // Create new Active plan
+                var newActivePlan = new PlanEntity
+                {
+                    PeriodStart = userLocalToday,
+                    PeriodEnd = taskDate > userLocalToday ? taskDate : userLocalToday.AddDays(27), // Default 4 weeks
+                    Weeks = 4,
+                    Status = PlanStatus.Active,
+                    CreatedAt = DateTime.UtcNow
+                };
+                var totalDays = (newActivePlan.PeriodEnd - newActivePlan.PeriodStart).Days + 1;
+                newActivePlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
+                _db.Plans.Add(newActivePlan);
+                await _db.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("svc.plan.create-active planId={PlanId} start={Start} end={End}", newActivePlan.Id, newActivePlan.PeriodStart, newActivePlan.PeriodEnd);
+                return newActivePlan;
+            }
+        }
+
+        public async Task<TaskCreateResult> CreateTaskAsync(int technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, string location, TaskPriority priority, ScheduleTaskStatus status, string role, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        {
+            var taskDate = targetDate.Date;
+
+            // Calculate user's local "today" from server UTC (security: prevent clock manipulation)
+            var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
+
+            // Validate: Cannot create tasks in the past
+            if (taskDate < userLocalToday)
+            {
+                return new TaskCreateResult(TaskCreateError.InvalidWindow, "Negalima kurti užduočių praeityje.");
+            }
+
+            // Get all plans to determine target plan
+            var draftPlan = await _db.Plans
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
+            var activePlan = await _db.Plans
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Active, cancellationToken);
+            var supersededPlans = await _db.Plans
+                .AsNoTracking()
+                .Where(p => p.Status == PlanStatus.Superseded)
+                .OrderByDescending(p => p.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+            // Determine target plan (Priority: Draft > Active > Superseded > Extend Active > Create Active)
+            PlanEntity? targetPlan = null;
+
+            if (draftPlan != null && taskDate >= draftPlan.PeriodStart.Date && taskDate <= draftPlan.PeriodEnd.Date)
+            {
+                targetPlan = draftPlan; // Create in Draft
+                _logger.LogInformation("svc.plan.create-task.target plan=Draft planId={PlanId}", draftPlan.Id);
+            }
+            else if (activePlan != null && taskDate >= activePlan.PeriodStart.Date && taskDate <= activePlan.PeriodEnd.Date)
+            {
+                targetPlan = activePlan; // Create in Active
+                _logger.LogInformation("svc.plan.create-task.target plan=Active planId={PlanId}", activePlan.Id);
+            }
+            else
+            {
+                // Try to find matching Superseded plan
+                var matchingSuperseded = supersededPlans
+                    .FirstOrDefault(p => taskDate >= p.PeriodStart.Date && taskDate <= p.PeriodEnd.Date);
+                if (matchingSuperseded != null)
+                {
+                    targetPlan = matchingSuperseded; // Create in Superseded
+                    _logger.LogInformation("svc.plan.create-task.target plan=Superseded planId={PlanId}", matchingSuperseded.Id);
+                }
+                else
+                {
+                    // Extend Active or create new Active plan
+                    targetPlan = await GetOrExtendActivePlanAsync(activePlan, taskDate, userLocalToday, cancellationToken);
+                    _logger.LogInformation("svc.plan.create-task.target plan=Extended/New planId={PlanId}", targetPlan.Id);
+                }
             }
 
             var normalizedTitle = string.IsNullOrWhiteSpace(title) ? "Nauja uzduotis" : title.Trim();
@@ -225,9 +332,10 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                 targetDate: targetDate,
                 startMinutes: startMinutes,
                 endMinutes: endMinutes,
-                plan: draft,
+                plan: targetPlan,
                 status: status,
                 role: role,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
                 requireEndAligned: true,
                 cancellationToken: cancellationToken);
 
@@ -244,7 +352,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
 
             var task = new TaskEntity
             {
-                PlanId = draft.Id,
+                PlanId = targetPlan.Id,
                 TechnicianId = technicianId,
                 RegionId = validation.RegionId,
                 Title = normalizedTitle,
@@ -259,11 +367,11 @@ namespace ServiceTaskPlanningSystem.Services.Plans
             _db.Tasks.Add(task);
             await _db.SaveChangesAsync(cancellationToken);
 
-            await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
+            await _evaluationEngine.RecalculatePlanAsync(targetPlan.Id, cancellationToken);
             return new TaskCreateResult(TaskCreateError.None, Task: task);
         }
 
-        public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, string role, CancellationToken cancellationToken = default)
+        public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, string role, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
                 .Include(t => t.Plan)
@@ -274,7 +382,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                 throw new InvalidOperationException($"Task {taskId} was not found.");
             }
 
-            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, role, cancellationToken);
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, role, timezoneOffsetMinutes);
             if (!canEdit)
             {
                 throw new InvalidOperationException("Neturite teisiu redaguoti sios uzduoties.");
@@ -289,7 +397,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
               return task;
           }
 
-        public async Task<TaskMoveResult> MoveTaskAsync(long taskId, int targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, string role, CancellationToken cancellationToken = default)
+        public async Task<TaskMoveResult> MoveTaskAsync(long taskId, int targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, string role, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
                 .Include(t => t.Plan)
@@ -325,6 +433,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
                 plan: task.Plan,
                 status: task.Status,
                 role: role,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
                 requireEndAligned: false,
                 cancellationToken: cancellationToken);
 

@@ -35,7 +35,8 @@ namespace ServiceTaskPlanningSystem.Controllers
                 // Invalid state: draft should originate from an active plan. Log/flag as needed.
             }
 
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role);
+            var timezoneOffset = GetBrowserTimezoneOffset();
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role, timezoneOffset);
             vm.IsManager = isManager;
             if (!vm.IsManager && vm.Tasks != null)
             {
@@ -74,7 +75,8 @@ namespace ServiceTaskPlanningSystem.Controllers
                 // Invalid state: draft should originate from an active plan. Log/flag as needed.
             }
 
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role);
+            var timezoneOffset = GetBrowserTimezoneOffset();
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role, timezoneOffset);
             vm.IsManager = isManager;
             if (!vm.IsManager && vm.Tasks != null)
             {
@@ -118,6 +120,29 @@ namespace ServiceTaskPlanningSystem.Controllers
             }
 
             return viewModel;
+        }
+
+        /// <summary>
+        /// Extract browser timezone offset from request headers.
+        /// Default to 0 if not provided.
+        /// </summary>
+        private int GetBrowserTimezoneOffset()
+        {
+            // Try header first (for AJAX requests)
+            if (Request.Headers.TryGetValue("X-Timezone-Offset", out var tzHeader) &&
+                int.TryParse(tzHeader.ToString(), out var offset))
+            {
+                return offset;
+            }
+
+            // Fallback to cookie (for initial page loads)
+            if (Request.Cookies.TryGetValue("timezone_offset", out var tzCookie) &&
+                int.TryParse(tzCookie, out var cookieOffset))
+            {
+                return cookieOffset;
+            }
+
+            return 0;
         }
     }
 }

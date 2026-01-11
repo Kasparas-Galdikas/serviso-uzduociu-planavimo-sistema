@@ -72,5 +72,32 @@ namespace ServiceTaskPlanningSystem.Services.Time
             var min = String.Format("{0:D2}", mm % 60);
             return $"{h}:{min}";
         }
+
+        public DateTime GetUserLocalNow(int timezoneOffsetMinutes)
+        {
+            var utcNow = GetCurrentUtcTime();
+            return ConvertUtcToLocal(utcNow, timezoneOffsetMinutes);
+        }
+
+        public DateTime GetUserLocalToday(int timezoneOffsetMinutes)
+        {
+            var userLocalNow = GetUserLocalNow(timezoneOffsetMinutes);
+            return userLocalNow.Date;
+        }
+
+        public DateTime CreateUtcFromDateAndMinutes(DateTime targetDate, int minutesSinceMidnight, int timezoneOffsetMinutes)
+        {
+            // Build local datetime from date + minutes
+            var localDateTime = targetDate.Date.AddMinutes(minutesSinceMidnight);
+
+            // Convert to UTC for storage
+            return ConvertLocalToUtc(localDateTime, timezoneOffsetMinutes);
+        }
+
+        public bool IsDateInPastForUser(DateTime dateToCheck, int timezoneOffsetMinutes)
+        {
+            var userLocalToday = GetUserLocalToday(timezoneOffsetMinutes);
+            return dateToCheck.Date < userLocalToday;
+        }
     }
 }

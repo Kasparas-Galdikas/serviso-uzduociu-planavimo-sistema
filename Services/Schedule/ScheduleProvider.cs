@@ -12,6 +12,7 @@ using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.Plans;
 using ServiceTaskPlanningSystem.Services.Planning;
 using ServiceTaskPlanningSystem.Services.Evaluation;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.Schedule
 {
@@ -22,17 +23,19 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IPlanningCalendar _planningCalendar;
         private readonly Services.Authorization.ITaskPermissionService _taskPermissionService;
+        private readonly IScheduleTimeService _timeService;
 
-        public ScheduleProvider(ScheduleDbContext db, IServiceScopeFactory scopeFactory, IPlanningCalendar planningCalendar, Services.Authorization.ITaskPermissionService taskPermissionService, ILogger<ScheduleProvider> logger)
+        public ScheduleProvider(ScheduleDbContext db, IServiceScopeFactory scopeFactory, IPlanningCalendar planningCalendar, Services.Authorization.ITaskPermissionService taskPermissionService, IScheduleTimeService timeService, ILogger<ScheduleProvider> logger)
         {
             _db = db;
             _scopeFactory = scopeFactory;
             _planningCalendar = planningCalendar;
             _taskPermissionService = taskPermissionService;
+            _timeService = timeService;
             _logger = logger;
         }
 
-        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? status, PlanEntity? activePlan, PlanEntity? draftPlan, string role)
+        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? status, PlanEntity? activePlan, PlanEntity? draftPlan, string role, int timezoneOffsetMinutes)
         {
             var selectedDate = DateResolver.ParseOrToday(date);
             var viewMode = NormalizeView(view);
@@ -120,9 +123,9 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                     _ => TaskPlanSource.Active
                 };
                 taskVersions.TryGetValue(t.Id, out var version);
-                var task = MapTask(t, technicians, planStatus, version);
+                var task = MapTask(t, technicians, planStatus, version, timezoneOffsetMinutes);
                 task.Source = source;
-                task.IsEditable = await _taskPermissionService.CanEditTaskAsync(t, role, CancellationToken.None);
+                task.IsEditable = await _taskPermissionService.CanEditTaskAsync(t, role, timezoneOffsetMinutes);
                 tasks.Add(task);
             }
 
@@ -185,11 +188,15 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             };
         }
 
-        private TaskItem MapTask(Data.TaskEntity task, List<Technician> technicians, PlanStatus planStatus, uint version)
+        private TaskItem MapTask(Data.TaskEntity task, List<Technician> technicians, PlanStatus planStatus, uint version, int timezoneOffsetMinutes)
         {
             var eval = task.Evaluation;
             var tech = technicians.FirstOrDefault(t => t.Id == task.TechnicianId);
             var status = eval?.Status ?? LoadState.Normal;
+
+            // Convert UTC times to local time for display
+            var startLocal = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffsetMinutes);
+            var endLocal = _timeService.ConvertUtcToLocal(task.EndAt, timezoneOffsetMinutes);
 
             return new TaskItem
             {
@@ -200,8 +207,8 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
                 Version = version,
                 Title = task.Title,
                 Location = task.Location,
-                Start = DateTime.SpecifyKind(task.StartAt, DateTimeKind.Utc),
-                End = DateTime.SpecifyKind(task.EndAt, DateTimeKind.Utc),
+                Start = startLocal,
+                End = endLocal,
                 Priority = task.Priority.ToString().ToLowerInvariant(),
                 Status = task.Status.ToString().ToLowerInvariant(),
                 IsConflict = status == LoadState.Conflict,

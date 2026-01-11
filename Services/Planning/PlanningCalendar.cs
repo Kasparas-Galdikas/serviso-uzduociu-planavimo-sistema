@@ -22,7 +22,10 @@ namespace ServiceTaskPlanningSystem.Services.Planning
 
         public async Task<PlanningBoundary> GetBoundaryAsync(CancellationToken cancellationToken = default)
         {
-            var lastPlanEnd = await _db.Plans.MaxAsync(p => (DateTime?)p.PeriodEnd, cancellationToken);
+            // Only consider Active and Superseded plans (exclude Draft from boundary calculation)
+            var lastPlanEnd = await _db.Plans
+                .Where(p => p.Status == PlanStatus.Active || p.Status == PlanStatus.Superseded)
+                .MaxAsync(p => (DateTime?)p.PeriodEnd, cancellationToken);
             var lastTaskEnd = await _db.Tasks.MaxAsync(t => (DateTime?)t.EndAt, cancellationToken);
 
             var lastOccupied = new List<DateTime?> { lastPlanEnd, lastTaskEnd }

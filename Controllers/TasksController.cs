@@ -57,6 +57,7 @@ namespace ServiceTaskPlanningSystem.Controllers
                 dto.Priority,
                 dto.Status,
                 role,
+                dto.TimezoneOffsetMinutes,
                 cancellationToken);
 
             if (result.Ok && result.Task != null)
@@ -81,7 +82,6 @@ namespace ServiceTaskPlanningSystem.Controllers
             {
                 TaskCreateError.Overlap => Conflict(new { message = result.Message }),
                 TaskCreateError.NotEditable => StatusCode(403, new { message = result.Message }),
-                TaskCreateError.DraftNotFound => StatusCode(403, new { message = result.Message }),
                 TaskCreateError.TechnicianNotFound => UnprocessableEntity(new { message = result.Message }),
                 _ => UnprocessableEntity(new { message = result.Message ?? "Netinkamas laiko langas." })
             };
@@ -106,10 +106,9 @@ namespace ServiceTaskPlanningSystem.Controllers
                 .Select(t => EF.Property<uint>(t, "xmin"))
                 .FirstAsync(cancellationToken);
 
-            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
-            var isEditable = await _taskPermissionService.CanEditTaskAsync(task, role, cancellationToken);
-
             var timezoneOffset = GetBrowserTimezoneOffset();
+            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
+            var isEditable = await _taskPermissionService.CanEditTaskAsync(task, role, timezoneOffset);
             
             // Convert UTC times from database to local time for frontend
             var localStartAt = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffset);
@@ -163,7 +162,7 @@ namespace ServiceTaskPlanningSystem.Controllers
                     task.EndAt = utcEndAt;
                     task.Priority = dto.Priority;
                     task.Status = dto.Status;
-                }, role, cancellationToken);
+                }, role, dto.TimezoneOffsetMinutes, cancellationToken);
 
                 var version = await _db.Tasks
                     .AsNoTracking()
@@ -212,6 +211,7 @@ namespace ServiceTaskPlanningSystem.Controllers
                 dto.TargetSlotStartMinutes,
                 dto.Version,
                 role,
+                dto.TimezoneOffsetMinutes,
                 cancellationToken);
 
             if (result.Ok && result.Task != null)
@@ -273,11 +273,20 @@ namespace ServiceTaskPlanningSystem.Controllers
         /// </summary>
         private int GetBrowserTimezoneOffset()
         {
+            // Try header first (for AJAX requests)
             if (Request.Headers.TryGetValue("X-Timezone-Offset", out var tzHeader) &&
                 int.TryParse(tzHeader.ToString(), out var offset))
             {
                 return offset;
             }
+
+            // Fallback to cookie (for initial page loads)
+            if (Request.Cookies.TryGetValue("timezone_offset", out var tzCookie) &&
+                int.TryParse(tzCookie, out var cookieOffset))
+            {
+                return cookieOffset;
+            }
+
             return 0;
         }
     }

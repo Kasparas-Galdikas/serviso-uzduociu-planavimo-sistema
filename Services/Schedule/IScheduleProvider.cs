@@ -13,6 +13,7 @@ namespace ServiceTaskPlanningSystem.Services.Schedule
             string? status,
             PlanEntity? activePlan,
             PlanEntity? draftPlan,
-            string role);
+            string role,
+            int timezoneOffsetMinutes);
     }
 }

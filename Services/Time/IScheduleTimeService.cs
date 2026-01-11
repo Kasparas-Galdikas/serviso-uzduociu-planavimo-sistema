@@ -10,14 +10,8 @@ namespace ServiceTaskPlanningSystem.Services.Time
     /// </summary>
     public interface IScheduleTimeService
     {
-        /// <summary>
-        /// Gets the current time in UTC.
-        /// </summary>
         DateTime GetCurrentUtcTime();
 
-        /// <summary>
-        /// Gets the current date (today) in local time.
-        /// </summary>
         DateTime GetLocalToday();
 
         /// <summary>
@@ -74,5 +68,37 @@ namespace ServiceTaskPlanningSystem.Services.Time
         /// <param name="minutes">Minutes since midnight (0-1440)</param>
         /// <returns>Time string in HH:mm format</returns>
         string MinutesToTimeString(int minutes);
+
+        /// <summary>
+        /// Gets the user's local "now" (current datetime in their timezone).
+        /// </summary>
+        /// <param name="timezoneOffsetMinutes">User's timezone offset in minutes</param>
+        /// <returns>Current datetime in user's local timezone</returns>
+        DateTime GetUserLocalNow(int timezoneOffsetMinutes);
+
+        /// <summary>
+        /// Gets the user's local "today" (current date in their timezone).
+        /// </summary>
+        /// <param name="timezoneOffsetMinutes">User's timezone offset in minutes</param>
+        /// <returns>Current date in user's local timezone</returns>
+        DateTime GetUserLocalToday(int timezoneOffsetMinutes);
+
+        /// <summary>
+        /// Creates a UTC datetime from a date and minutes since midnight (local time).
+        /// Used for task creation/updates where user selects date + time slot.
+        /// </summary>
+        /// <param name="targetDate">The target date (local)</param>
+        /// <param name="minutesSinceMidnight">Minutes since midnight (0-1440)</param>
+        /// <param name="timezoneOffsetMinutes">User's timezone offset</param>
+        /// <returns>UTC datetime ready for database storage</returns>
+        DateTime CreateUtcFromDateAndMinutes(DateTime targetDate, int minutesSinceMidnight, int timezoneOffsetMinutes);
+
+        /// <summary>
+        /// Checks if a date is in the past from the user's local perspective.
+        /// </summary>
+        /// <param name="dateToCheck">Date to check</param>
+        /// <param name="timezoneOffsetMinutes">User's timezone offset</param>
+        /// <returns>True if date is before user's local today</returns>
+        bool IsDateInPastForUser(DateTime dateToCheck, int timezoneOffsetMinutes);
     }
 }

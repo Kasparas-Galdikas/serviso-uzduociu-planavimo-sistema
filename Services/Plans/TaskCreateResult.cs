@@ -8,8 +8,7 @@ namespace ServiceTaskPlanningSystem.Services.Plans
         NotEditable,
         InvalidWindow,
         Overlap,
-        TechnicianNotFound,
-        DraftNotFound
+        TechnicianNotFound
     }
 
     public sealed record TaskCreateResult(
