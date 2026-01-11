@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-using ServiceTaskPlanningSystem.Services.Schedule;
+using ServiceTaskPlanningSystem.Services.Scheduling;
 
 namespace ServiceTaskPlanningSystem.Data.Seed
 {
@@ -116,12 +116,34 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                     technician = techEntity;
                 }
 
-                var startUtc = task.Start.Kind == DateTimeKind.Utc
-                    ? task.Start
-                    : DateTime.SpecifyKind(task.Start, DateTimeKind.Utc);
-                var endUtc = task.End.Kind == DateTimeKind.Utc
-                    ? task.End
-                    : DateTime.SpecifyKind(task.End, DateTimeKind.Utc);
+                // IMPORTANT: Mock data generates LOCAL times (8:00, 10:30, etc.)
+                // We need to convert them to UTC for storage.
+                // Assuming Lithuania timezone (UTC+2 in winter, UTC+3 in summer)
+                var timezoneOffsetMinutes = 120; // EET (Eastern European Time) = UTC+2
+
+                DateTime startUtc, endUtc;
+
+                if (task.Start.Kind == DateTimeKind.Utc)
+                {
+                    startUtc = task.Start;
+                }
+                else
+                {
+                    // Convert local time to UTC by subtracting timezone offset
+                    var localStart = DateTime.SpecifyKind(task.Start, DateTimeKind.Unspecified);
+                    startUtc = DateTime.SpecifyKind(localStart.AddMinutes(-timezoneOffsetMinutes), DateTimeKind.Utc);
+                }
+
+                if (task.End.Kind == DateTimeKind.Utc)
+                {
+                    endUtc = task.End;
+                }
+                else
+                {
+                    // Convert local time to UTC by subtracting timezone offset
+                    var localEnd = DateTime.SpecifyKind(task.End, DateTimeKind.Unspecified);
+                    endUtc = DateTime.SpecifyKind(localEnd.AddMinutes(-timezoneOffsetMinutes), DateTimeKind.Utc);
+                }
 
                 taskEntities.Add(new TaskEntity
                 {

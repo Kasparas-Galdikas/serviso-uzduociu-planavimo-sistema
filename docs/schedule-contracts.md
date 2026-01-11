@@ -84,13 +84,13 @@ Events:
 
 ### Task details
 
-- `GET /tasks/{id}`
+- `GET /api/tasks/{id}`
   - Returns JSON with at least:
     - `id`, `title`, `location`, `startAt`, `endAt`, `priority`, `status`, `isEditable`, `version`
 
 ### Save task
 
-- `PATCH /tasks/{id}`
+- `PATCH /api/tasks/{id}`
   - Payload JSON:
     - `{ title, location, startAt, endAt, priority, status }`
   - Status handling:
@@ -104,7 +104,7 @@ Events:
 
 ### Move task (drag & drop)
 
-- `PATCH /tasks/{id}/move`
+- `PATCH /api/tasks/{id}/move`
   - Payload JSON (intent only):
     - `{ targetTechnicianId, targetDate, targetSlotStartMinutes, expectedVersion }`
   - Server behavior:

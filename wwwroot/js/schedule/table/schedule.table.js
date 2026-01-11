@@ -26,9 +26,14 @@
     }
   };
 
-  const fetchAndRender = async (query, { button, updateUrl, replaceUrl } = {}) => {
+  const fetchAndRender = async (query, { button, updateUrl, replaceUrl, preserveScroll = false } = {}) => {
     button?.classList.add("disabled");
     button?.setAttribute("aria-busy", "true");
+
+    // Capture scroll position before refresh
+    const scrollContainer = tables.querySelector(".table-responsive") || tables.closest(".table-responsive");
+    const scrollTop = preserveScroll && scrollContainer ? scrollContainer.scrollTop : null;
+    const scrollLeft = preserveScroll && scrollContainer ? scrollContainer.scrollLeft : null;
 
     const url = `/Schedule/Table?${query.toString()}`;
     try {
@@ -56,6 +61,19 @@
         tables.dataset.currentView = query.get("view") || tables.dataset.currentView || "day";
       }
       logEvent("ui.table.fetch.ok", { url, status: response.status, length: html.length });
+
+      // Restore scroll position after refresh
+      if (preserveScroll && scrollTop !== null && scrollLeft !== null) {
+        const newScrollContainer = tables.querySelector(".table-responsive") || tables.closest(".table-responsive");
+        if (newScrollContainer) {
+          // Use requestAnimationFrame to ensure DOM is fully rendered
+          requestAnimationFrame(() => {
+            newScrollContainer.scrollTop = scrollTop;
+            newScrollContainer.scrollLeft = scrollLeft;
+            logEvent("ui.table.scroll.restored", { scrollTop, scrollLeft });
+          });
+        }
+      }
 
       if (updateUrl && state?.setQuery) {
         state.setQuery(query, { replace: replaceUrl !== false });

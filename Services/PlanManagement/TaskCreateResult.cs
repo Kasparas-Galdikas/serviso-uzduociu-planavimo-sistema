@@ -1,0 +1,22 @@
+using ServiceTaskPlanningSystem.Data;
+
+namespace ServiceTaskPlanningSystem.Services.PlanManagement
+{
+    public enum TaskCreateError
+    {
+        None,
+        NotEditable,
+        InvalidWindow,
+        Overlap,
+        TechnicianNotFound
+    }
+
+    public sealed record TaskCreateResult(
+        TaskCreateError Error,
+        string? Message = null,
+        TaskEntity? Task = null)
+    {
+        public bool Ok => Error == TaskCreateError.None;
+    }
+}
+

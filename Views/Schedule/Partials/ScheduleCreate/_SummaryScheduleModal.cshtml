@@ -75,7 +75,7 @@
             <div class="modal-footer border-0">
                 <div class="d-flex w-100 align-items-center justify-content-between gap-2">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#createTaskModal">Grizti</button>
-                    <button type="button" class="btn btn-primary" id="summaryConfirmBtn" data-base-url="@Url.Action("Index", "Schedule")">Patvirtinti generavima</button>
+                    <button type="button" class="btn btn-primary" id="summaryConfirmBtn" data-base-url="@Url.RouteUrl("ScheduleView")">Patvirtinti generavima</button>
                 </div>
             </div>
         </div>
@@ -149,7 +149,7 @@
 
                 setBusy(true);
                 try {
-                    const resp = await (logger?.fetchWithTrace('/Plans/draft', {
+                    const resp = await (logger?.fetchWithTrace('/api/plans/draft', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -159,7 +159,7 @@
                             endDate: endDate || null,
                             weeks
                         })
-                    }, { event: 'ui.plan.draft.create', startDate, endDate, weeks }) || fetch('/Plans/draft', {
+                    }, { event: 'ui.plan.draft.create', startDate, endDate, weeks }) || fetch('/api/plans/draft', {
                         method: 'POST',
                         headers: {
                             'X-Requested-With': 'XMLHttpRequest',
