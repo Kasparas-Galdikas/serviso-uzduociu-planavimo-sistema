@@ -1,12 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Data.Seed;
-using ServiceTaskPlanningSystem.Services.Schedule;
-using ServiceTaskPlanningSystem.Services.Plans;
-using ServiceTaskPlanningSystem.Services.Planning;
-using ServiceTaskPlanningSystem.Services.Evaluation;
-using ServiceTaskPlanningSystem.Services.Authorization;
+using ServiceTaskPlanningSystem.Services.Scheduling;
+using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Configuration;
 using ServiceTaskPlanningSystem.Middleware;
 using ServiceTaskPlanningSystem.Infrastructure.Logging;

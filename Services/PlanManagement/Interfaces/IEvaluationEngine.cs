@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace ServiceTaskPlanningSystem.Services.Evaluation
+namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
     public interface IEvaluationEngine
     {

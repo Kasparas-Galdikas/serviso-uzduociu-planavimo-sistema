@@ -8,13 +8,11 @@ using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data.Seed;
-using ServiceTaskPlanningSystem.Services.Planning;
-using ServiceTaskPlanningSystem.Services.Schedule;
-using ServiceTaskPlanningSystem.Services.Evaluation;
+using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Time;
 
-namespace ServiceTaskPlanningSystem.Services.Plans
+namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
     public class PlanService : IPlanService
     {

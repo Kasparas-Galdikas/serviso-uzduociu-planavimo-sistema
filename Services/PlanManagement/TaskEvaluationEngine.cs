@@ -6,9 +6,8 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using Microsoft.Extensions.Logging;
-using ServiceTaskPlanningSystem.Services.Evaluation;
 
-namespace ServiceTaskPlanningSystem.Services.Evaluation
+namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
     public class TaskEvaluationEngine : IEvaluationEngine
     {

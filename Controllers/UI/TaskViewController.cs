@@ -1,17 +1,18 @@
 using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Models.Tasks;
 
-namespace ServiceTaskPlanningSystem.Controllers;
+namespace ServiceTaskPlanningSystem.Controllers.UI;
 
-public class TaskController : Controller
+[Route("Task")]
+public class TaskViewController : Controller
 {
-    [HttpGet]
+    [HttpGet("Create")]
     public IActionResult Create()
     {
         return View(new TaskCreateViewModel());
     }
 
-    [HttpPost]
+    [HttpPost("Create")]
     [ValidateAntiForgeryToken]
     public IActionResult Create(TaskCreateViewModel model)
     {

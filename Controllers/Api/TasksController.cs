@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
-using ServiceTaskPlanningSystem.Services.Plans;
+using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
@@ -12,10 +12,10 @@ using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
 
-namespace ServiceTaskPlanningSystem.Controllers
+namespace ServiceTaskPlanningSystem.Controllers.Api
 {
     [ApiController]
-    [Route("tasks")]
+    [Route("api/tasks")]
     public class TasksController : ControllerBase
     {
         private readonly ScheduleDbContext _db;

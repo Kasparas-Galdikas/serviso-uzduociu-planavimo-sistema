@@ -2,7 +2,7 @@ using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data;
 using System.Threading.Tasks;
 
-namespace ServiceTaskPlanningSystem.Services.Schedule
+namespace ServiceTaskPlanningSystem.Services.Scheduling
 {
     public interface IScheduleProvider
     {

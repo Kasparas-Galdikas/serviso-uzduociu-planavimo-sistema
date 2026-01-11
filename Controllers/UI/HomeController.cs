@@ -2,7 +2,7 @@ using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Models;
 
-namespace ServiceTaskPlanningSystem.Controllers;
+namespace ServiceTaskPlanningSystem.Controllers.UI;
 
 public class HomeController : Controller
 {

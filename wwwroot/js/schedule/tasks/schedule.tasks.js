@@ -35,10 +35,10 @@
     const timezoneOffset = -new Date().getTimezoneOffset();
 
     const resp =
-      (await logger?.fetchWithTrace?.(`/tasks/${taskId}`, {
+      (await logger?.fetchWithTrace?.(`/api/tasks/${taskId}`, {
         headers: { "X-Timezone-Offset": String(timezoneOffset) }
       }, { event: "ui.task.fetch", taskId })) ||
-      (await fetch(`/tasks/${taskId}`, {
+      (await fetch(`/api/tasks/${taskId}`, {
         headers: {
           "X-Requested-With": "XMLHttpRequest",
           "X-Timezone-Offset": String(timezoneOffset)
@@ -206,7 +206,7 @@
 
         const resp =
           (await logger?.fetchWithTrace(
-            `/tasks/${taskId}`,
+            `/api/tasks/${taskId}`,
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
@@ -214,7 +214,7 @@
             },
             { event: "ui.task.save", taskId },
           )) ||
-          (await fetch(`/tasks/${taskId}`, {
+          (await fetch(`/api/tasks/${taskId}`, {
             method: "PATCH",
             headers: {
               "X-Requested-With": "XMLHttpRequest",

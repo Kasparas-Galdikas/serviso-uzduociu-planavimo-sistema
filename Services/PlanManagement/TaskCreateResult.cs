@@ -1,6 +1,6 @@
 using ServiceTaskPlanningSystem.Data;
 
-namespace ServiceTaskPlanningSystem.Services.Plans
+namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
     public enum TaskCreateError
     {

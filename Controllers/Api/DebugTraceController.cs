@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
 using ServiceTaskPlanningSystem.Infrastructure.Logging;
 
-namespace ServiceTaskPlanningSystem.Controllers
+namespace ServiceTaskPlanningSystem.Controllers.Api
 {
     [ApiController]
     [Route("debug/trace")]

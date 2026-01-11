@@ -370,7 +370,7 @@
 
         const resp =
           (await logger?.fetchWithTrace?.(
-            `/tasks/${taskId}/move`,
+            `/api/tasks/${taskId}/move`,
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
@@ -378,7 +378,7 @@
             },
             { event: "ui.task.move", taskId }
           )) ||
-          (await fetch(`/tasks/${taskId}/move`, {
+          (await fetch(`/api/tasks/${taskId}/move`, {
             method: "PATCH",
             headers: {
               "X-Requested-With": "XMLHttpRequest",

@@ -9,12 +9,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
-using ServiceTaskPlanningSystem.Services.Plans;
-using ServiceTaskPlanningSystem.Services.Planning;
-using ServiceTaskPlanningSystem.Services.Evaluation;
+using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Time;
 
-namespace ServiceTaskPlanningSystem.Services.Schedule
+namespace ServiceTaskPlanningSystem.Services.Scheduling
 {
     public class ScheduleProvider : IScheduleProvider
     {

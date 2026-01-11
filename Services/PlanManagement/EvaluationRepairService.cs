@@ -8,7 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 
-namespace ServiceTaskPlanningSystem.Services.Evaluation
+namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
     public class EvaluationRepairService : BackgroundService
     {

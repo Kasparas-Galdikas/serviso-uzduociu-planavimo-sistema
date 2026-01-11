@@ -39,7 +39,7 @@ if (!success) {
 
 try {
   // 2. Send API request in background
-  const response = await fetch(`/tasks/${taskId}/move`, {...});
+  const response = await fetch(`/api/tasks/${taskId}/move`, {...});
 
   if (response.ok) {
     // 3. Finalize the move
@@ -226,11 +226,11 @@ Fetch and replace a specific task card from server.
 
 ```javascript
 const success = await refresh.refreshTaskCard(123);
-// Fetches: GET /tasks/123/card
+// Fetches: GET /api/tasks/123/card
 // Returns: boolean
 ```
 
-**Note:** Requires backend endpoint `GET /tasks/{id}/card` that returns task card HTML.
+**Note:** Requires backend endpoint `GET /api/tasks/{id}/card` that returns task card HTML.
 
 #### `refreshCells(cells)`
 Fetch and replace specific cells in the schedule table.
@@ -292,7 +292,7 @@ tables.addEventListener("drop", async (evt) => {
 
   try {
     // API request
-    const resp = await fetch(`/tasks/${taskId}/move`, {...});
+    const resp = await fetch(`/api/tasks/${taskId}/move`, {...});
 
     if (resp.ok) {
       // Success - finalize
@@ -320,7 +320,7 @@ tables.addEventListener("drop", async (evt) => {
 
 **Before (full refresh):**
 ```javascript
-const resp = await fetch(`/tasks/${taskId}`, { method: 'PATCH', body });
+const resp = await fetch(`/api/tasks/${taskId}`, { method: 'PATCH', body });
 if (resp.ok) {
   // Full table re-fetch (500-2000ms)
   await table?.fetchAndRender?.(query, { updateUrl: false });
@@ -329,7 +329,7 @@ if (resp.ok) {
 
 **After (partial update):**
 ```javascript
-const resp = await fetch(`/tasks/${taskId}`, { method: 'PATCH', body });
+const resp = await fetch(`/api/tasks/${taskId}`, { method: 'PATCH', body });
 if (resp.ok) {
   const data = await resp.json();
 
@@ -593,7 +593,7 @@ refresh.finalizeTaskMove(taskId, data.version); // ← Important!
 ### Phase 2: Planned 🔶
 - [ ] Task edit partial updates
 - [ ] Task creation targeted refresh
-- [ ] Backend endpoint: `GET /tasks/{id}/card`
+- [ ] Backend endpoint: `GET /api/tasks/{id}/card`
 - [ ] Backend endpoint: `POST /Schedule/Cells`
 
 ### Phase 3: Advanced 🔮

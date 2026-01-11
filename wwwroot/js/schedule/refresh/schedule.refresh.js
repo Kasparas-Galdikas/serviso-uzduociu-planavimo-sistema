@@ -408,8 +408,8 @@
       addLoadingState(card, "task-card--refreshing");
 
       // Fetch just this task's card HTML
-      // You'll need to add this endpoint to your backend: GET /tasks/{id}/card
-      const resp = await fetch(`/tasks/${taskId}/card`, {
+      // You'll need to add this endpoint to your backend: GET /api/tasks/{id}/card
+      const resp = await fetch(`/api/tasks/${taskId}/card`, {
         headers: { "X-Requested-With": "XMLHttpRequest" },
       });
 

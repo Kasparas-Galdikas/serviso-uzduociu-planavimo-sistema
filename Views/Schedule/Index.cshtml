@@ -1,5 +1,5 @@
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
-@using ServiceTaskPlanningSystem.Services.Schedule
+@using ServiceTaskPlanningSystem.Services.Scheduling
 @{
     ViewData["Title"] = "Tvarkarastis";
     var issues = Model.Issues ?? new List<ServiceTaskPlanningSystem.Models.Planning.IssueItem>();
@@ -53,9 +53,9 @@
             </div>
         </div>
         <div class="d-flex gap-2">
-            <button type="button" class="btn btn-danger btn-sm" id="discardPlanBtn" data-redirect="@Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = currentDate.ToString("yyyy-MM-dd") })">Atsaukti</button>
+            <button type="button" class="btn btn-danger btn-sm" id="discardPlanBtn" data-redirect="@Url.RouteUrl("ScheduleView", new { view = Model.ViewMode, date = currentDate.ToString("yyyy-MM-dd") })">Atsaukti</button>
             <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createTaskModal">Grizti</button>
-            <button type="button" class="btn btn-primary btn-sm" id="publishPlanBtn" data-redirect="@Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = currentDate.ToString("yyyy-MM-dd") })">Patvirtinti</button>
+            <button type="button" class="btn btn-primary btn-sm" id="publishPlanBtn" data-redirect="@Url.RouteUrl("ScheduleView", new { view = Model.ViewMode, date = currentDate.ToString("yyyy-MM-dd") })">Patvirtinti</button>
         </div>
     </div>
 }
@@ -133,9 +133,9 @@
                 discardBtn.setAttribute('aria-busy', 'true');
                 const logger = window.scheduleLogger;
                 try {
-                    const resp = await (logger?.fetchWithTrace('/Plans/discard', {
+                    const resp = await (logger?.fetchWithTrace('/api/plans/discard', {
                         method: 'POST'
-                    }, { event: 'ui.plan.discard' }) || fetch('/Plans/discard', {
+                    }, { event: 'ui.plan.discard' }) || fetch('/api/plans/discard', {
                         method: 'POST',
                         headers: { 'X-Requested-With': 'XMLHttpRequest' }
                     }));
@@ -162,9 +162,9 @@
                 publishBtn.setAttribute('aria-busy', 'true');
                 const logger = window.scheduleLogger;
                 try {
-                    const resp = await (logger?.fetchWithTrace('/Plans/publish', {
+                    const resp = await (logger?.fetchWithTrace('/api/plans/publish', {
                         method: 'POST'
-                    }, { event: 'ui.plan.publish' }) || fetch('/Plans/publish', {
+                    }, { event: 'ui.plan.publish' }) || fetch('/api/plans/publish', {
                         method: 'POST',
                         headers: { 'X-Requested-With': 'XMLHttpRequest' }
                     }));

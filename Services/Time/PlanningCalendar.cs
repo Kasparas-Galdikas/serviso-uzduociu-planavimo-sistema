@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 
-namespace ServiceTaskPlanningSystem.Services.Planning
+namespace ServiceTaskPlanningSystem.Services.Time
 {
     public class PlanningCalendar : IPlanningCalendar
     {

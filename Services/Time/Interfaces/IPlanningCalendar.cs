@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace ServiceTaskPlanningSystem.Services.Planning
+namespace ServiceTaskPlanningSystem.Services.Time
 {
     public interface IPlanningCalendar
     {

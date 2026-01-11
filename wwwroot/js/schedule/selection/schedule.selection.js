@@ -467,11 +467,11 @@
     try {
       const resp =
         (await logger?.fetchWithTrace?.(
-          "/tasks",
+          "/api/tasks",
           { method: "POST", headers: { "Content-Type": "application/json" }, body },
           { event: "ui.task.create", techId: formData.technicianId, date: formData.targetDate },
         )) ||
-        (await fetch("/tasks", {
+        (await fetch("/api/tasks", {
           method: "POST",
           headers: { "X-Requested-With": "XMLHttpRequest", "Content-Type": "application/json" },
           body,

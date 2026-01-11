@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 
-namespace ServiceTaskPlanningSystem.Controllers
+namespace ServiceTaskPlanningSystem.Controllers.UI
 {
     public class AuthenticationController : Controller
     {
@@ -44,7 +44,7 @@ namespace ServiceTaskPlanningSystem.Controllers
                 });
             }
 
-            return RedirectToAction("Index", "Schedule", new { view = string.IsNullOrWhiteSpace(view) ? "week" : view, role = normalizedRole });
+            return RedirectToRoute("ScheduleView", new { view = string.IsNullOrWhiteSpace(view) ? "week" : view, role = normalizedRole });
         }
 
         [HttpGet]

@@ -1,4 +1,4 @@
-namespace ServiceTaskPlanningSystem.Services.Schedule
+namespace ServiceTaskPlanningSystem.Services.Scheduling
 {
     public static class ScheduleGrid
     {

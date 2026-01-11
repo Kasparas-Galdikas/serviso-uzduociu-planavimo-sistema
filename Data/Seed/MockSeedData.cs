@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using ServiceTaskPlanningSystem.Models.Planning;
-using ServiceTaskPlanningSystem.Services.Schedule;
+using ServiceTaskPlanningSystem.Services.Scheduling;
 
 namespace ServiceTaskPlanningSystem.Data.Seed
 {

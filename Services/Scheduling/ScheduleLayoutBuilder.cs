@@ -5,7 +5,7 @@ using System.Linq;
 using System.Net;
 using ServiceTaskPlanningSystem.Models.Planning;
 
-namespace ServiceTaskPlanningSystem.Services.Schedule
+namespace ServiceTaskPlanningSystem.Services.Scheduling
 {
     public interface IScheduleLayoutBuilder
     {

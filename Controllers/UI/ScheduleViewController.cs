@@ -1,20 +1,21 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
 using ServiceTaskPlanningSystem.Models.Planning;
-using ServiceTaskPlanningSystem.Services.Plans;
-using ServiceTaskPlanningSystem.Services.Schedule;
+using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.Scheduling;
 using Microsoft.Extensions.Logging;
 
-namespace ServiceTaskPlanningSystem.Controllers
+namespace ServiceTaskPlanningSystem.Controllers.UI
 {
-    public class ScheduleController : Controller
+    [Route("Schedule")]
+    public class ScheduleViewController : Controller
     {
         private readonly IScheduleProvider _scheduleProvider;
         private readonly IScheduleLayoutBuilder _layoutBuilder;
         private readonly IPlanService _planService;
-        private readonly ILogger<ScheduleController> _logger;
+        private readonly ILogger<ScheduleViewController> _logger;
 
-        public ScheduleController(IScheduleProvider scheduleProvider, IScheduleLayoutBuilder layoutBuilder, IPlanService planService, ILogger<ScheduleController> logger)
+        public ScheduleViewController(IScheduleProvider scheduleProvider, IScheduleLayoutBuilder layoutBuilder, IPlanService planService, ILogger<ScheduleViewController> logger)
         {
             _scheduleProvider = scheduleProvider;
             _layoutBuilder = layoutBuilder;
@@ -22,7 +23,8 @@ namespace ServiceTaskPlanningSystem.Controllers
             _logger = logger;
         }
 
-        [HttpGet]
+        [HttpGet("", Name = "ScheduleView")]
+        [HttpGet("Index")]
         public async Task<IActionResult> Index(string view = "day", string? date = null, string? location = null, string? status = null)
         {
             var activePlan = await _planService.GetActivePlanAsync();
@@ -59,10 +61,10 @@ namespace ServiceTaskPlanningSystem.Controllers
                 draftPlan?.PeriodStart,
                 draftPlan?.PeriodEnd,
                 draftPlan?.Status.ToString());
-            return View(vm);
+            return View("~/Views/Schedule/Index.cshtml", vm);
         }
 
-        [HttpGet]
+        [HttpGet("Table", Name = "ScheduleTable")]
         public async Task<IActionResult> Table(string view = "day", string? date = null, string? location = null, string? status = null)
         {
             var activePlan = await _planService.GetActivePlanAsync();

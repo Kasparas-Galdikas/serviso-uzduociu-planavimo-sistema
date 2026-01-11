@@ -2,9 +2,9 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using ServiceTaskPlanningSystem.Data;
-using ServiceTaskPlanningSystem.Services.Planning;
+using ServiceTaskPlanningSystem.Services.Time;
 
-namespace ServiceTaskPlanningSystem.Services.Plans
+namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
     public interface IPlanService
     {

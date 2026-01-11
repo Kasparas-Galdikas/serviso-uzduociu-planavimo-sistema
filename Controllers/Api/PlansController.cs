@@ -2,15 +2,13 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using ServiceTaskPlanningSystem.Services.Plans;
-using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.PlanManagement;
 using Microsoft.Extensions.Logging;
-using ServiceTaskPlanningSystem.Services.Evaluation;
 
-namespace ServiceTaskPlanningSystem.Controllers
+namespace ServiceTaskPlanningSystem.Controllers.Api
 {
     [ApiController]
-    [Route("[controller]")]
+    [Route("api/[controller]")]
     public class PlansController : ControllerBase
     {
         private readonly IPlanService _planService;
