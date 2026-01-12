@@ -52,6 +52,46 @@
     return await resp.json();
   };
 
+  const populateTechnicianDropdown = async (modalEl, selectedTechnicianId) => {
+    const dropdown = modalEl.querySelector("#taskDetailAssignee");
+    if (!dropdown) return;
+
+    try {
+      const resp = await fetch("/api/technicians", {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+
+      if (!resp.ok) {
+        console.error("Failed to load technicians");
+        return;
+      }
+
+      const technicians = await resp.json();
+
+      // Clear existing options
+      dropdown.innerHTML = "";
+
+      // Add placeholder option
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Pasirinkite darbuotoją...";
+      dropdown.appendChild(placeholder);
+
+      // Add technician options
+      technicians.forEach((tech) => {
+        const option = document.createElement("option");
+        option.value = tech.id;
+        option.textContent = tech.region ? `${tech.name} (${tech.region})` : tech.name;
+        if (tech.id === selectedTechnicianId) {
+          option.selected = true;
+        }
+        dropdown.appendChild(option);
+      });
+    } catch (err) {
+      console.error("Error loading technicians:", err);
+    }
+  };
+
   const populateTaskModal = (modalEl, data, editable) => {
     const setVal = (selector, value) => {
       const el = modalEl.querySelector(selector);
@@ -64,15 +104,19 @@
     setVal("#taskDetailEnd", data.endAt ? data.endAt.substring(0, 16) : "");
     setVal("#taskDetailPriority", data.priority);
     setVal("#taskDetailStatus", data.status);
+    setVal("#taskDetailTechnicianComment", data.technicianComment);
+
+    // Populate technician dropdown for managers
+    populateTechnicianDropdown(modalEl, data.technicianId);
 
     // Set to UPDATE mode
     modalEl.dataset.mode = "update";
     modalEl.dataset.taskId = data.id;
     modalEl.dataset.editable = editable ? "true" : "false";
+    modalEl.dataset.technicianId = data.technicianId;
     // Store version from response for optimistic concurrency control
     if (data.version != null) modalEl.dataset.version = String(data.version);
     // Clear create-mode data
-    delete modalEl.dataset.technicianId;
     delete modalEl.dataset.targetDate;
     delete modalEl.dataset.startMinutes;
     delete modalEl.dataset.endMinutes;
@@ -81,14 +125,8 @@
     modalEl.querySelector("#taskDetailLabel").textContent = "Užduoties informacija";
     modalEl.querySelector("#taskDetailCode").textContent = `Kodas: #${data.id}`;
 
-    const inputs = modalEl.querySelectorAll("input, select, textarea");
-    inputs.forEach((el) => {
-      if (editable) {
-        el.removeAttribute("disabled");
-      } else {
-        el.setAttribute("disabled", "disabled");
-      }
-    });
+    // Apply role-based field restrictions
+    applyFieldRestrictions(modalEl, data.technicianId, editable);
 
     const saveBtn = modalEl.querySelector("#taskDetailSave");
     if (saveBtn) {
@@ -97,6 +135,97 @@
       saveBtn.onclick = async () => {
         await saveTask(modalEl);
       };
+    }
+  };
+
+  const applyFieldRestrictions = (modalEl, taskTechnicianId, editable) => {
+    const tables = document.getElementById("scheduleTables");
+    const viewModel = window.scheduleViewModel || {};
+    const viewModelManagerFlag =
+      typeof viewModel.isManager === "string"
+        ? viewModel.isManager === "true"
+        : !!viewModel.isManager;
+    const dataAttrManagerFlag = tables?.dataset?.isManager === "true";
+    const isManager = viewModelManagerFlag || dataAttrManagerFlag;
+    const currentUserId = viewModel.currentUserId;
+
+    const isTechnician = !isManager;
+    const isOwnTask =
+      currentUserId != null &&
+      taskTechnicianId != null &&
+      String(taskTechnicianId) === String(currentUserId);
+
+    // Toggle readonly notice for clarity (time/plan restrictions)
+    const readonlyNote = modalEl.querySelector("#taskDetailReadonlyNote");
+    if (readonlyNote) {
+      if (!editable) {
+        readonlyNote.classList.remove("d-none");
+        readonlyNote.textContent = "Užduoties redaguoti nebegalima (plano / laiko apribojimas).";
+      } else {
+        readonlyNote.classList.add("d-none");
+      }
+    }
+
+    // Debug: Log to browser console
+    console.log("Field restrictions:", {
+      isManager,
+      isTechnician,
+      currentUserId,
+      taskTechnicianId,
+      isOwnTask,
+      editable
+    });
+
+    if (isTechnician) {
+      // Technician: First disable ALL inputs
+      const allInputs = modalEl.querySelectorAll("input, select, textarea");
+      allInputs.forEach((el) => {
+        el.setAttribute("disabled", "disabled");
+        el.classList.add("bg-light");
+      });
+
+      // Enable technician fields ONLY if it's their task and editable
+      const canEdit = isOwnTask && editable;
+      const statusField = modalEl.querySelector("#taskDetailStatus");
+      const commentField = modalEl.querySelector("#taskDetailTechnicianComment");
+
+      if (canEdit) {
+        if (statusField) {
+          statusField.removeAttribute("disabled");
+          statusField.classList.remove("bg-light");
+        }
+        if (commentField) {
+          commentField.removeAttribute("disabled");
+          commentField.classList.remove("bg-light");
+        }
+      }
+
+      // Update save button state
+      const saveBtn = modalEl.querySelector("#taskDetailSave");
+      if (saveBtn) {
+        if (!isOwnTask) {
+          saveBtn.setAttribute("disabled", "disabled");
+          saveBtn.title = "Galite redaguoti tik savo užduotis";
+        } else if (!editable) {
+          saveBtn.setAttribute("disabled", "disabled");
+          saveBtn.title = "Užduotis nebegali būti redaguojama";
+        } else {
+          saveBtn.removeAttribute("disabled");
+          saveBtn.title = "";
+        }
+      }
+
+    } else {
+      // Manager: Enable ALL fields if editable
+      const inputs = modalEl.querySelectorAll("input, select, textarea");
+      inputs.forEach((el) => {
+        if (editable) {
+          el.removeAttribute("disabled");
+          el.classList.remove("bg-light");
+        } else {
+          el.setAttribute("disabled", "disabled");
+        }
+      });
     }
   };
 
@@ -145,9 +274,9 @@
     try {
       let result;
 
-      if (mode === "create") {
-        // CREATE MODE - call submitCreateTask from selection module
-        const technicianId = parseInt(modalEl.dataset.technicianId);
+    if (mode === "create") {
+      // CREATE MODE - call submitCreateTask from selection module
+      const technicianId = parseInt(modalEl.dataset.technicianId);
         const targetDate = modalEl.dataset.targetDate;
         const startMinutes = parseInt(modalEl.dataset.startMinutes);
         const endMinutes = parseInt(modalEl.dataset.endMinutes);
@@ -177,15 +306,23 @@
           const bsModal = window.bootstrap?.Offcanvas?.getInstance?.(modalEl);
           bsModal?.hide?.();
         }
-      } else {
-        // UPDATE MODE - existing PATCH logic
-        const version = modalEl.dataset.version || 0;
+    } else {
+      // UPDATE MODE - Route to correct endpoint based on role
+      const tables = document.getElementById("scheduleTables");
+      const isManager = tables?.dataset?.isManager === "true";
+      const version = modalEl.dataset.version || 0;
+      const timezoneOffset = -new Date().getTimezoneOffset();
+      const selectedTechVal = modalEl.querySelector("#taskDetailAssignee")?.value;
+      const technicianId = selectedTechVal
+        ? parseInt(selectedTechVal, 10)
+        : parseInt(modalEl.dataset.technicianId || "0", 10);
 
-        // Capture browser timezone offset (in minutes)
-        const timezoneOffset = -new Date().getTimezoneOffset();
+        let endpoint, requestBody;
 
-        // Build request using UpdateTaskRequestDto schema
-        const requestBody = JSON.stringify({
+      if (isManager) {
+        // Manager: Use full update endpoint with all fields
+        endpoint = `/api/tasks/${taskId}`;
+        requestBody = JSON.stringify({
           title,
           location,
           startAt,
@@ -194,27 +331,38 @@
           status: parseInt(status) || 0,
           version: parseInt(version) || 0,
           timezoneOffsetMinutes: timezoneOffset,
-          // Additional fields
+          technicianId: technicianId || 0,
           shift,
           taskType,
           skillLevel,
           objectName,
           objectType,
           instructions,
-          safetyRequirements,
-        });
+            safetyRequirements,
+            technicianComment: modalEl.querySelector("#taskDetailTechnicianComment")?.value || null,
+          });
+        } else {
+          // Technician: Use limited update endpoint with only Status and Comment
+          endpoint = `/api/tasks/${taskId}/technician-update`;
+          requestBody = JSON.stringify({
+            status: parseInt(status) || 0,
+            comment: modalEl.querySelector("#taskDetailTechnicianComment")?.value || "",
+            version: parseInt(version) || 0,
+            timezoneOffsetMinutes: timezoneOffset,
+          });
+        }
 
         const resp =
           (await logger?.fetchWithTrace(
-            `/api/tasks/${taskId}`,
+            endpoint,
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: requestBody,
             },
-            { event: "ui.task.save", taskId },
+            { event: "ui.task.save", taskId, role: isManager ? "manager" : "technician" },
           )) ||
-          (await fetch(`/api/tasks/${taskId}`, {
+          (await fetch(endpoint, {
             method: "PATCH",
             headers: {
               "X-Requested-With": "XMLHttpRequest",
@@ -224,7 +372,8 @@
           }));
 
         if (resp.status === 409 || resp.status === 403) {
-          alert("Planas pasikeite. Uzduoties redaguoti negalima.");
+          const errorData = await resp.json().catch(() => ({}));
+          alert(errorData.message || "Planas pasikeite. Uzduoties redaguoti negalima.");
         } else if (!resp.ok) {
           throw new Error("Nepavyko issaugoti uzduoties");
         } else {

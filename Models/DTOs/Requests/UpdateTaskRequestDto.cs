@@ -17,6 +17,10 @@ public class UpdateTaskRequestDto
     [StringLength(200, ErrorMessage = "Location cannot exceed 200 characters.")]
     public string Location { get; set; } = string.Empty;
 
+    [Required(ErrorMessage = "Technician is required.")]
+    [Range(1, long.MaxValue, ErrorMessage = "Technician must be a valid id.")]
+    public long TechnicianId { get; set; }
+
     [Required(ErrorMessage = "Start time is required.")]
     public DateTime StartAt { get; set; }
 
@@ -65,4 +69,7 @@ public class UpdateTaskRequestDto
 
     [StringLength(100, ErrorMessage = "Safety requirements cannot exceed 100 characters.")]
     public string? SafetyRequirements { get; set; }
+
+    [StringLength(2000, ErrorMessage = "Technician comment cannot exceed 2000 characters.")]
+    public string? TechnicianComment { get; set; }
 }

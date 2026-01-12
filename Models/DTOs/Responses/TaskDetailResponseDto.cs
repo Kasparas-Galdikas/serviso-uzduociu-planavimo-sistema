@@ -39,6 +39,11 @@ public class TaskDetailResponseDto
     public ScheduleTaskStatus Status { get; set; }
 
     /// <summary>
+    /// Technician's comment about the task (editable by technician).
+    /// </summary>
+    public string TechnicianComment { get; set; } = string.Empty;
+
+    /// <summary>
     /// Status of the parent plan (Active, Draft, etc.)
     /// </summary>
     public string PlanStatus { get; set; } = string.Empty;

@@ -23,7 +23,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             return Ok(new
             {
                 role = user.Role.ToString().ToLowerInvariant(),
-                userId = user.UserId
+                userId = user.UserId,
+                technicianId = user.TechnicianId
             });
         }
     }

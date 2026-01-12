@@ -40,6 +40,8 @@ namespace ServiceTaskPlanningSystem.Data
             var entity = modelBuilder.Entity<UserEntity>();
             entity.ToTable("users");
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name)
+                .IsRequired();
             entity.Property(e => e.Email)
                 .IsRequired()
                 .HasColumnType("citext");
@@ -81,8 +83,6 @@ namespace ServiceTaskPlanningSystem.Data
                 table.HasCheckConstraint("ck_technicians_travel_switch_non_negative", "travel_switch_limit >= 0");
             });
             entity.HasKey(e => e.Id);
-            entity.Property(e => e.Name)
-                .IsRequired();
             entity.Property(e => e.DailyLimit)
                 .HasColumnType("numeric(5,2)")
                 .HasDefaultValue(8)

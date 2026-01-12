@@ -43,6 +43,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             var timezoneOffset = GetBrowserTimezoneOffset();
             var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
+            vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
             if (!vm.IsManager && vm.Tasks != null)
             {
                 foreach (var t in vm.Tasks)
@@ -83,6 +84,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             var timezoneOffset = GetBrowserTimezoneOffset();
             var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
+            vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
             if (!vm.IsManager && vm.Tasks != null)
             {
                 foreach (var t in vm.Tasks)

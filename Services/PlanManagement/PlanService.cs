@@ -370,7 +370,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             return new TaskCreateResult(TaskCreateError.None, Task: task);
         }
 
-        public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, long technicianId, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
                 .Include(t => t.Plan)
@@ -385,6 +385,22 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             if (!canEdit)
             {
                 throw new InvalidOperationException("Neturite teisiu redaguoti sios uzduoties.");
+            }
+
+            if (technicianId != task.TechnicianId)
+            {
+                var targetTech = await _db.Technicians
+                    .AsNoTracking()
+                    .Select(t => new { t.Id, t.RegionId })
+                    .FirstOrDefaultAsync(t => t.Id == technicianId, cancellationToken);
+
+                if (targetTech == null)
+                {
+                    throw new InvalidOperationException("Technikas nerastas.");
+                }
+
+                task.TechnicianId = targetTech.Id;
+                task.RegionId = targetTech.RegionId;
             }
 
             applyChanges(task);

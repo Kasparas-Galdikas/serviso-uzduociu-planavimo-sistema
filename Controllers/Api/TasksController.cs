@@ -130,6 +130,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 EndAt = localEndAt,
                 Priority = task.Priority,
                 Status = task.Status,
+                TechnicianComment = task.TechnicianComment,
                 PlanStatus = task.Plan?.Status.ToString() ?? string.Empty,
                 IsEditable = isEditable,
                 TimezoneOffsetMinutes = timezoneOffset
@@ -167,7 +168,11 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     task.EndAt = utcEndAt;
                     task.Priority = dto.Priority;
                     task.Status = dto.Status;
-                }, user, dto.TimezoneOffsetMinutes, cancellationToken);
+                    if (dto.TechnicianComment != null)
+                    {
+                        task.TechnicianComment = dto.TechnicianComment;
+                    }
+                }, dto.TechnicianId, user, dto.TimezoneOffsetMinutes, cancellationToken);
 
                 var version = await _db.Tasks
                     .AsNoTracking()
@@ -256,6 +261,98 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 TaskMoveError.Stale => Conflict(new { message = result.Message, version = result.CurrentVersion }),
                 _ => StatusCode(500, new { message = result.Message ?? "Unknown error" })
             };
+        }
+
+        [HttpPatch("{id:long}/technician-update")]
+        [Authorize] // Allow any authenticated user (not just managers)
+        public async Task<IActionResult> TechnicianUpdateTask(long id, [FromBody] TechnicianUpdateTaskRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                return ValidationProblem(ModelState);
+            }
+
+            var user = _userContextResolver.GetCurrentUser();
+
+            // Load task with plan for permission checks
+            var task = await _db.Tasks
+                .Include(t => t.Plan)
+                .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+
+            if (task == null)
+            {
+                return NotFound(new { message = "Užduotis nerasta." });
+            }
+
+            // SECURITY: Technicians can only edit their OWN tasks
+            if (user.IsTechnician && (!user.TechnicianId.HasValue || task.TechnicianId != user.TechnicianId.Value))
+            {
+                _logger.LogWarning(
+                    "api.task.technician-update.forbidden userId={UserId} taskId={TaskId} ownerId={OwnerId}",
+                    user.UserId, id, task.TechnicianId);
+                return StatusCode(403, new { message = "Galite redaguoti tik savo užduotis." });
+            }
+
+            // Check if task is still editable (time-based permission)
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, dto.TimezoneOffsetMinutes);
+            if (!canEdit)
+            {
+                _logger.LogWarning(
+                    "api.task.technician-update.not-editable userId={UserId} taskId={TaskId}",
+                    user.UserId, id);
+                return StatusCode(403, new { message = "Ši užduotis nebegali būti redaguojama." });
+            }
+
+            // Optimistic concurrency check
+            var currentVersion = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.Id == id)
+                .Select(t => EF.Property<uint>(t, "xmin"))
+                .FirstAsync(cancellationToken);
+
+            if (currentVersion != dto.Version)
+            {
+                _logger.LogWarning(
+                    "api.task.technician-update.version-conflict taskId={Id} expected={Expected} actual={Actual}",
+                    id, dto.Version, currentVersion);
+                return Conflict(new
+                {
+                    message = "Užduotis buvo pakeista kito vartotojo. Prašome atnaujinti puslapį.",
+                    version = currentVersion
+                });
+            }
+
+            // Update ONLY allowed fields (Status and TechnicianComment)
+            task.Status = dto.Status;
+            task.TechnicianComment = dto.Comment;
+
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+
+                var newVersion = await _db.Tasks
+                    .AsNoTracking()
+                    .Where(t => t.Id == id)
+                    .Select(t => EF.Property<uint>(t, "xmin"))
+                    .FirstAsync(cancellationToken);
+
+                _logger.LogInformation(
+                    "api.task.technician-update.success userId={UserId} taskId={TaskId} status={Status}",
+                    user.UserId, id, dto.Status);
+
+                return Ok(new TaskCreatedOrUpdatedResponseDto
+                {
+                    Id = id,
+                    Version = newVersion
+                });
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                _logger.LogWarning(
+                    "api.task.technician-update.concurrency taskId={Id}",
+                    id);
+                return Conflict(new { message = "Užduotis buvo pakeista kito vartotojo. Prašome atnaujinti puslapį." });
+            }
         }
 
         private static bool TryParseDate(string value, out DateTime parsed)

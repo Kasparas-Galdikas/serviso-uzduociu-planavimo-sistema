@@ -95,6 +95,13 @@
 
 
 @section Scripts {
+    <script>
+        // Make user context available globally for schedule.tasks.js
+        window.scheduleViewModel = {
+            isManager: @Model.IsManager.ToString().ToLowerInvariant(),
+            currentUserId: @(Model.CurrentUserId?.ToString() ?? "null")
+        };
+    </script>
     <script src="~/js/schedule/infra/schedule.logger.js" asp-append-version="true"></script>
     <script src="~/js/schedule/filters/planning-dates.js" asp-append-version="true"></script>
     <script src="~/js/schedule/state/schedule.state.js" asp-append-version="true"></script>

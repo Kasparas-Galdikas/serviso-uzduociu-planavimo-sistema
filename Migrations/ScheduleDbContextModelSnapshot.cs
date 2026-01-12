@@ -177,6 +177,11 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnName("status")
                         .HasDefaultValueSql("'planned'::task_status");
 
+                    b.Property<string>("TechnicianComment")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("technician_comment");
+
                     b.Property<long>("TechnicianId")
                         .HasColumnType("bigint")
                         .HasColumnName("technician_id");
@@ -300,11 +305,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDefaultValue(8m)
                         .HasColumnName("daily_limit");
 
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name");
-
                     b.Property<long?>("RegionId")
                         .HasColumnType("bigint")
                         .HasColumnName("region_id");
@@ -367,6 +367,11 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .IsRequired()
                         .HasColumnType("citext")
                         .HasColumnName("email");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
 
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()

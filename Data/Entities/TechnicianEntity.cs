@@ -7,7 +7,6 @@ namespace ServiceTaskPlanningSystem.Data
     {
         public long Id { get; set; }
         public long? UserId { get; set; }
-        public string Name { get; set; } = string.Empty;
         public long? RegionId { get; set; }
         public decimal DailyLimit { get; set; }
         public decimal WeeklyLimit { get; set; }

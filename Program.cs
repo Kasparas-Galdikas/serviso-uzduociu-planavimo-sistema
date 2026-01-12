@@ -43,6 +43,11 @@ builder.Services.AddScoped<ITaskPermissionService, TaskPermissionService>();
 builder.Services.AddScoped<IScheduleTimeService, ScheduleTimeService>();
 builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
 builder.Services.AddScoped<IUserContextResolver, HttpUserContextResolver>();
+
+// Register strategy pattern implementations for plan-status-specific edit policies
+builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Interfaces.IPlanStatusEditPolicy, ServiceTaskPlanningSystem.Services.Authorization.Policies.DraftPlanEditPolicy>();
+builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Interfaces.IPlanStatusEditPolicy, ServiceTaskPlanningSystem.Services.Authorization.Policies.ActivePlanEditPolicy>();
+builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Interfaces.IPlanStatusEditPolicy, ServiceTaskPlanningSystem.Services.Authorization.Policies.SupersededPlanEditPolicy>();
 builder.Services.AddTransient<DatabaseSeeder>();
 builder.Services.AddSingleton<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 builder.Services.AddHostedService<EvaluationRepairService>();
@@ -57,9 +62,11 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("ManagerOnly", policy => policy.RequireRole("manager"));
-    options.AddPolicy("CanPublishPlan", policy => policy.RequireRole("manager"));
+    // Single policy for all manager-only operations
+    // Replaces: ManagerOnly, CanPublishPlan, CanEditTask (all were identical)
+    options.AddPolicy("RequireManager", policy => policy.RequireRole("manager"));
     options.AddPolicy("CanEditTask", policy => policy.RequireRole("manager"));
+    options.AddPolicy("CanPublishPlan", policy => policy.RequireRole("manager"));
 });
 
 var app = builder.Build();

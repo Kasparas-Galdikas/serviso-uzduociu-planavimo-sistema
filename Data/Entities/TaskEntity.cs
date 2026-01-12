@@ -15,6 +15,7 @@ namespace ServiceTaskPlanningSystem.Data
         public TaskPriority Priority { get; set; }
         public ScheduleTaskStatus Status { get; set; }
         public DateTime CreatedAt { get; set; }
+        public string TechnicianComment { get; set; } = string.Empty; // Technician can update this field
 
         public PlanEntity? Plan { get; set; }
         public TechnicianEntity Technician { get; set; } = default!;

@@ -49,10 +49,13 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             var technicians = await _db.Technicians
                 .AsNoTracking()
                 .Include(t => t.Region)
+                .Include(t => t.User)
                 .Select(t => new Technician
                 {
                     Id = (int)t.Id,
-                    Name = t.Name,
+                    Name = t.User != null
+                        ? (!string.IsNullOrWhiteSpace(t.User.Name) ? t.User.Name : t.User.Email)
+                        : string.Empty,
                     Location = t.Region != null ? t.Region.Name : string.Empty,
                     RulesSummary = t.RulesSummary ?? string.Empty,
                     WeeklyHours = 0,

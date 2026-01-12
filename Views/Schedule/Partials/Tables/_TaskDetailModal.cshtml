@@ -217,8 +217,44 @@
             <hr>
         </section>
 
+        <!-- DARBUOTOJO PASTABOS (TECHNICIAN SECTION) -->
+        <section class="mb-4 task-section" id="technicianSection">
+            <div class="task-section-header"
+                 role="button"
+                 tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecTechnician">
+
+                <h6 class="text-uppercase small mb-0 task-section-title"
+                    data-task-section-title="true">
+                    Darbuotojo pastabos
+                </h6>
+
+                <button type="button"
+                        class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecTechnician">
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+            </div>
+
+            <div class="collapse show" id="taskSecTechnician">
+                <div class="row g-3 mt-1">
+                    <div class="col-12">
+                        <label class="form-label small">Komentaras</label>
+                        <textarea class="form-control"
+                                  rows="3"
+                                  id="taskDetailTechnicianComment"
+                                  placeholder="Darbuotojo pastabos apie užduoties vykdymą..."></textarea>
+                        <small class="form-text text-muted">Darbuotojai gali redaguoti tik šį lauką ir būseną</small>
+                    </div>
+                </div>
+            </div>
+            <hr>
+        </section>
+
         <!-- INSTRUKCIJOS IR SAUGA -->
-        <section class="mb-4 task-section">
+        <section class="mb-4 task-section" id="managerSection">
             <div class="task-section-header"
                  role="button"
                  tabindex="0"

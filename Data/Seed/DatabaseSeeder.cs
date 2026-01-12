@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Services.Scheduling;
+using System.Text.RegularExpressions;
 
 namespace ServiceTaskPlanningSystem.Data.Seed
 {
@@ -29,7 +30,12 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
             await using var transaction = await _db.Database.BeginTransactionAsync();
 
+            // Seed users first
+            await SeedUsersAsync();
+
             var mockTechnicians = MockScheduleData.SeedTechnicians();
+            // Ensure each mock technician has a user with matching name/email
+            var technicianUsers = await EnsureTechnicianUsersAsync(mockTechnicians);
 
             // Regions (skip existing)
             var existingRegions = await _db.Regions.ToListAsync();
@@ -61,26 +67,37 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             }
 
             // Technicians (skip existing by name)
-            var existingTechs = await _db.Technicians.ToListAsync();
-            var technicianLookup = existingTechs.ToDictionary(t => t.Name, StringComparer.OrdinalIgnoreCase);
+            var existingTechs = await _db.Technicians
+                .Include(t => t.User)
+                .ToListAsync();
+            var technicianLookup = existingTechs
+                .Where(t => !string.IsNullOrWhiteSpace(t.User?.Name))
+                .ToDictionary(t => t.User!.Name, StringComparer.OrdinalIgnoreCase);
             var technicianEntities = new List<TechnicianEntity>();
 
+            // Get the technician user to link to the first technician
+            var technicianUser = await _db.Users
+                .FirstOrDefaultAsync(u => u.Email == "technician@test.com");
+
+            var isFirstTechnician = true;
             foreach (var t in mockTechnicians)
             {
                 if (technicianLookup.ContainsKey(t.Name)) continue;
 
                 var techEntity = new TechnicianEntity
                 {
-                    Name = t.Name,
                     RegionId = regionLookup.TryGetValue(t.Location, out var region) ? region.Id : null,
                     DailyLimit = t.DailyLimit > 0 ? t.DailyLimit : 8,
                     WeeklyLimit = t.WeeklyLimit > 0 ? t.WeeklyLimit : 40,
                     TravelSwitchLimit = t.TravelSwitches,
                     RulesSummary = t.RulesSummary,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    // Link technician to a real user account seeded above
+                    UserId = technicianUsers.TryGetValue(t.Name, out var techUser) ? techUser.Id : (isFirstTechnician ? technicianUser?.Id : null)
                 };
                 technicianEntities.Add(techEntity);
                 technicianLookup[t.Name] = techEntity;
+                isFirstTechnician = false;
             }
 
             if (technicianEntities.Count > 0)
@@ -215,6 +232,81 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                 "low" => RiskLevel.Low,
                 _ => RiskLevel.Medium
             };
+        }
+
+        /// <summary>
+        /// Seeds test users: 1 manager and 1 technician
+        /// </summary>
+        private async Task SeedUsersAsync()
+        {
+            // Check if users already exist
+            if (await _db.Users.AnyAsync())
+            {
+                return;
+            }
+
+            var users = new List<UserEntity>
+            {
+                new UserEntity
+                {
+                    Name = "Manager Test",
+                    Email = "manager@test.com",
+                    Role = UserRole.Manager,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                },
+                new UserEntity
+                {
+                    Name = "Technician Test",
+                    Email = "technician@test.com",
+                    Role = UserRole.Technician,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                }
+            };
+
+            _db.Users.AddRange(users);
+            await _db.SaveChangesAsync();
+        }
+
+        private async Task<Dictionary<string, UserEntity>> EnsureTechnicianUsersAsync(IEnumerable<ServiceTaskPlanningSystem.Models.Planning.Technician> technicians)
+        {
+            var existingUsers = await _db.Users.ToListAsync();
+            var userByEmail = existingUsers.ToDictionary(u => u.Email, StringComparer.OrdinalIgnoreCase);
+            var result = new Dictionary<string, UserEntity>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var tech in technicians)
+            {
+                var emailLocalPart = Slugify(tech.Name);
+                var email = $"{emailLocalPart}@test.com";
+                if (!userByEmail.TryGetValue(email, out var user))
+                {
+                    user = new UserEntity
+                    {
+                        Name = tech.Name,
+                        Email = email,
+                        Role = UserRole.Technician,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    _db.Users.Add(user);
+                    userByEmail[email] = user;
+                }
+                result[tech.Name] = user;
+            }
+
+            await _db.SaveChangesAsync();
+            return result;
+        }
+
+        private static string Slugify(string name)
+        {
+            var normalized = name.ToLowerInvariant();
+            normalized = Regex.Replace(normalized, @"\s+", ".");
+            normalized = Regex.Replace(normalized, @"[^a-z0-9\.]+", string.Empty);
+            normalized = Regex.Replace(normalized, @"\.{2,}", ".");
+            normalized = normalized.Trim('.');
+            return string.IsNullOrWhiteSpace(normalized) ? "technician" : normalized;
         }
     }
 }

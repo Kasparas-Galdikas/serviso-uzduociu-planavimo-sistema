@@ -8,6 +8,7 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public DateTime WeekStart { get; set; }
         public DateTime SelectedDate { get; set; }
         public bool IsManager { get; set; }
+        public long? CurrentUserId { get; set; }
         public bool HasDraft { get; set; }
         public bool IsPlanningMode { get; set; }
         public long? CurrentPlanId { get; set; }
