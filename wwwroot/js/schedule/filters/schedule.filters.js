@@ -104,13 +104,11 @@
 
   const applyFromRoot = async (root, { button } = {}) => {
     const baseQuery = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
-    const currentRole = baseQuery.get("role") || "";
     const technicianId = baseQuery.get("technicianId") || "";
 
     const { view, date, location, status } = readFiltersFromUI(root);
     const query = new URLSearchParams();
     query.set("view", view);
-    if (currentRole) query.set("role", currentRole);
     if (date) query.set("date", date);
     if (location) query.set("location", location);
     if (status) query.set("status", status);

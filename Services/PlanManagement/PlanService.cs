@@ -10,6 +10,7 @@ using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Authorization;
+using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
@@ -55,7 +56,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             int endMinutes,
             PlanEntity? plan,
             ScheduleTaskStatus status,
-            string role,
+            UserContext user,
             int timezoneOffsetMinutes,
             bool requireEndAligned,
             CancellationToken cancellationToken)
@@ -112,7 +113,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 Status = status
             };
 
-            var canEdit = await _taskPermissionService.CanEditTaskAsync(permissionProbe, role, timezoneOffsetMinutes);
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(permissionProbe, user, timezoneOffsetMinutes);
             if (!canEdit)
             {
                 return (PlacementError.NotEditable, "Neturite teisiu atlikti sio veiksmo.", default, default, null);
@@ -264,7 +265,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
         }
 
-        public async Task<TaskCreateResult> CreateTaskAsync(int technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, string location, TaskPriority priority, ScheduleTaskStatus status, string role, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<TaskCreateResult> CreateTaskAsync(int technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, string location, TaskPriority priority, ScheduleTaskStatus status, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var taskDate = targetDate.Date;
 
@@ -332,7 +333,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 endMinutes: endMinutes,
                 plan: targetPlan,
                 status: status,
-                role: role,
+                user: user,
                 timezoneOffsetMinutes: timezoneOffsetMinutes,
                 requireEndAligned: true,
                 cancellationToken: cancellationToken);
@@ -369,7 +370,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             return new TaskCreateResult(TaskCreateError.None, Task: task);
         }
 
-        public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, string role, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
                 .Include(t => t.Plan)
@@ -380,7 +381,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 throw new InvalidOperationException($"Task {taskId} was not found.");
             }
 
-            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, role, timezoneOffsetMinutes);
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffsetMinutes);
             if (!canEdit)
             {
                 throw new InvalidOperationException("Neturite teisiu redaguoti sios uzduoties.");
@@ -395,7 +396,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
               return task;
           }
 
-        public async Task<TaskMoveResult> MoveTaskAsync(long taskId, int targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, string role, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<TaskMoveResult> MoveTaskAsync(long taskId, int targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
                 .Include(t => t.Plan)
@@ -430,7 +431,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 endMinutes: endMinutes,
                 plan: task.Plan,
                 status: task.Status,
-                role: role,
+                user: user,
                 timezoneOffsetMinutes: timezoneOffsetMinutes,
                 requireEndAligned: false,
                 cancellationToken: cancellationToken);

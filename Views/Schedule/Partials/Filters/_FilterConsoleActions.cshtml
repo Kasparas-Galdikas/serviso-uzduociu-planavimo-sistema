@@ -20,12 +20,7 @@
             data-edit-action data-bs-toggle="modal" data-bs-target="#createTaskModal" @(canEdit ? "" : "disabled")>
             <i class="bi bi-plus-lg"></i> Sukurti tvarkarasti
         </button>
-        <li class="nav-item ms-2 d-flex align-items-center">
-            <a class="btn btn-primary btn-sm" asp-area="" asp-controller="Task" asp-action="Create">
-                <i class="bi bi-plus-lg me-1"></i>
-                Užregistruoti užduotį
-            </a>
-        </li>
+     
         @if (hasTechnicianFilter && filteredTechnician != null)
         {
             <button class="btn btn-primary btn-sm d-flex align-items-center gap-1"

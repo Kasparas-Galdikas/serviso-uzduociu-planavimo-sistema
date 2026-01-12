@@ -8,6 +8,7 @@ using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Configuration;
 using ServiceTaskPlanningSystem.Middleware;
 using ServiceTaskPlanningSystem.Infrastructure.Logging;
+using Microsoft.AspNetCore.Authentication.Cookies;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,9 +41,26 @@ builder.Services.AddScoped<IEvaluationEngine, TaskEvaluationEngine>();
 builder.Services.AddScoped<IPlanningCalendar, PlanningCalendar>();
 builder.Services.AddScoped<ITaskPermissionService, TaskPermissionService>();
 builder.Services.AddScoped<IScheduleTimeService, ScheduleTimeService>();
+builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+builder.Services.AddScoped<IUserContextResolver, HttpUserContextResolver>();
 builder.Services.AddTransient<DatabaseSeeder>();
 builder.Services.AddSingleton<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 builder.Services.AddHostedService<EvaluationRepairService>();
+
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/Authentication/Index";
+        options.LogoutPath = "/Authentication/Logout";
+        options.SlidingExpiration = true;
+    });
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("ManagerOnly", policy => policy.RequireRole("manager"));
+    options.AddPolicy("CanPublishPlan", policy => policy.RequireRole("manager"));
+    options.AddPolicy("CanEditTask", policy => policy.RequireRole("manager"));
+});
 
 var app = builder.Build();
 
@@ -58,6 +76,7 @@ app.UseHttpsRedirection();
 app.UseMiddleware<TraceMiddleware>();
 app.UseRouting();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapStaticAssets();

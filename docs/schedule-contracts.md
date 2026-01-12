@@ -78,7 +78,7 @@ Events:
 
 - `[data-nav]` buttons inside `#scheduleTables`
   - Supported data attributes:
-    - `data-view`, `data-target-date`, `data-role`, `data-location`, `data-status`
+    - `data-view`, `data-target-date`, `data-location`, `data-status`
 
 ## Backend contracts
 

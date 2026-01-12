@@ -1,10 +1,13 @@
+using System.Collections.Generic;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ServiceTaskPlanningSystem.Controllers.UI
 {
     public class AuthenticationController : Controller
     {
-        private const string RoleCookieName = "stsps_role";
         private const string EmailCookieName = "stsps_email";
 
         [HttpGet]
@@ -25,16 +28,15 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
 
             var trimmedEmail = (email ?? string.Empty).Trim();
 
-            Response.Cookies.Append(RoleCookieName, normalizedRole, new CookieOptions
+            var claims = new List<Claim>
             {
-                Path = "/",
-                IsEssential = true,
-                SameSite = SameSiteMode.Lax,
-                HttpOnly = false,
-            });
+                new Claim(ClaimTypes.Name, string.IsNullOrWhiteSpace(trimmedEmail) ? "guest" : trimmedEmail),
+                new Claim(ClaimTypes.Role, normalizedRole)
+            };
 
             if (!string.IsNullOrWhiteSpace(trimmedEmail))
             {
+                claims.Add(new Claim(ClaimTypes.NameIdentifier, trimmedEmail));
                 Response.Cookies.Append(EmailCookieName, trimmedEmail, new CookieOptions
                 {
                     Path = "/",
@@ -44,14 +46,17 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
                 });
             }
 
-            return RedirectToRoute("ScheduleView", new { view = string.IsNullOrWhiteSpace(view) ? "week" : view, role = normalizedRole });
+            var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+            HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity)).GetAwaiter().GetResult();
+
+            return RedirectToRoute("ScheduleView", new { view = string.IsNullOrWhiteSpace(view) ? "week" : view });
         }
 
         [HttpGet]
         public IActionResult Logout()
         {
-            Response.Cookies.Delete(RoleCookieName, new CookieOptions { Path = "/" });
             Response.Cookies.Delete(EmailCookieName, new CookieOptions { Path = "/" });
+            HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme).GetAwaiter().GetResult();
             return RedirectToAction("Index");
         }
     }

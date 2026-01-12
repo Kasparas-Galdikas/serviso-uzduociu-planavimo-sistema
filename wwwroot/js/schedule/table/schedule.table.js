@@ -106,9 +106,6 @@
         state?.normalizeView?.(navBtn.dataset.view || baseQuery.get("view") || "day") || "day";
       query.set("view", navView);
 
-      const roleVal = navBtn.dataset.role || baseQuery.get("role") || "";
-      if (roleVal) query.set("role", roleVal);
-
       const targetDate = navBtn.dataset.targetDate || "";
       if (targetDate) query.set("date", targetDate);
 
@@ -151,9 +148,6 @@
       const view = baseQuery.get("view") || "day";
       query.set("view", view);
 
-      const roleVal = baseQuery.get("role") || "";
-      if (roleVal) query.set("role", roleVal);
-
       const date = baseQuery.get("date") || "";
       if (date) query.set("date", date);
 
@@ -175,9 +169,11 @@
       state?.setQuery?.(query, { replace: false });
       const success = await fetchAndRender(query, { button: clearBtn, updateUrl: true });
 
-      // If successful, hide the button immediately
+      // If successful, remove ALL instances of the clear button (modal + inline)
       if (success) {
-        clearBtn.remove();
+        document.querySelectorAll("[data-clear-technician-filter]").forEach((btn) => {
+          btn.remove();
+        });
       }
     });
   };

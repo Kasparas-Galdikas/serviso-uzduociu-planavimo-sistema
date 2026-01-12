@@ -10,10 +10,9 @@
 
     var selectedLocation = ViewContext.HttpContext.Request.Query["location"].ToString();
     var selectedStatus = ViewContext.HttpContext.Request.Query["status"].ToString();
-    var selectedRole = ViewContext.HttpContext.Request.Query["role"].ToString();
     var selectedTechnicianId = ViewContext.HttpContext.Request.Query["technicianId"].ToString();
-    var prevUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = prevDate.ToString("yyyy-MM-dd"), location = selectedLocation, status = selectedStatus, role = selectedRole, technicianId = selectedTechnicianId }) ?? "#";
-    var nextUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = nextDate.ToString("yyyy-MM-dd"), location = selectedLocation, status = selectedStatus, role = selectedRole, technicianId = selectedTechnicianId }) ?? "#";
+    var prevUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = prevDate.ToString("yyyy-MM-dd"), location = selectedLocation, status = selectedStatus, technicianId = selectedTechnicianId }) ?? "#";
+    var nextUrl = Url.Action("Index", "Schedule", new { view = Model.ViewMode, date = nextDate.ToString("yyyy-MM-dd"), location = selectedLocation, status = selectedStatus, technicianId = selectedTechnicianId }) ?? "#";
 }
 
 <div class="d-flex align-items-center mb-2 justify-content-between">
@@ -25,7 +24,6 @@
        data-target-date="@prevDate.ToString("yyyy-MM-dd")"
        data-location="@selectedLocation"
        data-status="@selectedStatus"
-       data-role="@selectedRole"
        data-technician-id="@selectedTechnicianId"
        aria-label="Ankstesnis @(isWeekly ? "savaite" : "diena")">
         < Ankstesnis
@@ -38,7 +36,6 @@
        data-target-date="@nextDate.ToString("yyyy-MM-dd")"
        data-location="@selectedLocation"
        data-status="@selectedStatus"
-       data-role="@selectedRole"
        data-technician-id="@selectedTechnicianId"
        aria-label="Kitas @(isWeekly ? "savaite" : "diena")">
         Kitas >

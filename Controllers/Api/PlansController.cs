@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -45,6 +46,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         }
 
         [HttpPost("draft")]
+        [Authorize(Policy = "CanPublishPlan")]
         public async Task<IActionResult> CreateDraft([FromBody] CreateDraftRequest? request, CancellationToken cancellationToken)
         {
             try
@@ -62,6 +64,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         }
 
         [HttpPost("publish")]
+        [Authorize(Policy = "CanPublishPlan")]
         public async Task<IActionResult> PublishDraft(CancellationToken cancellationToken)
         {
             try
@@ -79,6 +82,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         }
 
         [HttpPost("discard")]
+        [Authorize(Policy = "CanPublishPlan")]
         public async Task<IActionResult> DiscardDraft(CancellationToken cancellationToken)
         {
             await _planService.DiscardDraftAsync(cancellationToken);
@@ -88,6 +92,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         }
 
         [HttpPost("recalculate-evaluations")]
+        [Authorize(Policy = "CanPublishPlan")]
         public async Task<IActionResult> RecalculateEvaluations(CancellationToken cancellationToken)
         {
             var active = await _planService.GetActivePlanAsync(cancellationToken);

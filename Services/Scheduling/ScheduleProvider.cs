@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.Scheduling
@@ -33,7 +34,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             _logger = logger;
         }
 
-        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? status, long? technicianId, PlanEntity? activePlan, PlanEntity? draftPlan, string role, int timezoneOffsetMinutes)
+        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? status, long? technicianId, PlanEntity? activePlan, PlanEntity? draftPlan, UserContext user, int timezoneOffsetMinutes)
         {
             var selectedDate = DateResolver.ParseOrToday(date);
             var viewMode = NormalizeView(view);
@@ -123,7 +124,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 taskVersions.TryGetValue(t.Id, out var version);
                 var task = MapTask(t, technicians, planStatus, version, timezoneOffsetMinutes);
                 task.Source = source;
-                task.IsEditable = await _taskPermissionService.CanEditTaskAsync(t, role, timezoneOffsetMinutes);
+                task.IsEditable = await _taskPermissionService.CanEditTaskAsync(t, user, timezoneOffsetMinutes);
                 tasks.Add(task);
             }
 
@@ -167,7 +168,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             {
                 WeekStart = weekStart,
                 SelectedDate = selectedDate,
-                IsManager = true,
+                IsManager = user.IsManager,
                 ViewMode = viewMode,
                 SelectedTechnicianId = technicianId,
                 Technicians = technicians,

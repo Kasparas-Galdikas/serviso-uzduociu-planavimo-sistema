@@ -11,6 +11,7 @@ using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -23,17 +24,20 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         private readonly ILogger<TasksController> _logger;
         private readonly ITaskPermissionService _taskPermissionService;
         private readonly IScheduleTimeService _timeService;
+        private readonly IUserContextResolver _userContextResolver;
 
-        public TasksController(ScheduleDbContext db, IPlanService planService, ITaskPermissionService taskPermissionService, IScheduleTimeService timeService, ILogger<TasksController> logger)
+        public TasksController(ScheduleDbContext db, IPlanService planService, ITaskPermissionService taskPermissionService, IScheduleTimeService timeService, IUserContextResolver userContextResolver, ILogger<TasksController> logger)
         {
             _db = db;
             _planService = planService;
             _taskPermissionService = taskPermissionService;
             _timeService = timeService;
+            _userContextResolver = userContextResolver;
             _logger = logger;
         }
 
         [HttpPost]
+        [Authorize(Policy = "CanEditTask")]
         public async Task<IActionResult> CreateTask([FromBody] CreateTaskRequestDto dto, CancellationToken cancellationToken)
         {
             if (!ModelState.IsValid)
@@ -46,7 +50,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
             }
 
-            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
+            var user = _userContextResolver.GetCurrentUser();
             var result = await _planService.CreateTaskAsync(
                 dto.TechnicianId,
                 targetDate,
@@ -56,7 +60,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 dto.Location,
                 dto.Priority,
                 dto.Status,
-                role,
+                user,
                 dto.TimezoneOffsetMinutes,
                 cancellationToken);
 
@@ -107,8 +111,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 .FirstAsync(cancellationToken);
 
             var timezoneOffset = GetBrowserTimezoneOffset();
-            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
-            var isEditable = await _taskPermissionService.CanEditTaskAsync(task, role, timezoneOffset);
+            var user = _userContextResolver.GetCurrentUser();
+            var isEditable = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffset);
             
             // Convert UTC times from database to local time for frontend
             var localStartAt = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffset);
@@ -136,6 +140,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         }
 
         [HttpPatch("{id:long}")]
+        [Authorize(Policy = "CanEditTask")]
         public async Task<IActionResult> UpdateTask(long id, [FromBody] UpdateTaskRequestDto dto, CancellationToken cancellationToken)
         {
             if (!ModelState.IsValid)
@@ -153,7 +158,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     "api.task.update.request id={Id} tz={Tz} localStart={LocalStart} utcStart={UtcStart}",
                     id, dto.TimezoneOffsetMinutes, dto.StartAt, utcStartAt);
 
-                var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
+                var user = _userContextResolver.GetCurrentUser();
                 var updated = await _planService.UpdateTaskAsync(id, task =>
                 {
                     task.Title = dto.Title;
@@ -162,7 +167,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     task.EndAt = utcEndAt;
                     task.Priority = dto.Priority;
                     task.Status = dto.Status;
-                }, role, dto.TimezoneOffsetMinutes, cancellationToken);
+                }, user, dto.TimezoneOffsetMinutes, cancellationToken);
 
                 var version = await _db.Tasks
                     .AsNoTracking()
@@ -187,6 +192,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         }
 
         [HttpPatch("{id:long}/move")]
+        [Authorize(Policy = "CanEditTask")]
         public async Task<IActionResult> MoveTask(long id, [FromBody] MoveTaskRequestDto dto, CancellationToken cancellationToken)
         {
             if (!ModelState.IsValid)
@@ -203,14 +209,14 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 "api.task.move.request id={Id} tz={Tz} targetDate={TargetDate}",
                 id, dto.TimezoneOffsetMinutes, dto.TargetDate);
 
-            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
+            var user = _userContextResolver.GetCurrentUser();
             var result = await _planService.MoveTaskAsync(
                 id,
                 (int)dto.TargetTechnicianId,
                 targetDate,
                 dto.TargetSlotStartMinutes,
                 dto.Version,
-                role,
+                user,
                 dto.TimezoneOffsetMinutes,
                 cancellationToken);
 

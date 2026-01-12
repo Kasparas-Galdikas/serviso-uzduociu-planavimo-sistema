@@ -1,6 +1,7 @@
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data;
 using System.Threading.Tasks;
+using ServiceTaskPlanningSystem.Services.Authorization.Models;
 
 namespace ServiceTaskPlanningSystem.Services.Scheduling
 {
@@ -14,7 +15,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             long? technicianId,
             PlanEntity? activePlan,
             PlanEntity? draftPlan,
-            string role,
+            UserContext user,
             int timezoneOffsetMinutes);
     }
 }
