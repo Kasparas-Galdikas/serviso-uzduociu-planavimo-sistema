@@ -25,7 +25,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
 
         [HttpGet("", Name = "ScheduleView")]
         [HttpGet("Index")]
-        public async Task<IActionResult> Index(string view = "day", string? date = null, string? location = null, string? status = null)
+        public async Task<IActionResult> Index(string view = "day", string? date = null, string? location = null, string? status = null, long? technicianId = null)
         {
             var activePlan = await _planService.GetActivePlanAsync();
             var draftPlan = await _planService.GetDraftPlanAsync();
@@ -38,7 +38,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             }
 
             var timezoneOffset = GetBrowserTimezoneOffset();
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role, timezoneOffset);
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, technicianId, activePlan, draftPlan, role, timezoneOffset);
             vm.IsManager = isManager;
             if (!vm.IsManager && vm.Tasks != null)
             {
@@ -65,7 +65,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
         }
 
         [HttpGet("Table", Name = "ScheduleTable")]
-        public async Task<IActionResult> Table(string view = "day", string? date = null, string? location = null, string? status = null)
+        public async Task<IActionResult> Table(string view = "day", string? date = null, string? location = null, string? status = null, long? technicianId = null)
         {
             var activePlan = await _planService.GetActivePlanAsync();
             var draftPlan = await _planService.GetDraftPlanAsync();
@@ -78,7 +78,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             }
 
             var timezoneOffset = GetBrowserTimezoneOffset();
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role, timezoneOffset);
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, technicianId, activePlan, draftPlan, role, timezoneOffset);
             vm.IsManager = isManager;
             if (!vm.IsManager && vm.Tasks != null)
             {

@@ -178,7 +178,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
                 foreach (var day in days)
                 {
-                    var dailyUrl = $"/Schedule/Index?view=day&date={day:yyyy-MM-dd}";
+                    var dailyUrl = $"/Schedule/Index?view=day&date={day:yyyy-MM-dd}&technicianId={tech.Id}";
                     var tasks = viewModel.Tasks
                         .Where(t => t.TechnicianId == tech.Id && t.Start.Date == day.Date)
                         .ToList();

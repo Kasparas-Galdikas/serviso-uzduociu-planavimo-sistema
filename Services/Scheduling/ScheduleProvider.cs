@@ -33,7 +33,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             _logger = logger;
         }
 
-        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? status, PlanEntity? activePlan, PlanEntity? draftPlan, string role, int timezoneOffsetMinutes)
+        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? status, long? technicianId, PlanEntity? activePlan, PlanEntity? draftPlan, string role, int timezoneOffsetMinutes)
         {
             var selectedDate = DateResolver.ParseOrToday(date);
             var viewMode = NormalizeView(view);
@@ -43,7 +43,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
             var boundary = await _planningCalendar.GetBoundaryAsync();
 
-            _logger.LogInformation("svc.schedule.request view={ViewMode} date={Date} week={WeekStart}-{WeekEnd} location={Location} status={Status}", viewMode, selectedDate, weekStart, weekEnd, location, status);
+            _logger.LogInformation("svc.schedule.request view={ViewMode} date={Date} week={WeekStart}-{WeekEnd} location={Location} status={Status} technicianId={TechnicianId}", viewMode, selectedDate, weekStart, weekEnd, location, status, technicianId);
 
             var technicians = await _db.Technicians
                 .AsNoTracking()
@@ -159,6 +159,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
             (technicians, tasks) = ApplyLocationFilter(location, technicians, tasks);
             (technicians, tasks) = ApplyStatusFilter(status, technicians, tasks);
+            (technicians, tasks) = ApplyTechnicianFilter(technicianId, technicians, tasks);
 
             var planStatusText = draftPlan?.Status.ToString() ?? activePlan?.Status.ToString();
 
@@ -168,6 +169,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 SelectedDate = selectedDate,
                 IsManager = true,
                 ViewMode = viewMode,
+                SelectedTechnicianId = technicianId,
                 Technicians = technicians,
                 Tasks = tasks,
                 Issues = issues,
@@ -263,6 +265,24 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
             var filteredTechnicians = technicians
                 .Where(t => filteredTasks.Any(x => x.TechnicianId == t.Id))
+                .ToList();
+
+            return (filteredTechnicians, filteredTasks);
+        }
+
+        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyTechnicianFilter(long? technicianId, List<Technician> technicians, List<TaskItem> tasks)
+        {
+            if (!technicianId.HasValue)
+            {
+                return (technicians, tasks);
+            }
+
+            var filteredTechnicians = technicians
+                .Where(t => t.Id == technicianId.Value)
+                .ToList();
+
+            var filteredTasks = tasks
+                .Where(t => t.TechnicianId == technicianId.Value)
                 .ToList();
 
             return (filteredTechnicians, filteredTasks);

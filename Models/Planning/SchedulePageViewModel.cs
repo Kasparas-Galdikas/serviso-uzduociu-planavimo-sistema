@@ -13,6 +13,8 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public long? CurrentPlanId { get; set; }
         public string? CurrentPlanStatus { get; set; }
         public string ViewMode { get; set; } = "day"; // "day" or "week"
+        public string InformationType { get; set; } = "apkrova"; // "apkrova" or "darbo-statusas"
+        public long? SelectedTechnicianId { get; set; }
         public List<Technician> Technicians { get; set; } = new();
         public List<TaskItem> Tasks { get; set; } = new();
         public List<DecisionOption> DecisionOptions { get; set; } = new();

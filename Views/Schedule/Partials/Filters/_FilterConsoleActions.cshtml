@@ -8,6 +8,11 @@
     }
 
     var editModeId = $"{prefix}-consoleEditMode";
+    var selectedTechnicianId = ViewContext.HttpContext.Request.Query["technicianId"].ToString();
+    var hasTechnicianFilter = !string.IsNullOrWhiteSpace(selectedTechnicianId);
+    var filteredTechnician = hasTechnicianFilter && Model.Technicians.Any()
+        ? Model.Technicians.FirstOrDefault()
+        : null;
 }
 <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mt-3">
     <div class="d-flex flex-wrap gap-2 filter-console-actions">
@@ -21,6 +26,14 @@
                 Užregistruoti užduotį
             </a>
         </li>
+        @if (hasTechnicianFilter && filteredTechnician != null)
+        {
+            <button class="btn btn-primary btn-sm d-flex align-items-center gap-1"
+                data-clear-technician-filter
+                title="Rodyti visus technikus">
+                <i class="bi bi-x-lg"></i>Pašalinti filtrą @filteredTechnician.Name
+            </button>
+        }
     </div>
     @if (Model.IsManager)
     {
