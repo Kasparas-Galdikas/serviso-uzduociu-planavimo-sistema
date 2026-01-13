@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Services.Authentication;
 
@@ -17,12 +18,14 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             _loginService = loginService;
         }
 
+        [AllowAnonymous]
         [HttpGet]
         public IActionResult Index()
         {
             return View();
         }
 
+        [AllowAnonymous]
         [HttpPost]
         [ValidateAntiForgeryToken]
         public IActionResult Login(string? email, string? view)

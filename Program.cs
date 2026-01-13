@@ -10,6 +10,8 @@ using ServiceTaskPlanningSystem.Configuration;
 using ServiceTaskPlanningSystem.Middleware;
 using ServiceTaskPlanningSystem.Infrastructure.Logging;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,7 +37,16 @@ builder.Services.AddDbContext<ScheduleDbContext>(options =>
         npgsqlOptions.MapEnum<RiskLevel>();
         npgsqlOptions.MapEnum<LoadState>();
     }).UseSnakeCaseNamingConvention());
-builder.Services.AddControllersWithViews();
+
+// Configure global authentication requirement - all endpoints require authentication by default
+builder.Services.AddControllersWithViews(options =>
+{
+    var policy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+    options.Filters.Add(new AuthorizeFilter(policy));
+});
+
 builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
 builder.Services.AddScoped<IPlanService, PlanService>();
 builder.Services.AddScoped<IEvaluationEngine, TaskEvaluationEngine>();
