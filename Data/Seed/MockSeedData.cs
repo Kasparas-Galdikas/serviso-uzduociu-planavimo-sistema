@@ -1,119 +1,170 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Linq;
-using ServiceTaskPlanningSystem.Models.Planning;
-using ServiceTaskPlanningSystem.Services.Scheduling;
 
 namespace ServiceTaskPlanningSystem.Data.Seed
 {
-    internal static class MockScheduleData
+    /// <summary>
+    /// Provides mock seed data for the database.
+    /// The seeder orchestrator uses this data to populate the database following DB context and relations.
+    /// </summary>
+    internal static class MockSeedData
     {
-        private static readonly Dictionary<int, string> Locations = new()
+        public class MockUser
         {
-            { 1, "Vilnius" }, { 2, "Kaunas" }, { 3, "Siauliai" }, { 4, "Klaipeda" }, { 5, "Panevezys" },
-            { 6, "Vilnius" }, { 7, "Kaunas" }, { 8, "Vilnius" }, { 9, "Alytus" }, { 10, "Klaipeda" },
-            { 11, "Vilnius" }, { 12, "Kaunas" }, { 13, "Siauliai" }, { 14, "Vilnius" }, { 15, "Kaunas" }
+            public string Name { get; set; } = string.Empty;
+            public string Email { get; set; } = string.Empty;
+            public UserRole Role { get; set; }
+        }
+
+        public class MockRegion
+        {
+            public string Name { get; set; } = string.Empty;
+            public int PriorityWeight { get; set; }
+        }
+
+        public class MockTechnician
+        {
+            public string Name { get; set; } = string.Empty;
+            public string RegionName { get; set; } = string.Empty;
+            public decimal DailyLimit { get; set; }
+            public decimal WeeklyLimit { get; set; }
+            public int TravelSwitchLimit { get; set; }
+            public string? RulesSummary { get; set; }
+        }
+
+        public class MockObject
+        {
+            public string Name { get; set; } = string.Empty;
+            public string Address { get; set; } = string.Empty;
+            public string RegionName { get; set; } = string.Empty;
+            public string? Description { get; set; }
+        }
+
+        public class MockTask
+        {
+            public string TechnicianName { get; set; } = string.Empty;
+            public string Title { get; set; } = string.Empty;
+            public string Location { get; set; } = string.Empty;
+            public DateTime StartTime { get; set; }
+            public DateTime EndTime { get; set; }
+            public TaskPriority Priority { get; set; }
+            public ScheduleTaskStatus Status { get; set; }
+            public string SkillLevel { get; set; } = string.Empty;
+            public string? ObjectName { get; set; }
+            public string? Instructions { get; set; }
+        }
+
+        public static List<MockUser> GetUsers() => new()
+        {
+            new() { Name = "Manager Test", Email = "manager@test.com", Role = UserRole.Manager },
+            new() { Name = "Austeja J.", Email = "austeja.j@test.com", Role = UserRole.Technician },
+            new() { Name = "Dovydas K.", Email = "dovydas.k@test.com", Role = UserRole.Technician },
+            new() { Name = "Gabija P.", Email = "gabija.p@test.com", Role = UserRole.Technician },
+            new() { Name = "Lukas V.", Email = "lukas.v@test.com", Role = UserRole.Technician },
+            new() { Name = "Monika S.", Email = "monika.s@test.com", Role = UserRole.Technician },
+            new() { Name = "Rokas M.", Email = "rokas.m@test.com", Role = UserRole.Technician },
+            new() { Name = "Greta B.", Email = "greta.b@test.com", Role = UserRole.Technician },
+            new() { Name = "Mantas P.", Email = "mantas.p@test.com", Role = UserRole.Technician },
+            new() { Name = "Ieva Z.", Email = "ieva.z@test.com", Role = UserRole.Technician },
+            new() { Name = "Paulius T.", Email = "paulius.t@test.com", Role = UserRole.Technician },
+            new() { Name = "Jurate R.", Email = "jurate.r@test.com", Role = UserRole.Technician },
+            new() { Name = "Tomas G.", Email = "tomas.g@test.com", Role = UserRole.Technician },
+            new() { Name = "Elze K.", Email = "elze.k@test.com", Role = UserRole.Technician },
+            new() { Name = "Vaidotas L.", Email = "vaidotas.l@test.com", Role = UserRole.Technician },
+            new() { Name = "Karolina N.", Email = "karolina.n@test.com", Role = UserRole.Technician },
+            new() { Name = "Technician", Email = "technician@test.com", Role = UserRole.Technician }
         };
 
-        public static List<Technician> SeedTechnicians() => new()
+        public static List<MockRegion> GetRegions() => new()
         {
-            new() { Id = 1, Name = "Austeja J.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h, savaites 40h", WeeklyHours = 18, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 2 },
-            new() { Id = 2, Name = "Dovydas K.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h, savaites 45h", WeeklyHours = 22, WeeklyLimit = 45, DailyHours = 7, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 3, Name = "Gabija P.", Location = "Siauliai", RulesSummary = "Dienos limitas 8h, savaites 42h", WeeklyHours = 15, WeeklyLimit = 42, DailyHours = 5, DailyLimit = 8, TravelSwitches = 3 },
-            new() { Id = 4, Name = "Lukas V.", Location = "Klaipeda", RulesSummary = "Dienos limitas 8h", WeeklyHours = 19, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 5, Name = "Monika S.", Location = "Panevezys", RulesSummary = "Dienos limitas 8h", WeeklyHours = 12, WeeklyLimit = 40, DailyHours = 4, DailyLimit = 8, TravelSwitches = 0 },
-            new() { Id = 6, Name = "Rokas M.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h", WeeklyHours = 21, WeeklyLimit = 35, DailyHours = 6, DailyLimit = 8, TravelSwitches = 2 },
-            new() { Id = 7, Name = "Greta B.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h", WeeklyHours = 27, WeeklyLimit = 45, DailyHours = 7, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 8, Name = "Mantas P.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h", WeeklyHours = 10, WeeklyLimit = 40, DailyHours = 3, DailyLimit = 8, TravelSwitches = 0 },
-            new() { Id = 9, Name = "Ieva Z.", Location = "Alytus", RulesSummary = "Dienos limitas 8h", WeeklyHours = 8, WeeklyLimit = 40, DailyHours = 4, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 10, Name = "Paulius T.", Location = "Klaipeda", RulesSummary = "Dienos limitas 8h", WeeklyHours = 24, WeeklyLimit = 40, DailyHours = 7, DailyLimit = 8, TravelSwitches = 2 },
-            new() { Id = 11, Name = "Jurate R.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h", WeeklyHours = 16, WeeklyLimit = 40, DailyHours = 5, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 12, Name = "Tomas G.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h", WeeklyHours = 20, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 3 },
-            new() { Id = 13, Name = "Elze K.", Location = "Siauliai", RulesSummary = "Dienos limitas 8h", WeeklyHours = 18, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 1 },
-            new() { Id = 14, Name = "Vaidotas L.", Location = "Vilnius", RulesSummary = "Dienos limitas 8h", WeeklyHours = 30, WeeklyLimit = 40, DailyHours = 7, DailyLimit = 8, TravelSwitches = 2 },
-            new() { Id = 15, Name = "Karolina N.", Location = "Kaunas", RulesSummary = "Dienos limitas 8h", WeeklyHours = 25, WeeklyLimit = 40, DailyHours = 6, DailyLimit = 8, TravelSwitches = 1 }
+            new() { Name = "Vilnius", PriorityWeight = 0 },
+            new() { Name = "Kaunas", PriorityWeight = 0 },
+            new() { Name = "Klaipeda", PriorityWeight = 0 },
+            new() { Name = "Siauliai", PriorityWeight = 0 },
+            new() { Name = "Panevezys", PriorityWeight = 0 },
+            new() { Name = "Alytus", PriorityWeight = 0 }
         };
 
-        public static List<TaskItem> SeedTasksRange(DateTime startDate, int totalDays, bool markNewPlan)
+        public static List<MockTechnician> GetTechnicians() => new()
         {
-            var tasks = new List<TaskItem>();
-            var id = 1;
-            var durationOptions = new[] { 1.5, 2, 2.5, 3 };
+            new() { Name = "Austeja J.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h, savaites 40h" },
+            new() { Name = "Dovydas K.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h, savaites 45h" },
+            new() { Name = "Gabija P.", RegionName = "Siauliai", DailyLimit = 8, WeeklyLimit = 42, TravelSwitchLimit = 3, RulesSummary = "Dienos limitas 8h, savaites 42h" },
+            new() { Name = "Lukas V.", RegionName = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Monika S.", RegionName = "Panevezys", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 0, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Rokas M.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 35, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Greta B.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Mantas P.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 0, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Ieva Z.", RegionName = "Alytus", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Paulius T.", RegionName = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Jurate R.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Tomas G.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 3, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Elze K.", RegionName = "Siauliai", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Vaidotas L.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Karolina N.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
+            new() { Name = "Technician", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" }
+        };
+
+        public static List<MockObject> GetObjects() => new()
+        {
+            new() { Name = "Vilniaus prekybos centras", Address = "Konstitucijos pr. 16, Vilnius", RegionName = "Vilnius", Description = "Didelis prekybos centras miesto centre" },
+            new() { Name = "Kauno verslo kompleksas", Address = "Savanorių pr. 192, Kaunas", RegionName = "Kaunas", Description = "Biurų kompleksas" },
+            new() { Name = "Klaipėdos uostas", Address = "Perkėlos g. 10, Klaipėda", RegionName = "Klaipeda", Description = "Uosto teritorija" },
+            new() { Name = "Šiaulių ligoninė", Address = "Vytauto g. 23, Šiauliai", RegionName = "Siauliai", Description = "Rajono ligoninė" },
+            new() { Name = "Panevėžio gamykla", Address = "Pramonės g. 15, Panevėžys", RegionName = "Panevezys", Description = "Gamybos įmonė" },
+            new() { Name = "Alytaus mokykla", Address = "Naujoji g. 8, Alytus", RegionName = "Alytus", Description = "Vidurinė mokykla" },
+            new() { Name = "Vilniaus oro uostas", Address = "Rodūnios kelias 10A, Vilnius", RegionName = "Vilnius", Description = "Tarptautinis oro uostas" },
+            new() { Name = "Kauno technologijos universitetas", Address = "K. Donelaičio g. 73, Kaunas", RegionName = "Kaunas", Description = "Universiteto pastatai" },
+            new() { Name = "Klaipėdos dramos teatras", Address = "Teatro a. 2, Klaipėda", RegionName = "Klaipeda", Description = "Miesto teatras" },
+            new() { Name = "Vilniaus centrinė biblioteka", Address = "Žirmūnų g. 58, Vilnius", RegionName = "Vilnius", Description = "Viešoji biblioteka" }
+        };
+
+        public static List<MockTask> GetTasks(DateTime startDate, int totalDays)
+        {
+            var tasks = new List<MockTask>();
+            var technicians = GetTechnicians();
+            var objects = GetObjects();
+            var durationOptions = new[] { 1.5, 2.0, 2.5, 3.0 };
 
             for (var dayOffset = 0; dayOffset < totalDays; dayOffset++)
             {
                 var currentDate = startDate.Date.AddDays(dayOffset);
-                var weekStart = WeekCalculator.GetWeekStart(currentDate);
-                var weekShift = (GetStableSeed(weekStart) % 3) * 0.5;
 
-                foreach (var techId in Locations.Keys)
+                for (var techIndex = 0; techIndex < technicians.Count; techIndex++)
                 {
-                    var start = 8.0 + weekShift;
-                    var tasksToday = new List<TaskItem>();
-                    var taskCount = 2 + ((techId + dayOffset + (int)(weekShift * 10)) % 3);
+                    var technician = technicians[techIndex];
+                    var startHour = 8.0 + (dayOffset % 3) * 0.5; // Vary start times slightly
+                    var taskCount = 2 + ((techIndex + dayOffset) % 3);
 
-                    for (var i = 0; i < taskCount; i++)
+                    for (var taskIndex = 0; taskIndex < taskCount; taskIndex++)
                     {
-                        var duration = durationOptions[(techId + dayOffset + i) % durationOptions.Length];
-                        var end = start + duration;
-                        if (end > 18) break;
+                        var duration = durationOptions[(techIndex + dayOffset + taskIndex) % durationOptions.Length];
+                        var endHour = startHour + duration;
 
-                        var startDateTime = currentDate.AddHours(start);
-                        var endDateTime = currentDate.AddHours(end);
-                        tasksToday.Add(new TaskItem
+                        if (endHour > 18.0) break; // Don't schedule beyond 6 PM
+
+                        var mockObject = objects[(techIndex + taskIndex) % objects.Count];
+
+                        tasks.Add(new MockTask
                         {
-                            Id = id++,
-                            TechnicianId = techId,
-                            Title = i == 0 ? "Ryto vizitas" : i == taskCount - 1 ? "Dienos pabaigos darbai" : "Darbai objektuose",
-                            Location = Locations.TryGetValue(techId, out var loc) ? loc : "Vilnius",
-                            Start = startDateTime,
-                            End = endDateTime,
-                            Priority = "vidutinis",
-                            Status = "planuojama",
-                            IsLoad = false,
-                            IsConflict = false,
-                            IsTravelSwitch = false,
-                            IsNewPlan = markNewPlan,
-                            Risk = "vidutinis"
+                            TechnicianName = technician.Name,
+                            Title = taskIndex == 0 ? "Ryto vizitas" : taskIndex == taskCount - 1 ? "Dienos pabaigos darbai" : $"Darbai - {mockObject.Name}",
+                            Location = technician.RegionName,
+                            StartTime = currentDate.AddHours(startHour),
+                            EndTime = currentDate.AddHours(endHour),
+                            Priority = TaskPriority.Medium,
+                            Status = ScheduleTaskStatus.Planned,
+                            SkillLevel = "Basic",
+                            ObjectName = mockObject.Name,
+                            Instructions = $"Atlikti darbus objekte {mockObject.Name}"
                         });
 
-                        start = end + 0.5;
+                        startHour = endHour + 0.5; // 30-minute break between tasks
                     }
-
-                    if ((techId % 2 == 0 && currentDate.DayOfWeek == DayOfWeek.Friday) ||
-                        (techId % 3 == 0 && currentDate.DayOfWeek == DayOfWeek.Tuesday))
-                    {
-                        var lastTask = tasksToday.LastOrDefault();
-                        if (lastTask != null)
-                        {
-                            lastTask.End = lastTask.End.AddHours(1.5);
-                        }
-                    }
-
-                    var totalHours = tasksToday.Sum(t => (t.End - t.Start).TotalHours);
-                    var isConflict = totalHours > 8;
-                    var isLoad = !isConflict && totalHours >= 6.5;
-
-                    foreach (var t in tasksToday)
-                    {
-                        t.IsConflict = isConflict;
-                        t.IsLoad = isLoad;
-                        t.Priority = isConflict ? "aukstas" : isLoad ? "vidutinis" : "vidutinis";
-                        t.Risk = isConflict ? "aukstas" : isLoad ? "vidutinis" : "zemas";
-                    }
-
-                    tasks.AddRange(tasksToday);
                 }
             }
 
             return tasks;
-        }
-
-        private static int GetStableSeed(DateTime date)
-        {
-            var weekOfYear = ISOWeek.GetWeekOfYear(date);
-            return unchecked((date.Year * 100) + weekOfYear);
         }
     }
 }

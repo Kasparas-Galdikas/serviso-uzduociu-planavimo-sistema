@@ -18,16 +18,6 @@ public class TaskCreateViewModel
     [Display(Name = "Pabaiga")]
     public string? EndAt { get; set; }
 
-    [Display(Name = "Pamaina")]
-    public string Shift { get; set; } = "Day";
-
-    [Range(0.5, 24)]
-    [Display(Name = "Trukme (val.)")]
-    public decimal? DurationHours { get; set; }
-
-    [Display(Name = "Uzduoties tipas")]
-    public string Type { get; set; } = "Patrol";
-
     [Display(Name = "Reikalingas kvalifikacijos lygis")]
     public string Skill { get; set; } = "Basic";
 
@@ -40,10 +30,6 @@ public class TaskCreateViewModel
     [Display(Name = "Objektas")]
     public string? ObjectName { get; set; }
 
-    [Display(Name = "Objekto tipas")]
-    public string ObjectType { get; set; } = "Building";
-
     [Display(Name = "Lokacija / pastabos")]
     public string? Location { get; set; }
 }
-

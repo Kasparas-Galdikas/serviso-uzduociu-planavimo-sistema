@@ -12,6 +12,61 @@
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
 
+  let objectsPromise = null;
+  const loadObjects = async () => {
+    if (objectsPromise) return objectsPromise;
+    objectsPromise = (async () => {
+      const resp = await fetch("/api/objects", { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      if (!resp.ok) {
+        console.error("Failed to load objects");
+        return [];
+      }
+      return await resp.json();
+    })();
+    return objectsPromise;
+  };
+
+  const populateObjectDropdown = async (modalEl, selectedObjectId, fallbackObjectName, fallbackAddress) => {
+    const select = modalEl.querySelector("#taskDetailObject");
+    if (!select) return;
+
+    const objects = await loadObjects();
+    select.innerHTML = "";
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "- Pasirinkite objekta -";
+    select.appendChild(placeholder);
+
+    objects.forEach((obj) => {
+      const opt = document.createElement("option");
+      opt.value = obj.id;
+      opt.textContent = obj.name;
+      opt.dataset.address = obj.address || "";
+      if (selectedObjectId && String(selectedObjectId) === String(obj.id)) {
+        opt.selected = true;
+      }
+      select.appendChild(opt);
+    });
+
+    // If no match but we have a name/address, add it as a temporary option
+    if (selectedObjectId && !select.value) {
+      const custom = document.createElement("option");
+      custom.value = selectedObjectId;
+      custom.textContent = fallbackObjectName || "";
+      custom.dataset.address = fallbackAddress || "";
+      custom.selected = true;
+      select.appendChild(custom);
+    } else if (!selectedObjectId && fallbackObjectName) {
+      const custom = document.createElement("option");
+      custom.value = "";
+      custom.textContent = fallbackObjectName;
+      custom.dataset.address = fallbackAddress || "";
+      custom.selected = true;
+      select.appendChild(custom);
+    }
+  };
+
   const clearActiveCards = () => {
     document.querySelectorAll(".task-card.is-active").forEach((el) => {
       el.classList.remove("is-active");
@@ -28,6 +83,18 @@
     if (!taskId) return;
     const card = document.querySelector(`.task-card[data-task-id="${CSS.escape(String(taskId))}"]`);
     if (card) setActiveCard(card);
+  };
+
+  const ensureObjectAddressBinding = (modalEl) => {
+    const select = modalEl.querySelector("#taskDetailObject");
+    if (!select || select.dataset.objectBinding === "1") return;
+    select.dataset.objectBinding = "1";
+    select.addEventListener("change", () => {
+      const selected = select.selectedOptions[0];
+      const address = selected?.dataset?.address || "";
+      const locationInput = modalEl.querySelector("#taskDetailLocation");
+      if (locationInput) locationInput.value = address;
+    });
   };
 
   const fetchTask = async (taskId) => {
@@ -92,19 +159,38 @@
     }
   };
 
-  const populateTaskModal = (modalEl, data, editable) => {
+  const syncInstructionFields = (modalEl, instructionsText) => {
+    const instructions = instructionsText || "";
+    const instructionsInput = modalEl.querySelector("#taskDetailInstructions");
+    if (instructionsInput) instructionsInput.value = instructions;
+
+    const instructionsReadonly = modalEl.querySelector("#taskDetailInstructionsReadonly");
+    if (instructionsReadonly) instructionsReadonly.textContent = instructions || "-";
+  };
+
+  const populateTaskModal = async (modalEl, data, editable) => {
     const setVal = (selector, value) => {
       const el = modalEl.querySelector(selector);
       if (el) el.value = value || "";
     };
 
     setVal("#taskDetailTitle", data.title);
-    setVal("#taskDetailLocation", data.location);
+    setVal("#taskDetailLocation", data.objectAddress || data.location);
     setVal("#taskDetailStart", data.startAt ? data.startAt.substring(0, 16) : "");
     setVal("#taskDetailEnd", data.endAt ? data.endAt.substring(0, 16) : "");
     setVal("#taskDetailPriority", data.priority);
     setVal("#taskDetailStatus", data.status);
     setVal("#taskDetailTechnicianComment", data.technicianComment);
+    setVal("#taskDetailSkill", data.skillLevel);
+    await populateObjectDropdown(modalEl, data.objectId, data.objectName, data.objectAddress);
+    ensureObjectAddressBinding(modalEl);
+    const selectedObj = modalEl.querySelector("#taskDetailObject")?.selectedOptions?.[0];
+    if (selectedObj?.dataset?.address) {
+      setVal("#taskDetailLocation", selectedObj.dataset.address);
+    } else {
+      setVal("#taskDetailLocation", data.objectAddress || data.location);
+    }
+    syncInstructionFields(modalEl, data.instructions);
 
     // Populate technician dropdown for managers
     populateTechnicianDropdown(modalEl, data.technicianId);
@@ -150,6 +236,11 @@
     const currentUserId = viewModel.currentUserId;
 
     const isTechnician = !isManager;
+    const paramsSection = modalEl.querySelector("#taskSecParams")?.closest("section");
+    const instructionsInput = modalEl.querySelector("#taskDetailInstructions");
+    const instructionsReadonly = modalEl.querySelector("#taskDetailInstructionsReadonly");
+    const statusField = modalEl.querySelector("#taskDetailStatus");
+    const commentField = modalEl.querySelector("#taskDetailTechnicianComment");
     const isOwnTask =
       currentUserId != null &&
       taskTechnicianId != null &&
@@ -177,6 +268,17 @@
     });
 
     if (isTechnician) {
+      // Hide parameters from technicians
+      if (paramsSection) paramsSection.classList.add("d-none");
+
+      // Show read-only instructions, hide textarea
+      if (instructionsInput) {
+        instructionsInput.classList.add("d-none");
+        instructionsInput.setAttribute("disabled", "disabled");
+        instructionsInput.setAttribute("readonly", "readonly");
+      }
+      if (instructionsReadonly) instructionsReadonly.classList.remove("d-none");
+
       // Technician: First disable ALL inputs
       const allInputs = modalEl.querySelectorAll("input, select, textarea");
       allInputs.forEach((el) => {
@@ -186,9 +288,6 @@
 
       // Enable technician fields ONLY if it's their task and editable
       const canEdit = isOwnTask && editable;
-      const statusField = modalEl.querySelector("#taskDetailStatus");
-      const commentField = modalEl.querySelector("#taskDetailTechnicianComment");
-
       if (canEdit) {
         if (statusField) {
           statusField.removeAttribute("disabled");
@@ -216,16 +315,37 @@
       }
 
     } else {
+      // Manager view: show parameters and editable instructions
+      if (paramsSection) paramsSection.classList.remove("d-none");
+      if (instructionsInput) {
+        instructionsInput.classList.remove("d-none");
+        instructionsInput.removeAttribute("readonly");
+      }
+      if (instructionsReadonly) instructionsReadonly.classList.add("d-none");
+
       // Manager: Enable ALL fields if editable
       const inputs = modalEl.querySelectorAll("input, select, textarea");
       inputs.forEach((el) => {
+        // Status / comment should always be read-only for manager
+        if (el === statusField || el === commentField) return;
         if (editable) {
           el.removeAttribute("disabled");
           el.classList.remove("bg-light");
         } else {
           el.setAttribute("disabled", "disabled");
+          el.classList.add("bg-light");
         }
       });
+
+      // Keep technician-specific fields read-only
+      if (statusField) {
+        statusField.setAttribute("disabled", "disabled");
+        statusField.classList.add("bg-light");
+      }
+      if (commentField) {
+        commentField.setAttribute("disabled", "disabled");
+        commentField.classList.add("bg-light");
+      }
     }
   };
 
@@ -248,13 +368,11 @@
     const status = modalEl.querySelector("#taskDetailStatus")?.value || "";
 
     // Additional fields
-    const shift = modalEl.querySelector("#taskDetailShift")?.value || null;
-    const taskType = modalEl.querySelector("#taskDetailType")?.value || null;
     const skillLevel = modalEl.querySelector("#taskDetailSkill")?.value || null;
-    const objectName = modalEl.querySelector("#taskDetailObject")?.value || null;
-    const objectType = modalEl.querySelector("#taskDetailObjectType")?.value || null;
+    const selectedObjectOption = modalEl.querySelector("#taskDetailObject option:checked");
+    const objectName = selectedObjectOption?.textContent?.trim() || null;
     const instructions = modalEl.querySelector("#taskDetailInstructions")?.value || null;
-    const safetyRequirements = modalEl.querySelector("#taskDetailSafety")?.value || null;
+    const objectAddress = selectedObjectOption?.dataset?.address || location || null;
 
     // Validate required fields
     if (!title.trim()) {
@@ -290,13 +408,10 @@
           location,
           priority: parseInt(priority) || 1,
           status: parseInt(status) || 0,
-          shift,
-          taskType,
           skillLevel,
           objectName,
-          objectType,
-          instructions,
-          safetyRequirements,
+          objectAddress,
+          instructions
         };
 
         result = await window.schedule?.selection?.submitCreateTask?.(formData);
@@ -332,15 +447,12 @@
           version: parseInt(version) || 0,
           timezoneOffsetMinutes: timezoneOffset,
           technicianId: technicianId || 0,
-          shift,
-          taskType,
           skillLevel,
           objectName,
-          objectType,
+          objectAddress,
           instructions,
-            safetyRequirements,
-            technicianComment: modalEl.querySelector("#taskDetailTechnicianComment")?.value || null,
-          });
+          technicianComment: modalEl.querySelector("#taskDetailTechnicianComment")?.value || null
+        });
         } else {
           // Technician: Use limited update endpoint with only Status and Comment
           endpoint = `/api/tasks/${taskId}/technician-update`;
@@ -443,7 +555,7 @@
 
     try {
       const data = await fetchTask(taskId);
-      populateTaskModal(detailPanel, data, data.isEditable);
+      await populateTaskModal(detailPanel, data, data.isEditable);
       setActiveCardByTaskId(taskId);
       logEvent("ui.task.refresh.ok", { taskId });
       return true;
@@ -456,6 +568,7 @@
   const openTaskPanel = async ({ taskId = null, technicianId, targetDate, startMinutes, endMinutes }) => {
     const detailPanel = document.getElementById("taskDetailModal");
     if (!detailPanel) return;
+    ensureObjectAddressBinding(detailPanel);
 
     if (detailPanel?.classList?.contains("is-collapsed")) {
       detailPanel.classList.remove("is-collapsed");
@@ -466,7 +579,7 @@
       // === EDIT MODE ===
       try {
         const data = await fetchTask(taskId);
-        populateTaskModal(detailPanel, data, data.isEditable);
+        await populateTaskModal(detailPanel, data, data.isEditable);
         setActiveCardByTaskId(taskId);
         logEvent("ui.task.panel.open", { mode: "edit", taskId });
         panel?.show?.();
@@ -495,13 +608,11 @@
       setVal("#taskDetailEnd", "");
       setVal("#taskDetailPriority", "1");
       setVal("#taskDetailStatus", "0");
-      setVal("#taskDetailShift", "");
-      setVal("#taskDetailType", "");
       setVal("#taskDetailSkill", "");
       setVal("#taskDetailObject", "");
-      setVal("#taskDetailObjectType", "");
-      setVal("#taskDetailInstructions", "");
-      setVal("#taskDetailSafety", "");
+      syncInstructionFields(detailPanel, "");
+      await populateObjectDropdown(detailPanel, null, null, null);
+      ensureObjectAddressBinding(detailPanel);
 
       detailPanel.querySelector("#taskDetailLabel").textContent = "Nauja užduotis";
       detailPanel.querySelector("#taskDetailCode").textContent = "";
@@ -533,6 +644,8 @@
           await saveTask(detailPanel);
         };
       }
+
+      applyFieldRestrictions(detailPanel, technicianId, true);
 
       panel?.show?.();
       logEvent("ui.task.panel.open", {

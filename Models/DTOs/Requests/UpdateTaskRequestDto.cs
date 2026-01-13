@@ -48,27 +48,17 @@ public class UpdateTaskRequestDto
     [Range(-1440, 1440, ErrorMessage = "Timezone offset must be between -1440 and 1440 minutes.")]
     public int TimezoneOffsetMinutes { get; set; }
 
-    // Additional fields for comprehensive task updates
-    [StringLength(50, ErrorMessage = "Shift cannot exceed 50 characters.")]
-    public string? Shift { get; set; }
-
-    [StringLength(100, ErrorMessage = "Task type cannot exceed 100 characters.")]
-    public string? TaskType { get; set; }
-
     [StringLength(100, ErrorMessage = "Skill level cannot exceed 100 characters.")]
     public string? SkillLevel { get; set; }
 
     [StringLength(200, ErrorMessage = "Object name cannot exceed 200 characters.")]
     public string? ObjectName { get; set; }
 
-    [StringLength(100, ErrorMessage = "Object type cannot exceed 100 characters.")]
-    public string? ObjectType { get; set; }
+    [StringLength(200, ErrorMessage = "Object address cannot exceed 200 characters.")]
+    public string? ObjectAddress { get; set; }
 
     [StringLength(2000, ErrorMessage = "Instructions cannot exceed 2000 characters.")]
     public string? Instructions { get; set; }
-
-    [StringLength(100, ErrorMessage = "Safety requirements cannot exceed 100 characters.")]
-    public string? SafetyRequirements { get; set; }
 
     [StringLength(2000, ErrorMessage = "Technician comment cannot exceed 2000 characters.")]
     public string? TechnicianComment { get; set; }

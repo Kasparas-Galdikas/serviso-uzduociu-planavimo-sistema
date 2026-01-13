@@ -13,6 +13,7 @@ namespace ServiceTaskPlanningSystem.Data
         public DbSet<RegionEntity> Regions => Set<RegionEntity>();
         public DbSet<TechnicianEntity> Technicians => Set<TechnicianEntity>();
         public DbSet<PlanEntity> Plans => Set<PlanEntity>();
+        public DbSet<ObjectEntity> Objects => Set<ObjectEntity>();
         public DbSet<TaskEntity> Tasks => Set<TaskEntity>();
         public DbSet<TaskEvaluationEntity> TaskEvaluations => Set<TaskEvaluationEntity>();
 
@@ -31,6 +32,7 @@ namespace ServiceTaskPlanningSystem.Data
             ConfigureRegions(modelBuilder);
             ConfigureTechnicians(modelBuilder);
             ConfigurePlans(modelBuilder);
+            ConfigureObjects(modelBuilder);
             ConfigureTasks(modelBuilder);
             ConfigureTaskEvaluations(modelBuilder);
         }
@@ -148,6 +150,32 @@ namespace ServiceTaskPlanningSystem.Data
                 .IsUnique();
         }
 
+        private static void ConfigureObjects(ModelBuilder modelBuilder)
+        {
+            var entity = modelBuilder.Entity<ObjectEntity>();
+            entity.ToTable("objects");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Name)
+                .IsRequired()
+                .HasMaxLength(200);
+            entity.Property(e => e.Address)
+                .IsRequired()
+                .HasMaxLength(500);
+            entity.Property(e => e.Description)
+                .HasMaxLength(1000);
+            entity.Property(e => e.CreatedAt)
+                .HasColumnType("timestamptz")
+                .HasDefaultValueSql("NOW()");
+
+            entity.HasOne(e => e.Region)
+                .WithMany()
+                .HasForeignKey(e => e.RegionId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => new { e.Name, e.Address });
+        }
+
         private static void ConfigureTasks(ModelBuilder modelBuilder)
         {
             var entity = modelBuilder.Entity<TaskEntity>();
@@ -185,6 +213,12 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.CreatedAt)
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");
+            entity.Property(e => e.SkillLevel)
+                .HasMaxLength(100)
+                .HasDefaultValue(string.Empty);
+            entity.Property(e => e.Instructions)
+                .HasMaxLength(2000)
+                .HasDefaultValue(string.Empty);
 
             entity.HasOne(e => e.Plan)
                 .WithMany(p => p.Tasks)
@@ -199,6 +233,11 @@ namespace ServiceTaskPlanningSystem.Data
             entity.HasOne(e => e.Region)
                 .WithMany()
                 .HasForeignKey(e => e.RegionId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.Object)
+                .WithMany(o => o.Tasks)
+                .HasForeignKey(e => e.ObjectId)
                 .OnDelete(DeleteBehavior.SetNull);
 
             entity.HasIndex(e => new { e.PlanId, e.TechnicianId, e.StartAt });

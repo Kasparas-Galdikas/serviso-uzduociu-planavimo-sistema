@@ -60,6 +60,10 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 dto.Location,
                 dto.Priority,
                 dto.Status,
+                dto.SkillLevel ?? string.Empty,
+                dto.ObjectName ?? string.Empty,
+                dto.ObjectAddress ?? string.Empty,
+                dto.Instructions ?? string.Empty,
                 user,
                 dto.TimezoneOffsetMinutes,
                 cancellationToken);
@@ -97,6 +101,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var task = await _db.Tasks
                 .AsNoTracking()
                 .Include(t => t.Plan)
+                .Include(t => t.Object)
                 .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
 
             if (task == null)
@@ -131,6 +136,11 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 Priority = task.Priority,
                 Status = task.Status,
                 TechnicianComment = task.TechnicianComment,
+                SkillLevel = task.SkillLevel,
+                ObjectId = task.ObjectId,
+                ObjectName = task.Object?.Name ?? string.Empty,
+                ObjectAddress = task.Object?.Address ?? string.Empty,
+                Instructions = task.Instructions,
                 PlanStatus = task.Plan?.Status.ToString() ?? string.Empty,
                 IsEditable = isEditable,
                 TimezoneOffsetMinutes = timezoneOffset
@@ -168,11 +178,13 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     task.EndAt = utcEndAt;
                     task.Priority = dto.Priority;
                     task.Status = dto.Status;
+                    task.SkillLevel = dto.SkillLevel ?? string.Empty;
+                    task.Instructions = dto.Instructions ?? string.Empty;
                     if (dto.TechnicianComment != null)
                     {
                         task.TechnicianComment = dto.TechnicianComment;
                     }
-                }, dto.TechnicianId, user, dto.TimezoneOffsetMinutes, cancellationToken);
+                }, dto.TechnicianId, user, dto.TimezoneOffsetMinutes, dto.ObjectName, dto.ObjectAddress, cancellationToken);
 
                 var version = await _db.Tasks
                     .AsNoTracking()
