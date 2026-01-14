@@ -20,21 +20,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _logger = logger;
         }
 
-        private sealed class LoadScoreContext
-        {
-            public bool HasConflict { get; init; }
-            public bool IsDailyLimitExceeded { get; init; }
-            public bool IsWeeklyLimitExceeded { get; init; }
-
-            public double DailyOverHours { get; init; }
-            public double WeeklyOverHours { get; init; }
-
-            public int SwitchCount { get; init; }
-
-            public double DailyUtil { get; init; }
-            public double WeeklyUtil { get; init; }
-        }
-
         public Task RecalculateTasksAsync(IEnumerable<long> taskIds, CancellationToken cancellationToken = default)
         {
             var ids = taskIds?.Distinct().ToList() ?? new List<long>();
@@ -200,39 +185,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             return LoadState.Normal;
-        }
-
-        private static double EvaluateLoadScore(LoadScoreContext ctx)
-        {
-            double score = 0;
-
-            // HARD – huge penalties
-            if (ctx.HasConflict) score += 1000;
-            if (ctx.IsDailyLimitExceeded) score += 500;
-            if (ctx.IsWeeklyLimitExceeded) score += 300;
-
-            // SOFT – proportional penalties
-            score += ctx.DailyOverHours * 20;
-            score += ctx.WeeklyOverHours * 10;
-
-            score += ctx.SwitchCount * 5;
-
-            score += UtilPenalty(ctx.DailyUtil);
-            score += UtilPenalty(ctx.WeeklyUtil);
-
-            return score;
-        }
-        
-        // Utilization penalty function
-        private static double UtilPenalty(double util)
-        {
-            if (util > 1.0)
-                return (util - 1.0) * 50;
-
-            if (util < 0.3)
-                return (0.3 - util) * 10;
-
-            return 0;
         }
 
         private static HashSet<long> DetectConflicts(List<TaskEntity> tasks)
