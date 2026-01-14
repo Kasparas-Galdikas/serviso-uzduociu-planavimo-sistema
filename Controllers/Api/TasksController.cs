@@ -12,6 +12,7 @@ using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
+using ServiceTaskPlanningSystem.Services.Scheduling;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -147,6 +148,147 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             };
 
             _logger.LogInformation("api.task.get id={Id} editable={Editable} tz={Tz} utcStart={UtcStart} localStart={LocalStart}", id, isEditable, timezoneOffset, task.StartAt, localStartAt);
+            return Ok(response);
+        }
+
+        [HttpPost("preview/drag")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> PreviewDrag([FromBody] DragPreviewRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                return ValidationProblem(ModelState);
+            }
+
+            if (dto.TargetEndAt <= dto.TargetStartAt)
+            {
+                return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlesnis už pradžią." });
+            }
+
+            var timezoneOffset = GetBrowserTimezoneOffset();
+            var user = _userContextResolver.GetCurrentUser();
+
+            var targetTask = await _db.Tasks
+                .AsNoTracking()
+                .Include(t => t.Plan)
+                .Include(t => t.Technician)
+                .FirstOrDefaultAsync(t => t.Id == dto.TaskId, cancellationToken);
+
+            if (targetTask == null)
+            {
+                return NotFound();
+            }
+
+            var isEditable = await _taskPermissionService.CanEditTaskAsync(targetTask, user, timezoneOffset);
+            if (!isEditable)
+            {
+                return StatusCode(403);
+            }
+
+            if (targetTask.PlanId == null)
+            {
+                return UnprocessableEntity(new { message = "Užduotis neturi plano." });
+            }
+
+            var hoverTech = await _db.Technicians
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == dto.TargetTechnicianId, cancellationToken);
+
+            if (hoverTech == null)
+            {
+                return UnprocessableEntity(new { message = "Technikas nerastas." });
+            }
+
+            var dayStart = dto.TargetStartAt.Date;
+            var weekStart = WeekCalculator.GetWeekStart(dayStart);
+            var weekEndExclusive = weekStart.AddDays(7);
+
+            var scopeTasks = await _db.Tasks
+                .AsNoTracking()
+                .Include(t => t.Technician)
+                .Where(t => t.PlanId == targetTask.PlanId &&
+                            t.StartAt < weekEndExclusive &&
+                            t.EndAt > weekStart)
+                .ToListAsync(cancellationToken);
+
+            var technicians = await _db.Technicians
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+
+            var simulation = PlanSimulationContext.Create(scopeTasks, technicians, targetTask);
+
+            var modifiedSim = simulation.WithModifiedTasks(tasks =>
+            {
+                var modified = tasks.ToList();
+                var idx = modified.FindIndex(t => t.Id == targetTask.Id);
+                if (idx >= 0)
+                {
+                    modified[idx] = new TaskEntity
+                    {
+                        Id = targetTask.Id,
+                        PlanId = targetTask.PlanId,
+                        TechnicianId = dto.TargetTechnicianId,
+                        Title = targetTask.Title,
+                        Location = targetTask.Location,
+                        RegionId = hoverTech.RegionId ?? targetTask.RegionId,
+                        StartAt = dto.TargetStartAt,
+                        EndAt = dto.TargetEndAt,
+                        Priority = targetTask.Priority,
+                        Status = targetTask.Status,
+                        CreatedAt = targetTask.CreatedAt,
+                        Plan = targetTask.Plan,
+                        Technician = targetTask.Technician,
+                        Region = targetTask.Region,
+                        Evaluation = targetTask.Evaluation,
+                        Object = targetTask.Object,
+                        ObjectId = targetTask.ObjectId,
+                        Instructions = targetTask.Instructions,
+                        SkillLevel = targetTask.SkillLevel,
+                        TechnicianComment = targetTask.TechnicianComment
+                    };
+                }
+                return modified;
+            });
+
+            var visibleTechs = technicians
+                .Where(t => scopeTasks.Any(task => task.TechnicianId == t.Id) || t.Id == dto.TargetTechnicianId)
+                .ToList();
+
+            var response = new DragPreviewResponseDto
+            {
+                DraggedTaskId = targetTask.Id
+            };
+
+            foreach (var tech in visibleTechs)
+            {
+                var loadContext = PlanSimulationContext.EvaluateTechnicianSnapshot(
+                    tech.Id,
+                    dayStart,
+                    weekStart,
+                    modifiedSim.Tasks.ToList(),
+                    modifiedSim.Technicians.ToList());
+
+                var state = loadContext.ComputeLoadState();
+                response.PreviewStates.Add(new DragPreviewStateDto
+                {
+                    TechnicianId = tech.Id,
+                    LoadState = state.ToString(),
+                    HasConflict = loadContext.HasConflict,
+                    IsDailyLimitExceeded = loadContext.IsDailyLimitExceeded,
+                    IsWeeklyLimitExceeded = loadContext.IsWeeklyLimitExceeded,
+                    IsSwitchLimitExceeded = loadContext.IsSwitchLimitExceeded,
+                    DailyHours = Math.Round(loadContext.DailyUtilization * (double)tech.DailyLimit, 2),
+                    WeeklyHours = Math.Round(loadContext.WeeklyUtilization * (double)tech.WeeklyLimit, 2),
+                    DailyLimit = (double)tech.DailyLimit,
+                    WeeklyLimit = (double)tech.WeeklyLimit,
+                    DailyUtilization = Math.Round(loadContext.DailyUtilization, 2),
+                    WeeklyUtilization = Math.Round(loadContext.WeeklyUtilization, 2),
+                    SwitchCount = loadContext.SwitchCount
+                });
+            }
+
+            _logger.LogInformation("api.task.preview.drag task={TaskId} plan={PlanId} tech={Tech} date={Day} states={Count}", targetTask.Id, targetTask.PlanId, dto.TargetTechnicianId, dayStart, response.PreviewStates.Count);
+
             return Ok(response);
         }
 

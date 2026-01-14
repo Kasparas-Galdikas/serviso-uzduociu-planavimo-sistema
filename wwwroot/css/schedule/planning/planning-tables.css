@@ -326,21 +326,78 @@ td.is-drag-origin .task-card.is-dragging {
   background: transparent;
 }
 
+/* Original state colors - show current evaluation with colored backgrounds */
+.task-card.task-normal {
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.12), rgba(34, 197, 94, 0.18));
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
 .task-card.task-normal::before {
   background: var(--success-500);
+}
+
+.task-card.task-load {
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.18));
+  border-color: rgba(245, 158, 11, 0.3);
 }
 
 .task-card.task-load::before {
   background: var(--warning-500);
 }
 
+.task-card.task-conflict {
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.18));
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
 .task-card.task-conflict::before {
   background: var(--danger-500);
+}
+
+.task-card.task-travel {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.12), rgba(59, 130, 246, 0.18));
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
 .task-card.task-travel::before {
   background: var(--info-500);
 }
+
+/* Drag preview state colors - override task state during drag */
+/* Apply stronger background color to show predicted state after drop */
+.task-card.preview-normal {
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.25), rgba(34, 197, 94, 0.35)) !important;
+  border-color: var(--success-500) !important;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2), var(--shadow-md) !important;
+}
+
+.task-card.preview-normal::before {
+  background: var(--success-500) !important;
+  width: 6px !important;
+}
+
+.task-card.preview-load {
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.25), rgba(245, 158, 11, 0.35)) !important;
+  border-color: var(--warning-500) !important;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2), var(--shadow-md) !important;
+}
+
+.task-card.preview-load::before {
+  background: var(--warning-500) !important;
+  width: 6px !important;
+}
+
+.task-card.preview-conflict {
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.25), rgba(239, 68, 68, 0.35)) !important;
+  border-color: var(--danger-500) !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2), var(--shadow-md) !important;
+}
+
+.task-card.preview-conflict::before {
+  background: var(--danger-500) !important;
+  width: 6px !important;
+}
+
 /* Editable affordance */
 
 .task-card[data-editable="true"] {
@@ -402,33 +459,6 @@ td.is-drag-origin .task-card.is-dragging {
   color: var(--neutral-500);
 }
 
-/* =========================================================
-   Load / conflict / travel state
-   ========================================================= */
-
-.task-card.task-normal {
-  background: var(--success-100);
-  border-color: var(--success-500);
-  --task-accent: var(--success-500);
-}
-
-.task-card.task-load {
-  background: var(--warning-100);
-  border-color: var(--warning-500);
-  --task-accent: var(--warning-500);
-}
-
-.task-card.task-conflict {
-  background: var(--danger-100);
-  border-color: var(--danger-500);
-  --task-accent: var(--danger-500);
-}
-
-.task-card.task-travel {
-  background: var(--info-100);
-  border-color: var(--info-500);
-  --task-accent: var(--info-500);
-}
 
 /* =========================================================
    Plan source: Active vs Draft

@@ -46,16 +46,6 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                     .OrderBy(t => t.Start)
                     .ToList();
 
-                var dayState = "task-normal";
-                if (tasks.Any(t => t.IsConflict))
-                {
-                    dayState = "task-conflict";
-                }
-                else if (tasks.Any(t => t.IsLoad || t.OverloadHours > 0))
-                {
-                    dayState = "task-load";
-                }
-
                 var cells = new List<TableCell>();
                 var slotIndex = 0;
 
@@ -89,8 +79,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                             var durationMinutes = (int)Math.Round((task.End - task.Start).TotalMinutes);
                             var handleHtml = task.IsEditable ? @"<span class=""task-drag-handle"" draggable=""true"" aria-label=""Perkelti"" title=""Perkelti"">⋮⋮</span>" : string.Empty;
                             return $@"
-<div class=""task-card {dayState} {loadClass} {sourceClass} {editClass}"" data-plan=""{task.PlanId}"" data-task-id=""{task.Id}"" data-plan-source=""{task.Source.ToString().ToLowerInvariant()}""
-    data-editable=""{task.IsEditable.ToString().ToLowerInvariant()}"" data-task-version=""{task.Version}"" data-duration-minutes=""{durationMinutes}"">
+<div class=""task-card {loadClass} {sourceClass} {editClass}"" data-plan=""{task.PlanId}"" data-task-id=""{task.Id}"" data-tech-id=""{task.TechnicianId}"" data-plan-source=""{task.Source.ToString().ToLowerInvariant()}""
+    data-editable=""{task.IsEditable.ToString().ToLowerInvariant()}"" data-task-version=""{task.Version}"" data-duration-minutes=""{durationMinutes}"" data-date=""{task.Start:yyyy-MM-dd}"" data-start-minutes=""{(int)task.Start.TimeOfDay.TotalMinutes}"">
     <div class=""task-time"">{handleHtml}{task.Start:HH:mm} - {task.End:HH:mm}</div>
     <div class=""task-title"">{WebUtility.HtmlEncode(task.Title)}</div>
     <div class=""task-location"">{WebUtility.HtmlEncode(task.Location)}</div>

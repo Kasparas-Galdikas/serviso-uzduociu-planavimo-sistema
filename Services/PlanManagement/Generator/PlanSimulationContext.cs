@@ -94,6 +94,62 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         }
 
         /// <summary>
+        /// Computes LoadScoreContext for a given technician/day/week snapshot.
+        /// Shared helper to keep drag-preview and simulation/evaluation logic consistent.
+        /// </summary>
+        public static LoadScoreContext EvaluateTechnicianSnapshot(
+            long technicianId,
+            DateTime dayStart,
+            DateTime weekStart,
+            List<TaskEntity> allTasks,
+            List<TechnicianEntity> allTechnicians)
+        {
+            var technician = allTechnicians.FirstOrDefault(t => t.Id == technicianId);
+            if (technician == null)
+                throw new InvalidOperationException($"Technician {technicianId} not found");
+
+            var dayEnd = dayStart.AddDays(1);
+            var weekEnd = weekStart.AddDays(7);
+
+            var dayTasks = allTasks
+                .Where(t => t.TechnicianId == technicianId &&
+                           t.StartAt >= dayStart &&
+                           t.StartAt < dayEnd)
+                .OrderBy(t => t.StartAt)
+                .ToList();
+
+            var weekTasks = allTasks
+                .Where(t => t.TechnicianId == technicianId &&
+                           t.StartAt >= weekStart &&
+                           t.StartAt < weekEnd)
+                .ToList();
+
+            var dailyHours = dayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+            var weeklyHours = weekTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+            var dailyLimit = (double)technician.DailyLimit;
+            var weeklyLimit = (double)technician.WeeklyLimit;
+            var dailyUtil = dailyLimit > 0 ? dailyHours / dailyLimit : 1.0;
+            var weeklyUtil = weeklyLimit > 0 ? weeklyHours / weeklyLimit : 1.0;
+
+            var hasConflict = HasConflicts(dayTasks);
+            var switchCount = CalculateSwitchCount(dayTasks);
+            var switchLimit = technician.TravelSwitchLimit;
+
+            return new LoadScoreContext
+            {
+                HasConflict = hasConflict,
+                IsDailyLimitExceeded = dailyHours > dailyLimit,
+                IsWeeklyLimitExceeded = weeklyHours > weeklyLimit,
+                DailyOverHours = Math.Max(0, dailyHours - dailyLimit),
+                WeeklyOverHours = Math.Max(0, weeklyHours - weeklyLimit),
+                SwitchCount = switchCount,
+                IsSwitchLimitExceeded = switchCount > switchLimit,
+                DailyUtilization = dailyUtil,
+                WeeklyUtilization = weeklyUtil
+            };
+        }
+
+        /// <summary>
         /// Evaluates a specific technician's workload on a given day.
         /// </summary>
         public DayWorkload GetTechnicianDayWorkload(long technicianId, DateTime dayStart)
@@ -187,60 +243,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             List<TaskEntity> allTasks,
             List<TechnicianEntity> allTechnicians)
         {
-            var technician = allTechnicians.FirstOrDefault(t => t.Id == targetTask.TechnicianId);
-            if (technician == null)
-                throw new InvalidOperationException($"Technician {targetTask.TechnicianId} not found");
-
             var dayStart = targetTask.StartAt.Date;
-            var dayEnd = dayStart.AddDays(1);
             var weekStart = GetWeekStart(dayStart);
-            var weekEnd = weekStart.AddDays(7);
-
-            // Daily metrics
-            var dayTasks = allTasks
-                .Where(t => t.TechnicianId == targetTask.TechnicianId &&
-                           t.StartAt >= dayStart &&
-                           t.StartAt < dayEnd)
-                .OrderBy(t => t.StartAt)
-                .ToList();
-
-            var dailyHours = dayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
-            var dailyLimit = (double)technician.DailyLimit;
-            var dailyUtil = dailyLimit > 0 ? dailyHours / dailyLimit : 1.0;
-
-            // Weekly metrics
-            var weekTasks = allTasks
-                .Where(t => t.TechnicianId == targetTask.TechnicianId &&
-                           t.StartAt >= weekStart &&
-                           t.StartAt < weekEnd)
-                .ToList();
-
-            var weeklyHours = weekTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
-            var weeklyLimit = (double)technician.WeeklyLimit;
-            var weeklyUtil = weeklyLimit > 0 ? weeklyHours / weeklyLimit : 1.0;
-
-            // Conflicts
-            var hasConflict = dayTasks.Any(t => 
-                t.Id != targetTask.Id &&
-                targetTask.StartAt < t.EndAt && 
-                targetTask.EndAt > t.StartAt);
-
-            // Switches
-            var switchCount = CalculateSwitchCount(dayTasks);
-            var switchLimit = technician.TravelSwitchLimit;
-
-            return new LoadScoreContext
-            {
-                HasConflict = hasConflict,
-                IsDailyLimitExceeded = dailyHours > dailyLimit,
-                IsWeeklyLimitExceeded = weeklyHours > weeklyLimit,
-                DailyOverHours = Math.Max(0, dailyHours - dailyLimit),
-                WeeklyOverHours = Math.Max(0, weeklyHours - weeklyLimit),
-                SwitchCount = switchCount,
-                IsSwitchLimitExceeded = switchCount > switchLimit,
-                DailyUtilization = dailyUtil,
-                WeeklyUtilization = weeklyUtil
-            };
+            return EvaluateTechnicianSnapshot(
+                targetTask.TechnicianId,
+                dayStart,
+                weekStart,
+                allTasks,
+                allTechnicians);
         }
 
         private static int CalculateSwitchCount(List<TaskEntity> dayTasks)
@@ -260,6 +270,27 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             return switches;
+        }
+
+        private static bool HasConflicts(List<TaskEntity> tasks)
+        {
+            if (tasks.Count < 2)
+            {
+                return false;
+            }
+
+            var active = tasks[0];
+            for (var i = 1; i < tasks.Count; i++)
+            {
+                var current = tasks[i];
+                if (current.StartAt < active.EndAt)
+                {
+                    return true;
+                }
+                active = current;
+            }
+
+            return false;
         }
 
         private static DateTime GetWeekStart(DateTime date)

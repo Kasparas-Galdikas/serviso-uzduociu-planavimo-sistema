@@ -173,13 +173,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             bool switchesExceeded)
         {
             // Hard constraints – planas sugeneruojamas, bet laikomas nepriimtinu
-            if (hasConflict || isDailyLimitExceeded || isWeeklyLimitExceeded)
+            if (hasConflict || isDailyLimitExceeded || isWeeklyLimitExceeded || switchesExceeded)
             {
                 return LoadState.Conflict;
             }
 
             // Soft constraints – leidžiama, bet signalizuojama apkrova
-            if (dailyUtil >= 0.5d || weeklyUtil >= 0.5d || switchesExceeded)
+            // Note: Uses same threshold (>80%) as LoadScoreContext.ComputeLoadState() for consistency
+            if (dailyUtil > 0.8 || weeklyUtil > 0.8)
             {
                 return LoadState.Load;
             }

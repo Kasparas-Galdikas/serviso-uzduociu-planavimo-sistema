@@ -28,6 +28,9 @@
     lastPreviewOk: false,
     busy: false,
     originTd: null,
+    previewData: null,
+    previewDebounceTimer: null,
+    lastPreviewSlot: null,
     scroll: {
       container: null,
       rafId: null,
@@ -41,6 +44,138 @@
       td.classList.remove("is-drop-range");
       td.classList.remove("is-drop-range-invalid");
     });
+  };
+
+  const clearPreviewColors = () => {
+    document.querySelectorAll(".task-card.preview-normal, .task-card.preview-load, .task-card.preview-conflict").forEach((card) => {
+      card.classList.remove("preview-normal");
+      card.classList.remove("preview-load");
+      card.classList.remove("preview-conflict");
+    });
+  };
+
+  const applyPreviewCardColors = (previewData) => {
+    if (!previewData || !previewData.previewStates) {
+      logEvent("ui.drag.preview.apply", { status: "no-data" }, "warn");
+      return;
+    }
+
+    clearPreviewColors();
+
+    const stateMap = {};
+    previewData.previewStates.forEach((state) => {
+      stateMap[state.technicianId] = state.loadState;
+      logEvent("ui.drag.preview.state", {
+        technicianId: state.technicianId,
+        loadState: state.loadState,
+        hasConflict: state.hasConflict,
+        dailyLimitExceeded: state.isDailyLimitExceeded,
+        weeklyLimitExceeded: state.isWeeklyLimitExceeded,
+        switchLimitExceeded: state.isSwitchLimitExceeded,
+        dailyHours: state.dailyHours,
+        dailyLimit: state.dailyLimit,
+        dailyUtil: `${(state.dailyUtilization * 100).toFixed(0)}%`,
+        weeklyHours: state.weeklyHours,
+        weeklyLimit: state.weeklyLimit,
+        weeklyUtil: `${(state.weeklyUtilization * 100).toFixed(0)}%`,
+        switches: state.switchCount
+      });
+    });
+
+    let appliedCount = 0;
+    document.querySelectorAll(".task-card").forEach((card) => {
+      const techId = card.getAttribute("data-tech-id");
+      if (!techId) return;
+
+      const loadState = stateMap[techId];
+      if (!loadState) return;
+
+      const cssClass = loadState === "Conflict"
+        ? "preview-conflict"
+        : loadState === "Load"
+        ? "preview-load"
+        : "preview-normal";
+
+      card.classList.add(cssClass);
+      appliedCount++;
+    });
+
+    logEvent("ui.drag.preview.apply", {
+      totalStates: previewData.previewStates.length,
+      appliedCount: appliedCount,
+      states: previewData.previewStates.map(s => `tech${s.technicianId}:${s.loadState}`).join(", ")
+    });
+  };
+
+  const fetchDragPreview = async (slot) => {
+    if (!slot || !dragState.taskId) return;
+
+    const technicianId = parseIntSafe(slot.dataset.techId);
+    const startMinutes = parseIntSafe(slot.dataset.slotStartMinutes);
+    const targetDate = slot.dataset.date || "";
+
+    if (!technicianId || startMinutes == null || !targetDate) return;
+
+    const timezoneOffset = -new Date().getTimezoneOffset();
+    const durationMinutes = (dragState.durationSlots || 1) * 30;
+
+    const localDate = new Date(targetDate + "T00:00:00");
+    const targetStartAt = new Date(localDate.getTime() + startMinutes * 60000 - timezoneOffset * 60000);
+    const targetEndAt = new Date(targetStartAt.getTime() + durationMinutes * 60000);
+
+    try {
+      const body = JSON.stringify({
+        taskId: parseIntSafe(dragState.taskId),
+        targetTechnicianId: technicianId,
+        targetStartAt: targetStartAt.toISOString(),
+        targetEndAt: targetEndAt.toISOString(),
+      });
+
+      const resp =
+        (await logger?.fetchWithTrace?.(
+          "/api/tasks/preview/drag",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body,
+          },
+          { event: "ui.drag.preview", taskId: dragState.taskId }
+        )) ||
+        (await fetch("/api/tasks/preview/drag", {
+          method: "POST",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/json",
+          },
+          body,
+        }));
+
+      if (resp.ok) {
+        const data = await resp.json();
+        dragState.previewData = data;
+        applyPreviewCardColors(data);
+      } else {
+        logEvent("ui.drag.preview.error", { status: resp.status }, "warn");
+      }
+    } catch (err) {
+      logEvent("ui.drag.preview.error", { error: err?.message }, "error");
+    }
+  };
+
+  const scheduleDragPreview = (slot) => {
+    if (!slot || dragState.busy) return;
+
+    if (dragState.lastPreviewSlot === slot) return;
+    dragState.lastPreviewSlot = slot;
+
+    if (dragState.previewDebounceTimer) {
+      clearTimeout(dragState.previewDebounceTimer);
+    }
+
+    dragState.previewDebounceTimer = setTimeout(() => {
+      fetchDragPreview(slot);
+      dragState.previewDebounceTimer = null;
+    }, 150);
   };
 
   const getScrollContainer = () =>
@@ -121,10 +256,17 @@
     dragState.busy = false;
     dragState.originTd?.classList?.remove?.("is-drag-origin");
     dragState.originTd = null;
+    dragState.previewData = null;
+    dragState.lastPreviewSlot = null;
+    if (dragState.previewDebounceTimer) {
+      clearTimeout(dragState.previewDebounceTimer);
+      dragState.previewDebounceTimer = null;
+    }
     stopAutoScroll();
     document.querySelectorAll(".task-card.is-dragging").forEach((el) => el.classList.remove("is-dragging"));
     document.querySelectorAll(".schedule-slot.is-over").forEach((el) => el.classList.remove("is-over"));
     clearPreview();
+    clearPreviewColors();
   };
 
   const parseIntSafe = (val) => {
@@ -251,6 +393,7 @@
       if (!slot) return;
 
       applyPreviewRange(slot, dragState.durationSlots || 1, dragState.taskId);
+      scheduleDragPreview(slot);
     });
 
     tables.addEventListener("dragenter", (evt) => {
@@ -261,6 +404,7 @@
       slot.classList.add("is-over");
       updateAutoScroll(evt.clientY);
       applyPreviewRange(slot, dragState.durationSlots || 1, dragState.taskId);
+      scheduleDragPreview(slot);
     });
 
     tables.addEventListener("dragleave", (evt) => {
