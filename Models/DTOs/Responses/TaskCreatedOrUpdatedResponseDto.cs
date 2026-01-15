@@ -17,4 +17,9 @@ public class TaskCreatedOrUpdatedResponseDto
     /// Frontend should store this and include with next UPDATE/MOVE request.
     /// </summary>
     public uint Version { get; set; }
+
+    /// <summary>
+    /// Snapshot of technician load after the operation.
+    /// </summary>
+    public LoadSnapshotDto? Load { get; set; }
 }

@@ -13,9 +13,9 @@
 <body>
     @{
         var isAuthPage = Context?.Request?.Path.StartsWithSegments("/Authentication") ?? false;
-        var currentRole = (Context?.Request?.Cookies["stsps_role"] ?? string.Empty).ToLowerInvariant();
+        var currentRole = Context?.User?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value?.ToLowerInvariant() ?? string.Empty;
         var currentEmail = Context?.Request?.Cookies["stsps_email"] ?? string.Empty;
-        var isLoggedIn = !string.IsNullOrWhiteSpace(currentRole) || !string.IsNullOrWhiteSpace(currentEmail);
+        var isLoggedIn = Context?.User?.Identity?.IsAuthenticated == true;
         var roleLabel = currentRole == "technician" ? "Technikas" : "Vadovas";
         var initial = !string.IsNullOrWhiteSpace(currentEmail)
             ? currentEmail.Trim().Substring(0, 1).ToUpperInvariant()
@@ -24,7 +24,7 @@
     <header>
         <nav class="navbar navbar-expand-sm navbar-light bg-white border-bottom box-shadow mb-3">
             <div class="container-fluid">
-                <a class="navbar-brand" asp-area="" asp-controller="Schedule" asp-action="Index" asp-route-role="@(isLoggedIn ? currentRole : null)">Planavimo sistema</a>
+                <a class="navbar-brand" asp-area="" asp-controller="Schedule" asp-action="Index">Planavimo sistema</a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
                         aria-expanded="false" aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
@@ -32,7 +32,7 @@
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
                     <ul class="navbar-nav flex-grow-1">
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Schedule" asp-action="Index" asp-route-role="@(isLoggedIn ? currentRole : null)">Tvarkaraštis</a>
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Schedule" asp-action="Index">Tvarkaraštis</a>
                         </li>
                     </ul>
                     <div class="d-flex align-items-center gap-2">

@@ -28,4 +28,9 @@ public class TaskMovedResponseDto
     /// Updated task end time in local timezone (not UTC).
     /// </summary>
     public DateTime EndAt { get; set; }
+
+    /// <summary>
+    /// Snapshot of technician load after the move.
+    /// </summary>
+    public LoadSnapshotDto? Load { get; set; }
 }

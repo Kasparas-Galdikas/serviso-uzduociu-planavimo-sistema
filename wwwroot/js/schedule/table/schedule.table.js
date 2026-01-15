@@ -106,9 +106,6 @@
         state?.normalizeView?.(navBtn.dataset.view || baseQuery.get("view") || "day") || "day";
       query.set("view", navView);
 
-      const roleVal = navBtn.dataset.role || baseQuery.get("role") || "";
-      if (roleVal) query.set("role", roleVal);
-
       const targetDate = navBtn.dataset.targetDate || "";
       if (targetDate) query.set("date", targetDate);
 
@@ -116,12 +113,15 @@
       if (loc) query.set("location", loc);
       const status = navBtn.dataset.status || "";
       if (status) query.set("status", status);
+      const technicianId = navBtn.dataset.technicianId || baseQuery.get("technicianId") || "";
+      if (technicianId) query.set("technicianId", technicianId);
 
       logEvent("ui.nav.click", {
         view: navView,
         date: targetDate || "none",
         location: loc || "all",
         status: status || "all",
+        technicianId: technicianId || "all",
       });
 
       state?.setQuery?.(query, { replace: false });
@@ -133,6 +133,48 @@
       if (!query.has("view")) query.set("view", "day");
       state?.emitViewChanged?.(query);
       await fetchAndRender(query, { updateUrl: false });
+    });
+
+    // Clear technician filter button
+    document.addEventListener("click", async (evt) => {
+      const clearBtn = evt.target?.closest?.("[data-clear-technician-filter]");
+      if (!clearBtn) return;
+      evt.preventDefault();
+
+      const baseQuery = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
+      const query = new URLSearchParams();
+
+      // Keep all filters except technicianId
+      const view = baseQuery.get("view") || "day";
+      query.set("view", view);
+
+      const date = baseQuery.get("date") || "";
+      if (date) query.set("date", date);
+
+      const loc = baseQuery.get("location") || "";
+      if (loc) query.set("location", loc);
+
+      const status = baseQuery.get("status") || "";
+      if (status) query.set("status", status);
+
+      // Do NOT include technicianId - that's the point of this button
+
+      logEvent("ui.filter.clear-technician", {
+        view,
+        date: date || "none",
+        location: loc || "all",
+        status: status || "all",
+      });
+
+      state?.setQuery?.(query, { replace: false });
+      const success = await fetchAndRender(query, { button: clearBtn, updateUrl: true });
+
+      // If successful, remove ALL instances of the clear button (modal + inline)
+      if (success) {
+        document.querySelectorAll("[data-clear-technician-filter]").forEach((btn) => {
+          btn.remove();
+        });
+      }
     });
   };
 

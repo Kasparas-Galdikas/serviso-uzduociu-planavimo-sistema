@@ -172,17 +172,32 @@
     safeRemove(TRACE_KEY);
   };
 
-  window.scheduleLogger = {
-    initTrace,
-    updateFromResponse,
-    log,
-    startSpan,
-    fetchWithTrace,
-    getBuffer,
-    getContext,
-    clearBuffer,
-    clearTrace,
-  };
+  if (window.__SCHEDULE_DISABLE_LOGGER__) {
+    const noopFetch = async (url, options = {}) => fetch(url, options);
+    window.scheduleLogger = {
+      initTrace: () => null,
+      updateFromResponse: (resp) => ({ traceId: null, spanId: "" }),
+      log: () => {},
+      startSpan: () => ({ spanId: "", end: () => {} }),
+      fetchWithTrace: noopFetch,
+      getBuffer: () => [],
+      getContext: () => ({}),
+      clearBuffer: () => {},
+      clearTrace: () => {},
+    };
+  } else {
+    window.scheduleLogger = {
+      initTrace,
+      updateFromResponse,
+      log,
+      startSpan,
+      fetchWithTrace,
+      getBuffer,
+      getContext,
+      clearBuffer,
+      clearTrace,
+    };
+  }
 
   window.schedule.infra.logger = window.scheduleLogger;
 })();

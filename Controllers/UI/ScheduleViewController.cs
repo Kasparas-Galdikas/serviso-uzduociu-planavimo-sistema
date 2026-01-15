@@ -4,6 +4,7 @@ using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Services.Authorization;
 
 namespace ServiceTaskPlanningSystem.Controllers.UI
 {
@@ -14,23 +15,25 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
         private readonly IScheduleLayoutBuilder _layoutBuilder;
         private readonly IPlanService _planService;
         private readonly ILogger<ScheduleViewController> _logger;
+        private readonly IUserContextResolver _userContextResolver;
 
-        public ScheduleViewController(IScheduleProvider scheduleProvider, IScheduleLayoutBuilder layoutBuilder, IPlanService planService, ILogger<ScheduleViewController> logger)
+        public ScheduleViewController(IScheduleProvider scheduleProvider, IScheduleLayoutBuilder layoutBuilder, IPlanService planService, IUserContextResolver userContextResolver, ILogger<ScheduleViewController> logger)
         {
             _scheduleProvider = scheduleProvider;
             _layoutBuilder = layoutBuilder;
             _planService = planService;
+            _userContextResolver = userContextResolver;
             _logger = logger;
         }
 
         [HttpGet("", Name = "ScheduleView")]
         [HttpGet("Index")]
-        public async Task<IActionResult> Index(string view = "day", string? date = null, string? location = null, string? status = null)
+        public async Task<IActionResult> Index(string view = "day", string? date = null, string? location = null, string? status = null, long? technicianId = null)
         {
             var activePlan = await _planService.GetActivePlanAsync();
             var draftPlan = await _planService.GetDraftPlanAsync();
-            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
-            var isManager = role == "manager" || role == "planuotojas" || string.IsNullOrWhiteSpace(role); // default manager
+            var user = _userContextResolver.GetCurrentUser();
+            var isManager = user.IsManager;
 
             if (draftPlan != null && activePlan == null)
             {
@@ -38,8 +41,9 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             }
 
             var timezoneOffset = GetBrowserTimezoneOffset();
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role, timezoneOffset);
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
+            vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
             if (!vm.IsManager && vm.Tasks != null)
             {
                 foreach (var t in vm.Tasks)
@@ -65,12 +69,12 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
         }
 
         [HttpGet("Table", Name = "ScheduleTable")]
-        public async Task<IActionResult> Table(string view = "day", string? date = null, string? location = null, string? status = null)
+        public async Task<IActionResult> Table(string view = "day", string? date = null, string? location = null, string? status = null, long? technicianId = null)
         {
             var activePlan = await _planService.GetActivePlanAsync();
             var draftPlan = await _planService.GetDraftPlanAsync();
-            var role = (Request.Query["role"].ToString() ?? string.Empty).ToLowerInvariant();
-            var isManager = role == "manager" || role == "planuotojas" || string.IsNullOrWhiteSpace(role); // default manager
+            var user = _userContextResolver.GetCurrentUser();
+            var isManager = user.IsManager;
 
             if (draftPlan != null && activePlan == null)
             {
@@ -78,8 +82,9 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             }
 
             var timezoneOffset = GetBrowserTimezoneOffset();
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, activePlan, draftPlan, role, timezoneOffset);
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
+            vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
             if (!vm.IsManager && vm.Tasks != null)
             {
                 foreach (var t in vm.Tasks)
@@ -124,10 +129,9 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             return viewModel;
         }
 
-        /// <summary>
+       
         /// Extract browser timezone offset from request headers.
         /// Default to 0 if not provided.
-        /// </summary>
         private int GetBrowserTimezoneOffset()
         {
             // Try header first (for AJAX requests)

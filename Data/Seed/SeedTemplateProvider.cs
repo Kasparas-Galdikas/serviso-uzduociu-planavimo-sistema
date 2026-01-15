@@ -5,20 +5,20 @@ using ServiceTaskPlanningSystem.Models.Planning;
 namespace ServiceTaskPlanningSystem.Data.Seed
 {
     /// <summary>
-    /// Provides a reusable mock task template that can be mapped into any draft window.
-    /// Keeps template data decoupled from plan generation logic.
+    /// DEPRECATED: This class is no longer used.
+    /// Draft plans now clone tasks from the active plan in the database instead of using mock templates.
+    /// See PlanService.GenerateTasksFromActivePlanAsync for the new implementation.
+    /// Kept for backward compatibility but returns empty list.
     /// </summary>
+    [Obsolete("Use PlanService.GenerateTasksFromActivePlanAsync instead. This will be removed in a future version.")]
     public static class SeedTemplateProvider
     {
-        private static readonly DateTime TemplateAnchor = new DateTime(2026, 01, 05); // Monday
-        // Full 7-day template (includes weekend data if present in mocks). Reused for every draft.
-        private static readonly IReadOnlyList<TaskItem> TemplateWeek =
-            MockScheduleData.SeedTasksRange(TemplateAnchor, 7, false).AsReadOnly();
+        private static readonly IReadOnlyList<TaskItem> TemplateWeek = new List<TaskItem>().AsReadOnly();
 
         /// <summary>
-        /// Gets the base template tasks (immutable) for a full week.
-        /// Consumers can choose to skip weekends when mapping into a plan.
+        /// Returns an empty template. Draft plans now use real database tasks.
         /// </summary>
+        [Obsolete("Draft plans now clone from active plan. This will be removed in a future version.")]
         public static IReadOnlyList<TaskItem> WeekTemplate => TemplateWeek;
     }
 }

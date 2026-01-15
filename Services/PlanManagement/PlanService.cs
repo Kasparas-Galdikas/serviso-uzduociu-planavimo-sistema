@@ -10,6 +10,7 @@ using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Authorization;
+using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
@@ -38,6 +39,51 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private static WorkingWindow GetWorkingWindow(int technicianId, DateTime date) =>
             new WorkingWindow(ScheduleGrid.DayStartMinutes, ScheduleGrid.DayEndMinutes);
 
+        private async Task<long?> FindOrCreateObjectAsync(string? objectName, string? objectAddress, long? regionId, CancellationToken cancellationToken = default)
+        {
+            var normalizedName = string.IsNullOrWhiteSpace(objectName) ? null : objectName.Trim();
+            var normalizedAddress = string.IsNullOrWhiteSpace(objectAddress) ? null : objectAddress.Trim();
+
+            // If both name and address are empty, return null (no object)
+            if (string.IsNullOrEmpty(normalizedName) && string.IsNullOrEmpty(normalizedAddress))
+            {
+                return null;
+            }
+
+            // Use default values if one is missing
+            if (string.IsNullOrEmpty(normalizedName))
+            {
+                normalizedName = "Objektas";
+            }
+            if (string.IsNullOrEmpty(normalizedAddress))
+            {
+                normalizedAddress = "Nežinomas adresas";
+            }
+
+            // Try to find existing object by name and address
+            var existingObject = await _db.Objects
+                .FirstOrDefaultAsync(o => o.Name == normalizedName && o.Address == normalizedAddress, cancellationToken);
+
+            if (existingObject != null)
+            {
+                return existingObject.Id;
+            }
+
+            // Create new object
+            var newObject = new ObjectEntity
+            {
+                Name = normalizedName,
+                Address = normalizedAddress,
+                RegionId = regionId,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _db.Objects.Add(newObject);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            return newObject.Id;
+        }
+
         private enum PlacementError
         {
             None,
@@ -55,7 +101,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             int endMinutes,
             PlanEntity? plan,
             ScheduleTaskStatus status,
-            string role,
+            UserContext user,
             int timezoneOffsetMinutes,
             bool requireEndAligned,
             CancellationToken cancellationToken)
@@ -112,7 +158,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 Status = status
             };
 
-            var canEdit = await _taskPermissionService.CanEditTaskAsync(permissionProbe, role, timezoneOffsetMinutes);
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(permissionProbe, user, timezoneOffsetMinutes);
             if (!canEdit)
             {
                 return (PlacementError.NotEditable, "Neturite teisiu atlikti sio veiksmo.", default, default, null);
@@ -186,7 +232,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             await _db.SaveChangesAsync(cancellationToken);
 
             var generationEnd = window.End;
-            var seededTasks = GenerateTasksFromTemplate(technicians, window.Start, generationEnd, draftPlan.Id);
+            var seededTasks = await GenerateTasksFromActivePlanAsync(activePlan, window.Start, generationEnd, draftPlan.Id, cancellationToken);
             if (seededTasks.Any())
             {
                 _db.Tasks.AddRange(seededTasks);
@@ -264,7 +310,32 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
         }
 
-        public async Task<TaskCreateResult> CreateTaskAsync(int technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, string location, TaskPriority priority, ScheduleTaskStatus status, string role, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        private async Task AdjustPlanSpanAsync(PlanEntity plan, CancellationToken cancellationToken)
+        {
+            var span = await _db.Tasks
+                .Where(t => t.PlanId == plan.Id)
+                .Select(t => new { Start = t.StartAt.Date, End = t.EndAt.Date })
+                .ToListAsync(cancellationToken);
+
+            if (!span.Any())
+            {
+                return;
+            }
+
+            var min = span.Min(t => t.Start);
+            var max = span.Max(t => t.End);
+            var totalDays = (max - min).Days + 1;
+
+            plan.PeriodStart = min;
+            plan.PeriodEnd = max;
+            plan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
+
+            _db.Plans.Update(plan);
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("svc.plan.span.adjust planId={PlanId} start={Start} end={End} weeks={Weeks}", plan.Id, plan.PeriodStart, plan.PeriodEnd, plan.Weeks);
+        }
+
+        public async Task<TaskCreateResult> CreateTaskAsync(int technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, string location, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var taskDate = targetDate.Date;
 
@@ -323,6 +394,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var normalizedTitle = string.IsNullOrWhiteSpace(title) ? "Nauja uzduotis" : title.Trim();
             var normalizedLocation = string.IsNullOrWhiteSpace(location) ? string.Empty : location.Trim();
+            var normalizedSkill = string.IsNullOrWhiteSpace(skillLevel) ? string.Empty : skillLevel.Trim();
+            var normalizedInstructions = string.IsNullOrWhiteSpace(instructions) ? string.Empty : instructions.Trim();
 
             var validation = await ValidatePlacementAsync(
                 ignoreTaskId: null,
@@ -332,7 +405,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 endMinutes: endMinutes,
                 plan: targetPlan,
                 status: status,
-                role: role,
+                user: user,
                 timezoneOffsetMinutes: timezoneOffsetMinutes,
                 requireEndAligned: true,
                 cancellationToken: cancellationToken);
@@ -348,13 +421,19 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 };
             }
 
+            // Find or create object
+            var objectId = await FindOrCreateObjectAsync(objectName, objectAddress, validation.RegionId, cancellationToken);
+
             var task = new TaskEntity
             {
                 PlanId = targetPlan.Id,
                 TechnicianId = technicianId,
                 RegionId = validation.RegionId,
+                ObjectId = objectId,
                 Title = normalizedTitle,
                 Location = normalizedLocation,
+                SkillLevel = normalizedSkill,
+                Instructions = normalizedInstructions,
                 StartAt = validation.StartAt,
                 EndAt = validation.EndAt,
                 Priority = priority,
@@ -369,7 +448,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             return new TaskCreateResult(TaskCreateError.None, Task: task);
         }
 
-        public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, string role, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, long technicianId, UserContext user, int timezoneOffsetMinutes, string? objectName, string? objectAddress, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
                 .Include(t => t.Plan)
@@ -380,22 +459,43 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 throw new InvalidOperationException($"Task {taskId} was not found.");
             }
 
-            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, role, timezoneOffsetMinutes);
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffsetMinutes);
             if (!canEdit)
             {
                 throw new InvalidOperationException("Neturite teisiu redaguoti sios uzduoties.");
             }
 
+            if (technicianId != task.TechnicianId)
+            {
+                var targetTech = await _db.Technicians
+                    .AsNoTracking()
+                    .Select(t => new { t.Id, t.RegionId })
+                    .FirstOrDefaultAsync(t => t.Id == technicianId, cancellationToken);
+
+                if (targetTech == null)
+                {
+                    throw new InvalidOperationException("Technikas nerastas.");
+                }
+
+                task.TechnicianId = targetTech.Id;
+                task.RegionId = targetTech.RegionId;
+            }
+
             applyChanges(task);
+
+            // Find or create object if objectName/objectAddress provided
+            task.ObjectId = await FindOrCreateObjectAsync(objectName, objectAddress, task.RegionId, cancellationToken);
+
             await _db.SaveChangesAsync(cancellationToken);
             if (task.PlanId.HasValue)
             {
+                await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
                 await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
             }
-              return task;
-          }
+            return task;
+        }
 
-        public async Task<TaskMoveResult> MoveTaskAsync(long taskId, int targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, string role, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<TaskMoveResult> MoveTaskAsync(long taskId, int targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
                 .Include(t => t.Plan)
@@ -430,7 +530,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 endMinutes: endMinutes,
                 plan: task.Plan,
                 status: task.Status,
-                role: role,
+                user: user,
                 timezoneOffsetMinutes: timezoneOffsetMinutes,
                 requireEndAligned: false,
                 cancellationToken: cancellationToken);
@@ -462,6 +562,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (task.PlanId.HasValue)
             {
+                await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
                 await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
             }
 
@@ -556,121 +657,115 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _logger.LogInformation("svc.plan.discard draftId={DraftId} removedTasks={Tasks}", draft.Id, draft.Tasks.Count);
         }
 
-        private static IEnumerable<TaskEntity> GenerateTasksFromTemplate(IEnumerable<TechnicianEntity> technicians, DateTime startDate, DateTime endDate, long planId)
+        /// <summary>
+        /// Generates tasks for a draft plan by cloning tasks from the active plan.
+        /// Tasks are adjusted to fit the new date range while preserving all relationships.
+        /// </summary>
+        private async Task<List<TaskEntity>> GenerateTasksFromActivePlanAsync(
+            PlanEntity activePlan,
+            DateTime draftStart,
+            DateTime draftEnd,
+            long draftPlanId,
+            CancellationToken cancellationToken)
         {
-            var start = startDate.Date;
-            var end = endDate.Date;
-            if (end < start)
+            var result = new List<TaskEntity>();
+
+            _logger.LogInformation(
+                "svc.plan.draft.clone.start activePlanId={ActivePlanId} draftStart={DraftStart} draftEnd={DraftEnd} activePeriod={ActiveStart}-{ActiveEnd}",
+                activePlan.Id, draftStart, draftEnd, activePlan.PeriodStart, activePlan.PeriodEnd);
+
+            // Load active plan tasks with all relationships
+            var activeTasks = await _db.Tasks
+                .Include(t => t.Object)
+                .Include(t => t.Region)
+                .Where(t => t.PlanId == activePlan.Id)
+                .OrderBy(t => t.StartAt)
+                .ToListAsync(cancellationToken);
+
+            if (!activeTasks.Any())
             {
-                yield break;
+                _logger.LogWarning("svc.plan.draft.clone no tasks in active plan activePlanId={PlanId}", activePlan.Id);
+                return result;
             }
 
-            var techLookup = technicians.ToDictionary(t => t.Id);
-            var templateWeek = SeedTemplateProvider.WeekTemplate;
-            var tasksByTech = templateWeek
-                .GroupBy(t => t.TechnicianId)
+            _logger.LogInformation(
+                "svc.plan.draft.clone.tasks-loaded count={TaskCount} firstTask={FirstStart} lastTask={LastEnd}",
+                activeTasks.Count, activeTasks.First().StartAt, activeTasks.Last().EndAt);
+
+            // Calculate how many days the active task span covers (robust even if plan metadata is stale)
+            var sourceStart = activeTasks.Min(t => t.StartAt.Date);
+            var sourceEnd = activeTasks.Max(t => t.EndAt.Date);
+            var sourceSpanDays = (sourceEnd - sourceStart).Days + 1;
+            var draftDays = (draftEnd.Date - draftStart.Date).Days + 1;
+
+            _logger.LogInformation(
+                "svc.plan.draft.clone.dates sourceSpanDays={SourceDays} draftDays={DraftDays} sourceStart={SourceStart} sourceEnd={SourceEnd}",
+                sourceSpanDays, draftDays, sourceStart, sourceEnd);
+
+            // Group tasks by day offset from plan start
+            var tasksByDayOffset = activeTasks
+                .GroupBy(t => (t.StartAt.Date - sourceStart).Days)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            for (var day = start; day <= end; day = day.AddDays(1))
+            _logger.LogInformation(
+                "svc.plan.draft.clone.grouped dayOffsets={DayOffsets} totalTasksGrouped={TotalTasks}",
+                string.Join(",", tasksByDayOffset.Keys.OrderBy(k => k)),
+                tasksByDayOffset.Sum(kvp => kvp.Value.Count));
+
+            // Clone tasks for each day in the draft period
+            for (var dayOffset = 0; dayOffset < draftDays; dayOffset++)
             {
-                var templateDayOfWeek = day.DayOfWeek; // weekends naturally skipped if template has none
-                if (!templateWeek.Any(t => t.Start.Date.DayOfWeek == templateDayOfWeek))
+                var targetDate = draftStart.Date.AddDays(dayOffset);
+
+                // Use modulo to cycle through the active plan's task pattern
+                var sourceDayOffset = dayOffset % sourceSpanDays;
+
+                if (!tasksByDayOffset.TryGetValue(sourceDayOffset, out var sourceTasks))
                 {
-                    continue;
+                    _logger.LogDebug(
+                        "svc.plan.draft.clone.skip-day dayOffset={DayOffset} targetDate={TargetDate} sourceDayOffset={SourceDayOffset} reason=no-source-tasks",
+                        dayOffset, targetDate, sourceDayOffset);
+                    continue; // No tasks for this day of week pattern
                 }
 
-                foreach (var kvp in tasksByTech)
+                _logger.LogDebug(
+                    "svc.plan.draft.clone.day dayOffset={DayOffset} targetDate={TargetDate} sourceDayOffset={SourceDayOffset} sourceTaskCount={Count}",
+                    dayOffset, targetDate, sourceDayOffset, sourceTasks.Count);
+
+                foreach (var sourceTask in sourceTasks)
                 {
-                    if (!techLookup.TryGetValue(kvp.Key, out var tech))
+                    // Calculate time offset from the source day
+                    var timeOfDay = sourceTask.StartAt.TimeOfDay;
+                    var duration = sourceTask.EndAt - sourceTask.StartAt;
+
+                    // Create new task with adjusted dates
+                    var newTask = new TaskEntity
                     {
-                        continue;
-                    }
+                        PlanId = draftPlanId,
+                        TechnicianId = sourceTask.TechnicianId,
+                        ObjectId = sourceTask.ObjectId, // Preserve object reference
+                        RegionId = sourceTask.RegionId,
+                        Title = sourceTask.Title,
+                        Location = sourceTask.Location,
+                        StartAt = DateTime.SpecifyKind(targetDate.Add(timeOfDay), DateTimeKind.Utc),
+                        EndAt = DateTime.SpecifyKind(targetDate.Add(timeOfDay).Add(duration), DateTimeKind.Utc),
+                        Priority = sourceTask.Priority,
+                        Status = ScheduleTaskStatus.Planned,
+                        SkillLevel = sourceTask.SkillLevel,
+                        Instructions = sourceTask.Instructions,
+                        TechnicianComment = string.Empty, // Clear comment for new plan
+                        CreatedAt = DateTime.UtcNow
+                    };
 
-                    var dailyLimit = tech.DailyLimit > 0 ? (double)tech.DailyLimit : 8.0;
-                    var sourceTasks = kvp.Value
-                        .Where(t => t.Start.Date.DayOfWeek == templateDayOfWeek)
-                        .GroupBy(t => new
-                        {
-                            Start = t.Start.TimeOfDay,
-                            End = t.End.TimeOfDay,
-                            t.Title,
-                            t.Location,
-                            t.Priority
-                        })
-                        .Select(g => g.OrderBy(x => x.Start).First())
-                        .OrderBy(t => t.Start.TimeOfDay)
-                        .ToList();
-
-                    if (!sourceTasks.Any())
-                    {
-                        continue;
-                    }
-
-                    var accumulatedHours = 0.0;
-                    foreach (var src in sourceTasks)
-                    {
-                        var duration = (src.End - src.Start).TotalHours;
-                        if (accumulatedHours + duration > dailyLimit)
-                        {
-                            break;
-                        }
-
-                        var startAt = DateTime.SpecifyKind(day + src.Start.TimeOfDay, DateTimeKind.Utc);
-                        var endAt = DateTime.SpecifyKind(day + src.End.TimeOfDay, DateTimeKind.Utc);
-
-                        yield return new TaskEntity
-                        {
-                            PlanId = planId,
-                            TechnicianId = tech.Id,
-                            Title = src.Title,
-                            Location = src.Location,
-                            RegionId = tech.RegionId,
-                            StartAt = startAt,
-                            EndAt = endAt,
-                            Priority = MapPriority(src.Priority, src.Risk),
-                            Status = ScheduleTaskStatus.Planned,
-                            CreatedAt = DateTime.UtcNow
-                        };
-
-                        accumulatedHours += duration;
-                    }
+                    result.Add(newTask);
                 }
             }
-        }
 
-        private static TaskPriority MapPriority(string? priority, string? risk)
-        {
-            if (!string.IsNullOrWhiteSpace(priority))
-            {
-                return priority.ToLowerInvariant() switch
-                {
-                    "aukstas" => TaskPriority.High,
-                    "high" => TaskPriority.High,
-                    "zemas" => TaskPriority.Low,
-                    "low" => TaskPriority.Low,
-                    _ => TaskPriority.Medium
-                };
-            }
+            _logger.LogInformation(
+                "svc.plan.draft.clone generated {TaskCount} tasks from {SourceTaskCount} source tasks, activePlanId={ActivePlanId}",
+                result.Count, activeTasks.Count, activePlan.Id);
 
-            return MapRiskLevel(risk) switch
-            {
-                RiskLevel.High => TaskPriority.High,
-                RiskLevel.Low => TaskPriority.Low,
-                _ => TaskPriority.Medium
-            };
-        }
-
-        private static RiskLevel? MapRiskLevel(string? risk)
-        {
-            if (string.IsNullOrWhiteSpace(risk)) return null;
-            return risk.ToLowerInvariant() switch
-            {
-                "aukstas" => RiskLevel.High,
-                "high" => RiskLevel.High,
-                "zemas" => RiskLevel.Low,
-                "low" => RiskLevel.Low,
-                _ => RiskLevel.Medium
-            };
+            return result;
         }
     }
 }
