@@ -12,6 +12,7 @@ using ServiceTaskPlanningSystem.Infrastructure.Logging;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Authorization;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,11 +21,35 @@ builder.Configuration.AddConfiguration(configuration);
 
 var connectionString = ConfigurationLoader.GetRequiredConnectionString(configuration);
 
+var csb = new NpgsqlConnectionStringBuilder(connectionString);
+// SAFE logging (no password)
+Console.WriteLine("=== DATABASE CONFIG CHECK ===");
+Console.WriteLine($"Host: {csb.Host}");
+Console.WriteLine($"Port: {csb.Port}");
+Console.WriteLine($"Database: {csb.Database}");
+Console.WriteLine($"Username: {csb.Username}");
+Console.WriteLine($"SSL Mode: {csb.SslMode}");
+Console.WriteLine("Password present: " + (!string.IsNullOrEmpty(csb.Password)));
+Console.WriteLine("================================");
 var traceFilterOptions = new TraceFilterOptions();
 var traceLogStore = new TraceLogStore(traceFilterOptions);
 builder.Services.AddSingleton(traceFilterOptions);
 builder.Services.AddSingleton(traceLogStore);
 builder.Logging.AddProvider(new TraceInMemoryLoggerProvider(traceLogStore, traceFilterOptions));
+
+try
+{
+    using var conn = new NpgsqlConnection(connectionString);
+    await conn.OpenAsync();
+    Console.WriteLine("✅ Database connection test SUCCESS");
+}
+catch (Exception ex)
+{
+    Console.WriteLine("❌ Database connection test FAILED");
+    Console.WriteLine(ex.GetType().FullName);
+    Console.WriteLine(ex.Message);
+    throw; // keep failing fast
+}
 
 // Add services to the container.
 builder.Services.AddDbContext<ScheduleDbContext>(options =>
@@ -108,13 +133,26 @@ app.MapControllerRoute(
 
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+    try
+    {
+        Console.WriteLine("🔄 Starting database migration...");
+        var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+        await db.Database.MigrateAsync();
+        Console.WriteLine("✅ Database migration completed");
 
-    // migrate the database first
-    await db.Database.MigrateAsync();
-    // seed mock data
-    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
-    await seeder.SeedAsync();
+        Console.WriteLine("🌱 Starting database seeding...");
+        var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+        await seeder.SeedAsync();
+        Console.WriteLine("✅ Database seeding completed");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("🔥 DATABASE STARTUP FAILURE");
+        Console.WriteLine(ex.GetType().FullName);
+        Console.WriteLine(ex.Message);
+        Console.WriteLine(ex.StackTrace);
+        throw;
+    }
 }
 
 
