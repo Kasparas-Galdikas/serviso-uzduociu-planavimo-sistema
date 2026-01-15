@@ -16,6 +16,8 @@ namespace ServiceTaskPlanningSystem.Data
         public DbSet<ObjectEntity> Objects => Set<ObjectEntity>();
         public DbSet<TaskEntity> Tasks => Set<TaskEntity>();
         public DbSet<TaskEvaluationEntity> TaskEvaluations => Set<TaskEvaluationEntity>();
+        public DbSet<AddressEntity> Addresses => Set<AddressEntity>();
+        public DbSet<TravelRouteEntity> TravelRoutes => Set<TravelRouteEntity>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -28,6 +30,7 @@ namespace ServiceTaskPlanningSystem.Data
             modelBuilder.HasPostgresEnum<RiskLevel>();
             modelBuilder.HasPostgresEnum<LoadState>();
 
+            ConfigureAddresses(modelBuilder);
             ConfigureUsers(modelBuilder);
             ConfigureRegions(modelBuilder);
             ConfigureTechnicians(modelBuilder);
@@ -35,6 +38,32 @@ namespace ServiceTaskPlanningSystem.Data
             ConfigureObjects(modelBuilder);
             ConfigureTasks(modelBuilder);
             ConfigureTaskEvaluations(modelBuilder);
+            ConfigureTravelRoutes(modelBuilder);
+        }
+
+        private static void ConfigureAddresses(ModelBuilder modelBuilder)
+        {
+            var entity = modelBuilder.Entity<AddressEntity>();
+            entity.ToTable("addresses");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.FullAddress)
+                .IsRequired()
+                .HasMaxLength(500);
+            entity.Property(e => e.Street)
+                .HasMaxLength(200);
+            entity.Property(e => e.City)
+                .HasMaxLength(200);
+            entity.Property(e => e.Country)
+                .HasMaxLength(200);
+            entity.Property(e => e.Latitude)
+                .HasColumnType("numeric(9,6)");
+            entity.Property(e => e.Longitude)
+                .HasColumnType("numeric(9,6)");
+            entity.Property(e => e.CreatedAt)
+                .HasColumnType("timestamptz")
+                .HasDefaultValueSql("NOW()");
+            entity.HasIndex(e => e.FullAddress)
+                .IsUnique();
         }
 
         private static void ConfigureUsers(ModelBuilder modelBuilder)
@@ -85,6 +114,15 @@ namespace ServiceTaskPlanningSystem.Data
                 table.HasCheckConstraint("ck_technicians_travel_switch_non_negative", "travel_switch_limit >= 0");
             });
             entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.WorkplaceAddress)
+                .WithMany(a => a.Technicians)
+                .HasForeignKey(e => e.WorkplaceAddressId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(e => e.WorkplaceLatitude)
+                .HasColumnType("numeric(9,6)");
+            entity.Property(e => e.WorkplaceLongitude)
+                .HasColumnType("numeric(9,6)");
+
             entity.Property(e => e.DailyLimit)
                 .HasColumnType("numeric(5,2)")
                 .HasDefaultValue(8)
@@ -162,6 +200,14 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.Address)
                 .IsRequired()
                 .HasMaxLength(500);
+            entity.HasOne(e => e.AddressEntity)
+                .WithMany(a => a.Objects)
+                .HasForeignKey(e => e.AddressId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.Property(e => e.Latitude)
+                .HasColumnType("numeric(9,6)");
+            entity.Property(e => e.Longitude)
+                .HasColumnType("numeric(9,6)");
             entity.Property(e => e.Description)
                 .HasMaxLength(1000);
             entity.Property(e => e.CreatedAt)
@@ -219,6 +265,10 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.Instructions)
                 .HasMaxLength(2000)
                 .HasDefaultValue(string.Empty);
+            entity.Property(e => e.TravelDistanceKm)
+                .HasColumnType("numeric(8,2)");
+            entity.Property(e => e.TravelDurationMinutes);
+            entity.Property(e => e.PreviousTaskId);
 
             entity.HasOne(e => e.Plan)
                 .WithMany(p => p.Tasks)
@@ -238,6 +288,11 @@ namespace ServiceTaskPlanningSystem.Data
             entity.HasOne(e => e.Object)
                 .WithMany(o => o.Tasks)
                 .HasForeignKey(e => e.ObjectId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.PreviousTask)
+                .WithMany()
+                .HasForeignKey(e => e.PreviousTaskId)
                 .OnDelete(DeleteBehavior.SetNull);
 
             entity.HasIndex(e => new { e.PlanId, e.TechnicianId, e.StartAt });
@@ -263,6 +318,34 @@ namespace ServiceTaskPlanningSystem.Data
                 .WithOne(t => t.Evaluation)
                 .HasForeignKey<TaskEvaluationEntity>(e => e.TaskId)
                 .OnDelete(DeleteBehavior.Cascade);
+        }
+
+        private static void ConfigureTravelRoutes(ModelBuilder modelBuilder)
+        {
+            var entity = modelBuilder.Entity<TravelRouteEntity>();
+            entity.ToTable("travel_routes");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.DistanceKm)
+                .HasColumnType("numeric(8,2)")
+                .IsRequired();
+            entity.Property(e => e.DurationMinutes)
+                .IsRequired();
+            entity.Property(e => e.CalculatedAt)
+                .HasColumnType("timestamptz")
+                .HasDefaultValueSql("NOW()");
+
+            entity.HasOne(e => e.FromAddress)
+                .WithMany()
+                .HasForeignKey(e => e.FromAddressId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.ToAddress)
+                .WithMany()
+                .HasForeignKey(e => e.ToAddressId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => new { e.FromAddressId, e.ToAddressId })
+                .IsUnique();
         }
     }
 }

@@ -102,7 +102,13 @@
             currentUserId: @(Model.CurrentUserId?.ToString() ?? "null")
         };
     </script>
-    <script src="~/js/schedule/infra/schedule.logger.js" asp-append-version="true"></script>
+    @{
+        var isProd = string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Production", StringComparison.OrdinalIgnoreCase);
+    }
+    @if (!isProd)
+    {
+        <script src="~/js/schedule/infra/schedule.logger.js" asp-append-version="true"></script>
+    }
     <script src="~/js/schedule/filters/planning-dates.js" asp-append-version="true"></script>
     <script src="~/js/schedule/state/schedule.state.js" asp-append-version="true"></script>
     <script src="~/js/schedule/panel/schedule.panel.js" asp-append-version="true"></script>
@@ -111,7 +117,10 @@
     <script src="~/js/schedule/dragdrop/schedule.dragdrop.js" asp-append-version="true"></script>
     <script src="~/js/schedule/selection/schedule.selection.js" asp-append-version="true"></script>
     <script src="~/js/schedule/filters/schedule.filters.js" asp-append-version="true"></script>
-    <script src="~/js/schedule/debug/schedule.debug.js" asp-append-version="true"></script>
+    @if (!isProd)
+    {
+        <script src="~/js/schedule/debug/schedule.debug.js" asp-append-version="true"></script>
+    }
     <script src="~/js/schedule/init/schedule.init.js" asp-append-version="true"></script>
     <script>
         // scroll highlight for issues from modal

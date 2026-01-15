@@ -28,9 +28,13 @@
     lastPreviewOk: false,
     busy: false,
     originTd: null,
+    originStartMinutes: null,
     previewData: null,
     previewDebounceTimer: null,
     lastPreviewSlot: null,
+    lastPreviewMinutes: null,
+    lastPreviewRow: null,
+    highlightedCells: [],
     scroll: {
       container: null,
       rafId: null,
@@ -40,9 +44,15 @@
   };
 
   const clearPreview = () => {
+    // First clear tracked cells (fast path)
+    for (const td of dragState.highlightedCells) {
+      td.classList.remove("is-drop-range", "is-drop-range-invalid");
+    }
+    dragState.highlightedCells = [];
+
+    // Fallback: clear any stray cells that might have been missed
     document.querySelectorAll("td.is-drop-range, td.is-drop-range-invalid").forEach((td) => {
-      td.classList.remove("is-drop-range");
-      td.classList.remove("is-drop-range-invalid");
+      td.classList.remove("is-drop-range", "is-drop-range-invalid");
     });
   };
 
@@ -64,7 +74,7 @@
 
     const stateMap = {};
     previewData.previewStates.forEach((state) => {
-      stateMap[state.technicianId] = state.loadState;
+      stateMap[String(state.technicianId)] = state.loadState;
       logEvent("ui.drag.preview.state", {
         technicianId: state.technicianId,
         loadState: state.loadState,
@@ -119,8 +129,10 @@
     const timezoneOffset = -new Date().getTimezoneOffset();
     const durationMinutes = (dragState.durationSlots || 1) * 30;
 
+    // Convert the local grid slot to UTC for the API.
+    // JS Date() with "YYYY-MM-DDT00:00:00" is local time; to get UTC we add the signed offset.
     const localDate = new Date(targetDate + "T00:00:00");
-    const targetStartAt = new Date(localDate.getTime() + startMinutes * 60000 - timezoneOffset * 60000);
+    const targetStartAt = new Date(localDate.getTime() + startMinutes * 60000 + timezoneOffset * 60000);
     const targetEndAt = new Date(targetStartAt.getTime() + durationMinutes * 60000);
 
     try {
@@ -256,8 +268,11 @@
     dragState.busy = false;
     dragState.originTd?.classList?.remove?.("is-drag-origin");
     dragState.originTd = null;
+    dragState.originStartMinutes = null;
     dragState.previewData = null;
     dragState.lastPreviewSlot = null;
+    dragState.lastPreviewMinutes = null;
+    dragState.lastPreviewRow = null;
     if (dragState.previewDebounceTimer) {
       clearTimeout(dragState.previewDebounceTimer);
       dragState.previewDebounceTimer = null;
@@ -267,6 +282,7 @@
     document.querySelectorAll(".schedule-slot.is-over").forEach((el) => el.classList.remove("is-over"));
     clearPreview();
     clearPreviewColors();
+    dragState.highlightedCells = [];
   };
 
   const parseIntSafe = (val) => {
@@ -274,48 +290,135 @@
     return Number.isFinite(n) ? n : null;
   };
 
-  const getColSpan = (td) => {
-    const span = parseIntSafe(td?.getAttribute?.("colspan"));
-    return span && span > 0 ? span : 1;
-  };
+  const getSlotMinutesFromX = (row, clientX, techId, date) => {
+    if (!row) return null;
 
-  const isEmptySlotCell = (td) => td?.classList?.contains("empty-slot") && !!td.querySelector?.(".schedule-slot");
+    const allSlots = row.querySelectorAll(`.schedule-slot[data-tech-id="${techId}"][data-date="${date}"]`);
+    if (!allSlots.length) return null;
 
-  const isOnlyThisTaskInCell = (td, taskId) => {
-    if (!td || !taskId) return false;
-    const cards = td.querySelectorAll?.(".task-card");
-    if (!cards || !cards.length) return false;
-    return Array.from(cards).every((c) => String(c.getAttribute("data-task-id") || "") === String(taskId));
-  };
+    // Get all slot positions and find which one the cursor is closest to
+    let bestSlot = null;
+    let bestDistance = Infinity;
 
-  const applyPreviewRange = (startSlotEl, durationSlots, taskId) => {
-    clearPreview();
-    dragState.lastPreviewOk = false;
+    for (const slot of allSlots) {
+      const rect = slot.getBoundingClientRect();
+      const slotCenter = rect.left + rect.width / 2;
+      const distance = Math.abs(clientX - slotCenter);
 
-    if (!startSlotEl || !durationSlots || durationSlots <= 0) return false;
-    const startTd = startSlotEl.closest("td");
-    if (!startTd) return false;
+      // If cursor is within the slot bounds, use this slot
+      if (clientX >= rect.left && clientX <= rect.right) {
+        return parseIntSafe(slot.dataset.slotStartMinutes);
+      }
 
-    let remaining = durationSlots;
-    let td = startTd;
-    const touched = [];
-    let ok = true;
-
-    while (td && remaining > 0) {
-      const span = getColSpan(td);
-      const allowed = isEmptySlotCell(td) || isOnlyThisTaskInCell(td, taskId);
-      if (!allowed) ok = false;
-      touched.push(td);
-      remaining -= span;
-      td = td.nextElementSibling;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestSlot = slot;
+      }
     }
 
-    if (remaining > 0) ok = false;
+    // If cursor is not directly over any slot, check task cards too
+    const allCells = row.querySelectorAll("td.schedule-cell");
+    for (const cell of allCells) {
+      const rect = cell.getBoundingClientRect();
+      if (clientX >= rect.left && clientX <= rect.right) {
+        // Cursor is over this cell
+        const card = cell.querySelector(".task-card");
+        if (card) {
+          const cardStart = parseIntSafe(card.dataset.startMinutes);
+          const cardDuration = parseIntSafe(card.dataset.durationMinutes);
+          if (cardStart != null && cardDuration != null) {
+            // Calculate which slot within this task cell based on X position
+            const slotWidth = rect.width / (cardDuration / 30);
+            const offsetX = clientX - rect.left;
+            const slotIndex = Math.floor(offsetX / slotWidth);
+            return cardStart + slotIndex * 30;
+          }
+        }
+      }
+    }
 
-    touched.forEach((cell) => {
-      cell.classList.add(ok ? "is-drop-range" : "is-drop-range-invalid");
-    });
+    return bestSlot ? parseIntSafe(bestSlot.dataset.slotStartMinutes) : null;
+  };
 
+  const applyPreviewRangeByMinutes = (row, startMinutes, durationSlots, taskId, techId, date) => {
+    if (!row || startMinutes == null || !durationSlots || durationSlots <= 0) {
+      clearPreview();
+      dragState.lastPreviewOk = false;
+      dragState.lastPreviewRow = null;
+      return false;
+    }
+
+    // If row changed, clear all previous highlights first
+    const rowChanged = dragState.lastPreviewRow !== row;
+    if (rowChanged) {
+      for (const td of dragState.highlightedCells) {
+        td.classList.remove("is-drop-range", "is-drop-range-invalid");
+      }
+      dragState.highlightedCells = [];
+      dragState.lastPreviewRow = row;
+    }
+
+    const slotSize = 30;
+    const newTouched = [];
+    let ok = true;
+
+    for (let i = 0; i < durationSlots; i++) {
+      const targetMinutes = startMinutes + i * slotSize;
+
+      // First try to find an empty slot at this time
+      const slot = row.querySelector(
+        `.schedule-slot[data-tech-id="${techId}"][data-date="${date}"][data-slot-start-minutes="${targetMinutes}"]`
+      );
+
+      if (slot) {
+        const td = slot.closest("td");
+        if (td && !newTouched.includes(td)) {
+          newTouched.push(td);
+        }
+      } else {
+        // No empty slot - check if this time falls within our own task (allowed)
+        const ownTaskCard = row.querySelector(`.task-card[data-task-id="${taskId}"]`);
+        if (ownTaskCard) {
+          const cardStart = parseIntSafe(ownTaskCard.dataset.startMinutes);
+          const cardDuration = parseIntSafe(ownTaskCard.dataset.durationMinutes);
+          if (cardStart != null && cardDuration != null) {
+            const cardEnd = cardStart + cardDuration;
+            if (targetMinutes >= cardStart && targetMinutes < cardEnd) {
+              const td = ownTaskCard.closest("td");
+              if (td && !newTouched.includes(td)) {
+                newTouched.push(td);
+              }
+              continue;
+            }
+          }
+        }
+        // Time slot is occupied by another task
+        ok = false;
+      }
+    }
+
+    if (newTouched.length === 0) ok = false;
+
+    // Clear only cells that are no longer in the new set (same row)
+    if (!rowChanged) {
+      const newSet = new Set(newTouched);
+      for (const td of dragState.highlightedCells) {
+        if (!newSet.has(td)) {
+          td.classList.remove("is-drop-range", "is-drop-range-invalid");
+        }
+      }
+    }
+
+    // Apply new classes
+    const className = ok ? "is-drop-range" : "is-drop-range-invalid";
+    const oldClassName = ok ? "is-drop-range-invalid" : "is-drop-range";
+    for (const cell of newTouched) {
+      cell.classList.remove(oldClassName);
+      cell.classList.add(className);
+    }
+
+    // Update tracked cells
+    dragState.highlightedCells = newTouched;
     dragState.lastPreviewOk = ok;
     return ok;
   };
@@ -353,6 +456,7 @@
         durationMinutes && durationMinutes > 0
           ? Math.max(1, Math.ceil(durationMinutes / 30))
           : 1;
+      dragState.originStartMinutes = parseIntSafe(card.getAttribute("data-start-minutes"));
       dragState.busy = false;
       dragState.lastPreviewOk = false;
       dragState.scroll.container = getScrollContainer();
@@ -389,22 +493,53 @@
       evt.preventDefault();
       evt.dataTransfer.dropEffect = "move";
 
-      const slot = evt.target?.closest?.(".schedule-slot");
-      if (!slot) return;
+      // Use screen position to find the element under the cursor
+      const el = document.elementFromPoint(evt.clientX, evt.clientY);
+      const cell = el?.closest?.("td.schedule-cell");
+      const row = el?.closest?.("tr");
+      if (!cell || !row) return;
 
-      applyPreviewRange(slot, dragState.durationSlots || 1, dragState.taskId);
-      scheduleDragPreview(slot);
+      // Get techId and date from slot or task card in this row
+      const slot = cell.querySelector(".schedule-slot");
+      const card = cell.querySelector(".task-card");
+      const refEl = slot || card;
+      if (!refEl) return;
+
+      const techId = refEl.dataset.techId;
+      const date = refEl.dataset.date || slot?.dataset?.date;
+      if (!techId || !date) return;
+
+      // Calculate slot minutes based on cursor X position
+      const slotMinutes = getSlotMinutesFromX(row, evt.clientX, techId, date);
+      if (slotMinutes == null) return;
+
+      // Only update if position AND row unchanged
+      const rowChanged = dragState.lastPreviewRow !== row;
+      if (!rowChanged && dragState.lastPreviewMinutes === slotMinutes) return;
+      dragState.lastPreviewMinutes = slotMinutes;
+
+      applyPreviewRangeByMinutes(row, slotMinutes, dragState.durationSlots || 1, dragState.taskId, techId, date);
+
+      // Schedule API preview call
+      const previewSlot = row.querySelector(`.schedule-slot[data-tech-id="${techId}"][data-date="${date}"][data-slot-start-minutes="${slotMinutes}"]`);
+      if (previewSlot) {
+        scheduleDragPreview(previewSlot);
+      }
     });
 
     tables.addEventListener("dragenter", (evt) => {
-      const slot = evt.target?.closest?.(".schedule-slot");
-      if (!slot) return;
       if (!isDayView() || !isEditModeEnabled()) return;
       if (!dragState.taskId || !dragState.version || dragState.busy) return;
-      slot.classList.add("is-over");
+
+      const el = document.elementFromPoint(evt.clientX, evt.clientY);
+      const cell = el?.closest?.("td.schedule-cell");
+      const row = el?.closest?.("tr");
+      if (!cell || !row) return;
+
+      const slot = cell.querySelector(".schedule-slot");
+      if (slot) slot.classList.add("is-over");
+
       updateAutoScroll(evt.clientY);
-      applyPreviewRange(slot, dragState.durationSlots || 1, dragState.taskId);
-      scheduleDragPreview(slot);
     });
 
     tables.addEventListener("dragleave", (evt) => {
@@ -414,20 +549,47 @@
     });
 
     tables.addEventListener("drop", async (evt) => {
-      const slot = evt.target?.closest?.(".schedule-slot");
-      if (!slot) return;
-
       if (!isDayView()) return;
       if (!isEditModeEnabled()) return;
 
       evt.preventDefault();
-      slot.classList.remove("is-over");
       selection?.clearSelection?.("task.drag.drop");
       dragState.scroll.velocityY = 0;
 
-      const technicianId = parseIntSafe(slot.dataset.techId);
-      const startMinutes = parseIntSafe(slot.dataset.slotStartMinutes);
-      const targetDate = slot.dataset.date || "";
+      // Find the cell and row from cursor position
+      const el = document.elementFromPoint(evt.clientX, evt.clientY);
+      const cell = el?.closest?.("td.schedule-cell");
+      const row = el?.closest?.("tr");
+
+      if (!cell || !row) {
+        clearDragState();
+        return;
+      }
+
+      // Get techId and date from slot or task card
+      const slot = cell.querySelector(".schedule-slot");
+      const card = cell.querySelector(".task-card");
+      const refEl = slot || card;
+
+      if (slot) slot.classList.remove("is-over");
+
+      if (!refEl) {
+        clearDragState();
+        return;
+      }
+
+      const techId = refEl.dataset.techId;
+      const date = refEl.dataset.date || slot?.dataset?.date;
+
+      if (!techId || !date) {
+        clearDragState();
+        return;
+      }
+
+      // Calculate slot minutes based on cursor X position
+      const startMinutes = getSlotMinutesFromX(row, evt.clientX, techId, date);
+      const technicianId = parseIntSafe(techId);
+      const targetDate = date;
 
       if (!technicianId || startMinutes == null || !targetDate) {
         clearDragState();
@@ -467,10 +629,13 @@
         return;
       }
 
-      const previewOk = applyPreviewRange(
-        slot,
+      const previewOk = applyPreviewRangeByMinutes(
+        row,
+        startMinutes,
         dragState.durationSlots || 1,
-        dragState.taskId
+        dragState.taskId,
+        techId,
+        date
       );
 
       if (!previewOk) {

@@ -4,8 +4,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-using ServiceTaskPlanningSystem.Data;
 using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Data;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -74,46 +74,37 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     continue;
                 }
 
-                var dailyLimit = technician.DailyLimit > 0 ? (double)technician.DailyLimit : 8d;
-                var weeklyLimit = technician.WeeklyLimit > 0 ? (double)technician.WeeklyLimit : 40d;
-                var switchLimit = technician.TravelSwitchLimit < 0 ? 0 : technician.TravelSwitchLimit;
-
                 var tasksByDay = techGroup
                     .OrderBy(t => t.StartAt)
                     .GroupBy(t => t.StartAt.Date)
                     .ToList();
 
-                var weeklyHours = techGroup.Sum(t => (t.EndAt - t.StartAt).TotalHours);
-                var weeklyOver = Math.Max(0d, weeklyHours - weeklyLimit);
-                var isWeeklyLimitExceeded = weeklyOver > 0d;
-                var weeklyUtil = weeklyLimit > 0 ? weeklyHours / weeklyLimit : 1d;
                 foreach (var dayGroup in tasksByDay)
                 {
                     var dayTasks = dayGroup.OrderBy(t => t.StartAt).ToList();
-                    var dailyHours = dayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
-                    var dailyOver = Math.Max(0d, dailyHours - dailyLimit);
-                    var isDailyLimitExceeded = dailyOver > 0d;
-                    var dailyUtil = dailyLimit > 0 ? dailyHours / dailyLimit : 1d;
-                    var overloadHours = Math.Max(Math.Max(dailyOver, weeklyOver), 0d);
-                    overloadTotal += (double)overloadHours;
+                    var weekStart = Services.Scheduling.WeekCalculator.GetWeekStart(dayGroup.Key);
+                    var weekEnd = weekStart.AddDays(7);
+                    var weekTasks = techGroup
+                        .Where(t => t.StartAt.Date >= weekStart && t.StartAt.Date < weekEnd)
+                        .OrderBy(t => t.StartAt)
+                        .ToList();
 
-                    var switchCount = CalculateSwitchCount(dayTasks);
-                    var switchesExceeded = switchCount > switchLimit;
-                    if (switchesExceeded) switchExceeded++;
+                    var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
+                    var status = snapshot.Context.ComputeLoadState();
+                    var overloadHours = Math.Max(snapshot.Context.DailyOverHours, snapshot.Context.WeeklyOverHours);
+                    overloadTotal += overloadHours;
 
-                    var conflictSet = DetectConflicts(dayTasks);
+                    if (snapshot.Context.IsSwitchLimitExceeded)
+                    {
+                        switchExceeded++;
+                    }
+
+                    var conflictSet = snapshot.Conflicts;
                     conflictCount += conflictSet.Count;
 
                     foreach (var task in dayTasks)
                     {
                         var hasConflict = conflictSet.Contains(task.Id);
-                        var status = EvaluateLoadState(
-                            hasConflict,
-                            isDailyLimitExceeded,
-                            isWeeklyLimitExceeded,
-                            dailyUtil,
-                            weeklyUtil,
-                            switchesExceeded);
                         var taskDuration = (task.EndAt - task.StartAt).TotalHours;
 
                         var eval = trackedLookup.TryGetValue(task.Id, out var existing)
@@ -122,14 +113,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
                         eval.HasConflict = status == LoadState.Conflict;
                         eval.ConflictReason = hasConflict ? "Overlapping tasks" : null;
-                        eval.DailyHours = (decimal)Math.Round(dailyHours, 2);
-                        eval.WeeklyHours = (decimal)Math.Round(weeklyHours, 2);
+                        eval.DailyHours = (decimal)Math.Round(snapshot.DailyHours, 2);
+                        eval.WeeklyHours = (decimal)Math.Round(snapshot.WeeklyHours, 2);
                         eval.OverloadHours = overloadHours > 0d ? (decimal)Math.Round(overloadHours, 2) : null;
-                        eval.SwitchCount = switchCount;
+                        eval.SwitchCount = snapshot.SwitchCount;
                         eval.Status = status;
                         eval.IsConflict = status == LoadState.Conflict;
                         eval.IsOverloaded = status != LoadState.Normal;
-                        eval.TravelRequired = switchesExceeded;
+                        eval.TravelRequired = snapshot.Context.IsSwitchLimitExceeded;
                         eval.LoadHours = (decimal)Math.Round(taskDuration, 2);
                         eval.RiskLevel = status == LoadState.Conflict
                             ? RiskLevel.High
@@ -162,92 +153,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             await transaction.CommitAsync(cancellationToken);
 
             _logger.LogInformation("svc.eval.recalculate tasks={Tasks} techs={Techs} conflicts={Conflicts} overloadHours={OverloadHours} switchesExceeded={SwitchExceeded}", tasks.Count, tasksByTech.Count, conflictCount, overloadTotal, switchExceeded);
-        }
-
-        private static LoadState EvaluateLoadState(
-            bool hasConflict,
-            bool isDailyLimitExceeded,
-            bool isWeeklyLimitExceeded,
-            double dailyUtil,
-            double weeklyUtil,
-            bool switchesExceeded)
-        {
-            // Hard constraints – planas sugeneruojamas, bet laikomas nepriimtinu
-            if (hasConflict || isDailyLimitExceeded || isWeeklyLimitExceeded || switchesExceeded)
-            {
-                return LoadState.Conflict;
-            }
-
-            // Soft constraints – leidžiama, bet signalizuojama apkrova
-            // Note: Uses same threshold (>80%) as LoadScoreContext.ComputeLoadState() for consistency
-            if (dailyUtil > 0.8 || weeklyUtil > 0.8)
-            {
-                return LoadState.Load;
-            }
-
-            return LoadState.Normal;
-        }
-
-        private static HashSet<long> DetectConflicts(List<TaskEntity> tasks)
-        {
-            var conflicts = new HashSet<long>();
-
-            if (tasks.Count < 2)
-            {
-                return conflicts;
-            }
-
-            // Last task that doesn't conflict
-            var active = tasks[0];
-
-            for (var i = 1; i < tasks.Count; i++)
-            {
-                var current = tasks[i];
-
-                // if current starts before active ends, there's a conflict
-                if (current.StartAt < active.EndAt)
-                {
-                    conflicts.Add(active.Id);
-                    conflicts.Add(current.Id);
-
-                    // keep the one that ends later as active
-                    if (current.EndAt > active.EndAt)
-                    {
-                        active = current;
-                    }
-                }
-                else
-                {
-                    // if no conflict, move active forward
-                    active = current;
-                }
-            }
-
-            return conflicts;
-        }
-
-        // Expects tasks ordered by StartAt ascending
-        private static int CalculateSwitchCount(List<TaskEntity> tasks)
-        {
-            if (tasks.Count == 0)
-            {
-                return 0;
-            }
-
-            var switches = 0;
-            var lastLocation = tasks[0].Location;
-
-            for (var i = 1; i < tasks.Count; i++)
-            {
-                var current = tasks[i].Location;
-                if (!string.Equals(current, lastLocation, StringComparison.OrdinalIgnoreCase))
-                {
-                    switches++;
-                }
-                lastLocation = current;
-            }
-
-            return switches;
         }
     }
 }

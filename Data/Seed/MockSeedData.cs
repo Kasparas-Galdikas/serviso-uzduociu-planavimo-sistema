@@ -30,6 +30,9 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             public decimal WeeklyLimit { get; set; }
             public int TravelSwitchLimit { get; set; }
             public string? RulesSummary { get; set; }
+            public string WorkplaceAddress { get; set; } = string.Empty;
+            public decimal? WorkplaceLatitude { get; set; }
+            public decimal? WorkplaceLongitude { get; set; }
         }
 
         public class MockObject
@@ -87,22 +90,22 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
         public static List<MockTechnician> GetTechnicians() => new()
         {
-            new() { Name = "Austeja J.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h, savaites 40h" },
-            new() { Name = "Dovydas K.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h, savaites 45h" },
-            new() { Name = "Gabija P.", RegionName = "Siauliai", DailyLimit = 8, WeeklyLimit = 42, TravelSwitchLimit = 3, RulesSummary = "Dienos limitas 8h, savaites 42h" },
-            new() { Name = "Lukas V.", RegionName = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Monika S.", RegionName = "Panevezys", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 0, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Rokas M.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 35, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Greta B.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Mantas P.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 0, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Ieva Z.", RegionName = "Alytus", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Paulius T.", RegionName = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Jurate R.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Tomas G.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 3, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Elze K.", RegionName = "Siauliai", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Vaidotas L.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Karolina N.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" },
-            new() { Name = "Technician", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h" }
+            new() { Name = "Austeja J.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h, savaites 40h", WorkplaceAddress = "Gedimino pr. 1, Vilnius" },
+            new() { Name = "Dovydas K.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h, savaites 45h", WorkplaceAddress = "Laisvės al. 10, Kaunas" },
+            new() { Name = "Gabija P.", RegionName = "Siauliai", DailyLimit = 8, WeeklyLimit = 42, TravelSwitchLimit = 3, RulesSummary = "Dienos limitas 8h, savaites 42h", WorkplaceAddress = "Vilniaus g. 100, Šiauliai" },
+            new() { Name = "Lukas V.", RegionName = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "H. Manto g. 5, Klaipėda" },
+            new() { Name = "Monika S.", RegionName = "Panevezys", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 0, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Respublikos g. 2, Panevėžys" },
+            new() { Name = "Rokas M.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 35, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Ozo g. 25, Vilnius" },
+            new() { Name = "Greta B.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Savanorių pr. 255, Kaunas" },
+            new() { Name = "Mantas P.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 0, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Ukmergės g. 369, Vilnius" },
+            new() { Name = "Ieva Z.", RegionName = "Alytus", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Naujoji g. 50, Alytus" },
+            new() { Name = "Paulius T.", RegionName = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Taikos pr. 141, Klaipėda" },
+            new() { Name = "Jurate R.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Pilies g. 10, Vilnius" },
+            new() { Name = "Tomas G.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 3, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "K. Donelaičio g. 50, Kaunas" },
+            new() { Name = "Elze K.", RegionName = "Siauliai", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Tilžės g. 50, Šiauliai" },
+            new() { Name = "Vaidotas L.", RegionName = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 2, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Žalgirio g. 90, Vilnius" },
+            new() { Name = "Karolina N.", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Kęstučio g. 15, Kaunas" },
+            new() { Name = "Technician", RegionName = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, TravelSwitchLimit = 1, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Vytauto pr. 24, Kaunas" }
         };
 
         public static List<MockObject> GetObjects() => new()

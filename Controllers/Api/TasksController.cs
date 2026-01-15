@@ -1,6 +1,3 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
@@ -9,7 +6,6 @@ using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
-using Microsoft.Extensions.Logging;
 using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using ServiceTaskPlanningSystem.Services.Scheduling;
@@ -35,6 +31,100 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             _timeService = timeService;
             _userContextResolver = userContextResolver;
             _logger = logger;
+        }
+
+        private static DateTime GetWeekStartUtc(DateTime dateUtc)
+        {
+            var dayOfWeek = dateUtc.DayOfWeek;
+            var diff = dayOfWeek - DayOfWeek.Monday;
+            if (diff < 0) diff += 7;
+            return dateUtc.AddDays(-diff).Date;
+        }
+
+        private static LoadSnapshotDto ToLoadSnapshotDto(TechnicianEntity technician, WorkloadSnapshot snapshot)
+        {
+            var context = snapshot.Context;
+            return new LoadSnapshotDto
+            {
+                LoadState = context.ComputeLoadState().ToString(),
+                HasConflict = context.HasConflict,
+                IsDailyLimitExceeded = context.IsDailyLimitExceeded,
+                IsWeeklyLimitExceeded = context.IsWeeklyLimitExceeded,
+                IsSwitchLimitExceeded = context.IsSwitchLimitExceeded,
+                DailyHours = Math.Round(snapshot.DailyHours, 2),
+                WeeklyHours = Math.Round(snapshot.WeeklyHours, 2),
+                DailyLimit = (double)technician.DailyLimit,
+                WeeklyLimit = (double)technician.WeeklyLimit,
+                DailyUtilization = Math.Round(context.DailyUtilization, 2),
+                WeeklyUtilization = Math.Round(context.WeeklyUtilization, 2),
+                SwitchCount = snapshot.SwitchCount
+            };
+        }
+
+        private static LoadSnapshotDto BuildLoadSnapshotForSimulation(
+            long technicianId,
+            DateTime dayStartUtc,
+            List<TaskEntity> tasks,
+            List<TechnicianEntity> technicians)
+        {
+            var technician = technicians.FirstOrDefault(t => t.Id == technicianId);
+            if (technician == null)
+            {
+                return new LoadSnapshotDto();
+            }
+
+            var dayEnd = dayStartUtc.AddDays(1);
+            var weekStart = GetWeekStartUtc(dayStartUtc);
+            var weekEnd = weekStart.AddDays(7);
+
+            var dayTasks = tasks
+                .Where(t => t.TechnicianId == technicianId &&
+                            t.StartAt >= dayStartUtc &&
+                            t.StartAt < dayEnd)
+                .OrderBy(t => t.StartAt)
+                .ToList();
+
+            var weekTasks = tasks
+                .Where(t => t.TechnicianId == technicianId &&
+                            t.StartAt >= weekStart &&
+                            t.StartAt < weekEnd)
+                .OrderBy(t => t.StartAt)
+                .ToList();
+
+            var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
+            return ToLoadSnapshotDto(technician, snapshot);
+        }
+
+        private async Task<LoadSnapshotDto> BuildLoadSnapshotAsync(long technicianId, DateTime dayStartUtc, CancellationToken cancellationToken)
+        {
+            var technician = await _db.Technicians
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == technicianId, cancellationToken);
+
+            if (technician == null)
+            {
+                return new LoadSnapshotDto();
+            }
+
+            var dayEnd = dayStartUtc.AddDays(1);
+            var weekStart = GetWeekStartUtc(dayStartUtc);
+            var weekEnd = weekStart.AddDays(7);
+
+            var weekTasks = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.TechnicianId == technicianId &&
+                            t.StartAt >= weekStart &&
+                            t.StartAt < weekEnd)
+                .OrderBy(t => t.StartAt)
+                .ToListAsync(cancellationToken);
+
+            var dayTasks = weekTasks
+                .Where(t => t.StartAt >= dayStartUtc && t.StartAt < dayEnd)
+                .OrderBy(t => t.StartAt)
+                .ToList();
+
+            var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
+            return ToLoadSnapshotDto(technician, snapshot);
         }
 
         [HttpPost]
@@ -80,7 +170,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 var response = new TaskCreatedOrUpdatedResponseDto
                 {
                     Id = result.Task.Id,
-                    Version = version
+                    Version = version,
+                    Load = await BuildLoadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
                 };
 
                 _logger.LogInformation("api.task.create id={Id} planId={PlanId}", result.Task.Id, result.Task.PlanId);
@@ -261,29 +352,27 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             foreach (var tech in visibleTechs)
             {
-                var loadContext = PlanSimulationContext.EvaluateTechnicianSnapshot(
+                var loadSnapshot = BuildLoadSnapshotForSimulation(
                     tech.Id,
                     dayStart,
-                    weekStart,
                     modifiedSim.Tasks.ToList(),
                     modifiedSim.Technicians.ToList());
 
-                var state = loadContext.ComputeLoadState();
                 response.PreviewStates.Add(new DragPreviewStateDto
                 {
                     TechnicianId = tech.Id,
-                    LoadState = state.ToString(),
-                    HasConflict = loadContext.HasConflict,
-                    IsDailyLimitExceeded = loadContext.IsDailyLimitExceeded,
-                    IsWeeklyLimitExceeded = loadContext.IsWeeklyLimitExceeded,
-                    IsSwitchLimitExceeded = loadContext.IsSwitchLimitExceeded,
-                    DailyHours = Math.Round(loadContext.DailyUtilization * (double)tech.DailyLimit, 2),
-                    WeeklyHours = Math.Round(loadContext.WeeklyUtilization * (double)tech.WeeklyLimit, 2),
-                    DailyLimit = (double)tech.DailyLimit,
-                    WeeklyLimit = (double)tech.WeeklyLimit,
-                    DailyUtilization = Math.Round(loadContext.DailyUtilization, 2),
-                    WeeklyUtilization = Math.Round(loadContext.WeeklyUtilization, 2),
-                    SwitchCount = loadContext.SwitchCount
+                    LoadState = loadSnapshot.LoadState,
+                    HasConflict = loadSnapshot.HasConflict,
+                    IsDailyLimitExceeded = loadSnapshot.IsDailyLimitExceeded,
+                    IsWeeklyLimitExceeded = loadSnapshot.IsWeeklyLimitExceeded,
+                    IsSwitchLimitExceeded = loadSnapshot.IsSwitchLimitExceeded,
+                    DailyHours = Math.Round(loadSnapshot.DailyHours, 2),
+                    WeeklyHours = Math.Round(loadSnapshot.WeeklyHours, 2),
+                    DailyLimit = loadSnapshot.DailyLimit,
+                    WeeklyLimit = loadSnapshot.WeeklyLimit,
+                    DailyUtilization = Math.Round(loadSnapshot.DailyUtilization, 2),
+                    WeeklyUtilization = Math.Round(loadSnapshot.WeeklyUtilization, 2),
+                    SwitchCount = loadSnapshot.SwitchCount
                 });
             }
 
@@ -337,7 +426,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 var response = new TaskCreatedOrUpdatedResponseDto
                 {
                     Id = updated.Id,
-                    Version = version
+                    Version = version,
+                    Load = await BuildLoadSnapshotAsync(updated.TechnicianId, updated.StartAt.Date, cancellationToken)
                 };
 
                 _logger.LogInformation("api.task.update id={Id} planId={PlanId} version={Version}", id, updated.PlanId, version);
@@ -398,7 +488,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     Version = version,
                     TechnicianId = result.Task.TechnicianId,
                     StartAt = localStartAt,
-                    EndAt = localEndAt
+                    EndAt = localEndAt,
+                    Load = await BuildLoadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
                 };
 
                 _logger.LogInformation("api.task.move id={Id} techId={TechId} version={Version}", id, dto.TargetTechnicianId, version);
@@ -522,12 +613,10 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             return false;
         }
 
-        /// <summary>
         /// Extract browser timezone offset from request headers.
         /// Default to 0 if not provided.
         /// Note: The offset is already signed correctly from JavaScript (-120 for UTC+2),
         /// so we don't apply Math.Abs() here.
-        /// </summary>
         private int GetBrowserTimezoneOffset()
         {
             // Try header first (for AJAX requests)

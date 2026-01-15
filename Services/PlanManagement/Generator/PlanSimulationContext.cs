@@ -124,29 +124,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                            t.StartAt < weekEnd)
                 .ToList();
 
-            var dailyHours = dayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
-            var weeklyHours = weekTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
-            var dailyLimit = (double)technician.DailyLimit;
-            var weeklyLimit = (double)technician.WeeklyLimit;
-            var dailyUtil = dailyLimit > 0 ? dailyHours / dailyLimit : 1.0;
-            var weeklyUtil = weeklyLimit > 0 ? weeklyHours / weeklyLimit : 1.0;
-
-            var hasConflict = HasConflicts(dayTasks);
-            var switchCount = CalculateSwitchCount(dayTasks);
-            var switchLimit = technician.TravelSwitchLimit;
-
-            return new LoadScoreContext
-            {
-                HasConflict = hasConflict,
-                IsDailyLimitExceeded = dailyHours > dailyLimit,
-                IsWeeklyLimitExceeded = weeklyHours > weeklyLimit,
-                DailyOverHours = Math.Max(0, dailyHours - dailyLimit),
-                WeeklyOverHours = Math.Max(0, weeklyHours - weeklyLimit),
-                SwitchCount = switchCount,
-                IsSwitchLimitExceeded = switchCount > switchLimit,
-                DailyUtilization = dailyUtil,
-                WeeklyUtilization = weeklyUtil
-            };
+            var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
+            return snapshot.Context;
         }
 
         /// <summary>
@@ -168,7 +147,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var dailyHours = dayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
             var dailyLimit = (double)technician.DailyLimit;
-            var switchCount = CalculateSwitchCount(dayTasks);
+            var switchCount = WorkloadCalculator.CalculateSwitchCount(dayTasks);
 
             return new DayWorkload(
                 TechnicianId: technicianId,
@@ -251,46 +230,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 weekStart,
                 allTasks,
                 allTechnicians);
-        }
-
-        private static int CalculateSwitchCount(List<TaskEntity> dayTasks)
-        {
-            if (dayTasks.Count == 0) return 0;
-
-            var switches = 0;
-            var lastLocation = dayTasks[0].Location;
-
-            for (int i = 1; i < dayTasks.Count; i++)
-            {
-                if (!string.Equals(dayTasks[i].Location, lastLocation, StringComparison.OrdinalIgnoreCase))
-                {
-                    switches++;
-                }
-                lastLocation = dayTasks[i].Location;
-            }
-
-            return switches;
-        }
-
-        private static bool HasConflicts(List<TaskEntity> tasks)
-        {
-            if (tasks.Count < 2)
-            {
-                return false;
-            }
-
-            var active = tasks[0];
-            for (var i = 1; i < tasks.Count; i++)
-            {
-                var current = tasks[i];
-                if (current.StartAt < active.EndAt)
-                {
-                    return true;
-                }
-                active = current;
-            }
-
-            return false;
         }
 
         private static DateTime GetWeekStart(DateTime date)

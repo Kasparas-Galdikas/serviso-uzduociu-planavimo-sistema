@@ -129,10 +129,9 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             return viewModel;
         }
 
-        /// <summary>
+       
         /// Extract browser timezone offset from request headers.
         /// Default to 0 if not provided.
-        /// </summary>
         private int GetBrowserTimezoneOffset()
         {
             // Try header first (for AJAX requests)

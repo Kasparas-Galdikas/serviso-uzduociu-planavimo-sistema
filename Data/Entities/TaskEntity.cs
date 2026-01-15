@@ -19,11 +19,15 @@ namespace ServiceTaskPlanningSystem.Data
         public string TechnicianComment { get; set; } = string.Empty; // Technician can update this field
         public string SkillLevel { get; set; } = string.Empty;
         public string Instructions { get; set; } = string.Empty;
+        public decimal? TravelDistanceKm { get; set; }
+        public int? TravelDurationMinutes { get; set; }
+        public long? PreviousTaskId { get; set; }
 
         public PlanEntity? Plan { get; set; }
         public TechnicianEntity Technician { get; set; } = default!;
         public RegionEntity? Region { get; set; }
         public ObjectEntity? Object { get; set; }
         public TaskEvaluationEntity? Evaluation { get; set; }
+        public TaskEntity? PreviousTask { get; set; }
     }
 }

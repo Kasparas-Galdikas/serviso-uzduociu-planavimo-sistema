@@ -110,7 +110,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         /// - If original score was 50 and candidate is 50: confidence = 0 (no improvement)
         /// <param name="originalScore">Current plan's score</param>
         /// <param name="candidateScore">Candidate plan's score</param>
-        /// <returns>Confidence (0.0-1.0), clamped</returns>
         public static double CalculateConfidence(double originalScore, double candidateScore)
         {
             if (originalScore <= 0)
