@@ -22,7 +22,7 @@ builder.Configuration.AddConfiguration(configuration);
 var connectionString = ConfigurationLoader.GetRequiredConnectionString(configuration);
 
 var csb = new NpgsqlConnectionStringBuilder(connectionString);
-// 🔴 SAFE logging (no password)
+// SAFE logging (no password)
 Console.WriteLine("=== DATABASE CONFIG CHECK ===");
 Console.WriteLine($"Host: {csb.Host}");
 Console.WriteLine($"Port: {csb.Port}");
