@@ -108,8 +108,14 @@ app.MapControllerRoute(
 
 using (var scope = app.Services.CreateScope())
 {
+    var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+
+    // migrate the database first
+    await db.Database.MigrateAsync();
+    // seed mock data
     var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
     await seeder.SeedAsync();
 }
+
 
 await app.RunAsync();
