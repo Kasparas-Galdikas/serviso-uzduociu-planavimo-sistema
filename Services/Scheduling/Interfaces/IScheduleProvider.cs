@@ -11,7 +11,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             string view,
             string? date,
             string? location,
-            string? status,
+            string? workload,
             long? technicianId,
             PlanEntity? activePlan,
             PlanEntity? draftPlan,

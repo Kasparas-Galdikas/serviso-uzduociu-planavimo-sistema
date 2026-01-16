@@ -28,7 +28,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
 
         [HttpGet("", Name = "ScheduleView")]
         [HttpGet("Index")]
-        public async Task<IActionResult> Index(string view = "day", string? date = null, string? location = null, string? status = null, long? technicianId = null)
+        public async Task<IActionResult> Index(string view = "day", string? date = null, string? location = null, string? workload = null, long? technicianId = null)
         {
             var activePlan = await _planService.GetActivePlanAsync();
             var draftPlan = await _planService.GetDraftPlanAsync();
@@ -41,7 +41,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             }
 
             var timezoneOffset = GetBrowserTimezoneOffset();
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, technicianId, activePlan, draftPlan, user, timezoneOffset);
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
             vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
             if (!vm.IsManager && vm.Tasks != null)
@@ -52,11 +52,11 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
                 }
             }
             vm = EnrichWithLayout(vm);
-            _logger.LogInformation("api.schedule.index {View} {Date} {Location} {Status} active={Active} activePeriod={ActiveStart}-{ActiveEnd} activeStatus={ActiveStatus} draft={Draft} draftPeriod={DraftStart}-{DraftEnd} draftStatus={DraftStatus}",
+            _logger.LogInformation("api.schedule.index {View} {Date} {Location} {Workload} active={Active} activePeriod={ActiveStart}-{ActiveEnd} activeStatus={ActiveStatus} draft={Draft} draftPeriod={DraftStart}-{DraftEnd} draftStatus={DraftStatus}",
                 vm.ViewMode,
                 vm.SelectedDate,
                 location ?? "all",
-                status ?? "all",
+                workload ?? "all",
                 activePlan?.Id,
                 activePlan?.PeriodStart,
                 activePlan?.PeriodEnd,
@@ -69,7 +69,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
         }
 
         [HttpGet("Table", Name = "ScheduleTable")]
-        public async Task<IActionResult> Table(string view = "day", string? date = null, string? location = null, string? status = null, long? technicianId = null)
+        public async Task<IActionResult> Table(string view = "day", string? date = null, string? location = null, string? workload = null, long? technicianId = null)
         {
             var activePlan = await _planService.GetActivePlanAsync();
             var draftPlan = await _planService.GetDraftPlanAsync();
@@ -82,7 +82,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             }
 
             var timezoneOffset = GetBrowserTimezoneOffset();
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, status, technicianId, activePlan, draftPlan, user, timezoneOffset);
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
             vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
             if (!vm.IsManager && vm.Tasks != null)
@@ -97,11 +97,11 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
                 ? "~/Views/Schedule/Partials/Tables/_WeeklyTable.cshtml"
                 : "~/Views/Schedule/Partials/Tables/_DailyTable.cshtml";
 
-            _logger.LogInformation("api.schedule.table {View} {Date} {Location} {Status} tasks={TaskCount} issues={Issues} active={Active} activePeriod={ActiveStart}-{ActiveEnd} activeStatus={ActiveStatus} draft={Draft} draftPeriod={DraftStart}-{DraftEnd} draftStatus={DraftStatus}",
+            _logger.LogInformation("api.schedule.table {View} {Date} {Location} {Workload} tasks={TaskCount} issues={Issues} active={Active} activePeriod={ActiveStart}-{ActiveEnd} activeStatus={ActiveStatus} draft={Draft} draftPeriod={DraftStart}-{DraftEnd} draftStatus={DraftStatus}",
                 vm.ViewMode,
                 vm.SelectedDate,
                 location ?? "all",
-                status ?? "all",
+                workload ?? "all",
                 vm.Tasks?.Count ?? 0,
                 vm.Issues?.Count ?? 0,
                 activePlan?.Id,

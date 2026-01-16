@@ -2,9 +2,9 @@
 @model ServiceTaskPlanningSystem.Models.Planning.SchedulePageViewModel
 @{
     var locationOptions = Model.AvailableLocations ?? new List<string>();
-    var statusOptions = Model.AvailableStatuses ?? new List<string>();
+    var workloadOptions = Model.AvailableStatuses ?? new List<string>();
     var selectedLocation = ViewContext.HttpContext.Request.Query["location"].ToString();
-    var selectedStatus = ViewContext.HttpContext.Request.Query["status"].ToString();
+    var selectedWorkload = ViewContext.HttpContext.Request.Query["workload"].ToString();
     var selectedDateParam = ViewContext.HttpContext.Request.Query["date"].ToString();
 }
 <div class="filter-console-trigger">
@@ -33,7 +33,7 @@
      data-planned-period-start="@Model.PlannedPeriodStart.ToString("yyyy-MM-dd")"
      data-planned-period-end="@Model.PlannedPeriodEnd.ToString("yyyy-MM-dd")"
      data-selected-location="@selectedLocation"
-     data-selected-status="@selectedStatus"
+     data-selected-workload="@selectedWorkload"
      data-date-param="@selectedDateParam"
      data-is-manager="@(Model.IsManager.ToString().ToLowerInvariant())">
     <div class="modal-dialog modal-lg modal-dialog-centered">
