@@ -152,7 +152,8 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                         {
                             TechnicianName = technician.Name,
                             Title = taskIndex == 0 ? "Ryto vizitas" : taskIndex == taskCount - 1 ? "Dienos pabaigos darbai" : $"Darbai - {mockObject.Name}",
-                            Location = technician.RegionName,
+                            // Store the actual object address so UI can display a real location instead of the technician's region.
+                            Location = mockObject.Address,
                             StartTime = currentDate.AddHours(startHour),
                             EndTime = currentDate.AddHours(endHour),
                             Priority = TaskPriority.Medium,
