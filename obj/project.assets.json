@@ -2807,6 +2807,7 @@
   "projectFileDependencyGroups": {
     "net9.0": [
       "EFCore.NamingConventions >= 9.0.0",
+      "Microsoft.CodeAnalysis.Analyzers >= 3.3.4",
       "Microsoft.EntityFrameworkCore.Design >= 9.0.1",
       "Npgsql.EntityFrameworkCore.PostgreSQL >= 9.0.4"
     ]
@@ -2857,6 +2858,11 @@
           "EFCore.NamingConventions": {
             "target": "Package",
             "version": "[9.0.0, )"
+          },
+          "Microsoft.CodeAnalysis.Analyzers": {
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[3.3.4, )"
           },
           "Microsoft.EntityFrameworkCore.Design": {
             "suppressParent": "All",
