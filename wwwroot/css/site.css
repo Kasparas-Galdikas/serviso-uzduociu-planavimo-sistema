@@ -67,6 +67,23 @@ body {
   margin-bottom: 0.25rem;
 }
 
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  /* Allow the badge row to wrap instead of forcing horizontal overflow */
+  .page-header > .ms-auto {
+    margin-left: 0 !important;
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
 .page-section {
   margin-bottom: 24px;
   padding-bottom: 16px;
@@ -260,6 +277,28 @@ body {
   margin-top: 24px;
 }
 .footer .badge { box-shadow: none; }
+
+/* =========================================================
+   Debug drawer responsiveness
+   ========================================================= */
+@media (max-width: 768px) {
+  #scheduleDebugDrawer .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  #scheduleDebugDrawer .card-header > .d-flex {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+
+  #scheduleDebugDrawer .badge {
+    order: -1; /* keep trace id visible first */
+  }
+}
 
 /* =========================================================
    Typography
