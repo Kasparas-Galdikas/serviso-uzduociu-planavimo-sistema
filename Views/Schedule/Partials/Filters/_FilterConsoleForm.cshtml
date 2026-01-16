@@ -17,7 +17,7 @@
     var darboStatusasBtnClass = isApkrova ? "btn btn-outline-secondary btn-sm" : "btn btn-primary btn-sm active";
 
     var locationOptions = Model.AvailableLocations ?? new List<string>();
-    var statusOptions = Model.AvailableStatuses ?? new List<string>();
+    var workloadOptions = Model.AvailableStatuses ?? new List<string>();
 
     var dayDateId = $"{prefix}-filterDayDate";
     var weekDateId = $"{prefix}-filterWeekDate";
@@ -49,16 +49,16 @@
 
 <div class="row g-3 mb-2">
     <div class="col-12 col-md-6">
-        <label class="form-label small mb-1" for="@workloadId">Apkrova</label>
+        <label class="form-label small mb-1" for="@workloadId">Darbo apkrova</label>
         <select class="form-select" id="@workloadId" data-filter="workload">
-            @foreach (var status in statusOptions)
+            @foreach (var workload in workloadOptions)
             {
-                <option value="@status">@status</option>
+                <option value="@workload">@workload</option>
             }
         </select>
     </div>
     <div class="col-12 col-md-6">
-        <label class="form-label small mb-1" for="@statusId">Statusas</label>
+        <label class="form-label small mb-1" for="@statusId">Darbo statusas</label>
         <select class="form-select" id="@statusId" data-filter="status">
             <option value="">Visi</option>
             <option value="atlikta">Atlikta</option>

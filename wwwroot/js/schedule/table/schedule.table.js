@@ -111,8 +111,8 @@
 
       const loc = navBtn.dataset.location || "";
       if (loc) query.set("location", loc);
-      const status = navBtn.dataset.status || "";
-      if (status) query.set("status", status);
+      const workload = navBtn.dataset.workload || "";
+      if (workload) query.set("workload", workload);
       const technicianId = navBtn.dataset.technicianId || baseQuery.get("technicianId") || "";
       if (technicianId) query.set("technicianId", technicianId);
 
@@ -120,7 +120,7 @@
         view: navView,
         date: targetDate || "none",
         location: loc || "all",
-        status: status || "all",
+        workload: workload || "all",
         technicianId: technicianId || "all",
       });
 
@@ -154,8 +154,8 @@
       const loc = baseQuery.get("location") || "";
       if (loc) query.set("location", loc);
 
-      const status = baseQuery.get("status") || "";
-      if (status) query.set("status", status);
+      const workload = baseQuery.get("workload") || "";
+      if (workload) query.set("workload", workload);
 
       // Do NOT include technicianId - that's the point of this button
 
@@ -163,7 +163,7 @@
         view,
         date: date || "none",
         location: loc || "all",
-        status: status || "all",
+        workload: workload || "all",
       });
 
       state?.setQuery?.(query, { replace: false });

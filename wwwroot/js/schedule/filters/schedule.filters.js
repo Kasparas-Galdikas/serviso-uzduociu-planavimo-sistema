@@ -74,10 +74,10 @@
       locationInput.value = query.get("location") || "";
     }
 
-    const statusInput = root.querySelector('[data-filter="status"]');
-    if (statusInput) {
-      const statusParam = query.get("status");
-      statusInput.value = statusParam || "Visi";
+    const workloadInput = root.querySelector('[data-filter="workload"]');
+    if (workloadInput) {
+      const workloadParam = query.get("workload");
+      workloadInput.value = workloadParam || "Visos";
     }
   };
 
@@ -93,32 +93,32 @@
     const dayDateInput = root.querySelector('[data-filter="dayDate"]');
     const weekDateInput = root.querySelector('[data-filter="weekDate"]');
     const locationInput = root.querySelector('[data-filter="location"]');
-    const statusInput = root.querySelector('[data-filter="status"]');
+    const workloadInput = root.querySelector('[data-filter="workload"]');
 
     const dateVal = pendingView === "week" ? weekDateInput?.value || "" : dayDateInput?.value || "";
     const locVal = locationInput?.value || "";
-    const statusVal = statusInput?.value || "";
+    const workloadVal = workloadInput?.value || "";
 
-    return { view: pendingView, date: dateVal, location: locVal, status: statusVal };
+    return { view: pendingView, date: dateVal, location: locVal, workload: workloadVal };
   };
 
   const applyFromRoot = async (root, { button } = {}) => {
     const baseQuery = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
     const technicianId = baseQuery.get("technicianId") || "";
 
-    const { view, date, location, status } = readFiltersFromUI(root);
+    const { view, date, location, workload } = readFiltersFromUI(root);
     const query = new URLSearchParams();
     query.set("view", view);
     if (date) query.set("date", date);
     if (location) query.set("location", location);
-    if (status) query.set("status", status);
+    if (workload) query.set("workload", workload);
     if (technicianId) query.set("technicianId", technicianId);
 
     logEvent("ui.filter.apply", {
       view,
       date: date || "none",
       location: location || "all",
-      status: status || "all",
+      workload: workload || "all",
       technicianId: technicianId || "all",
     });
 

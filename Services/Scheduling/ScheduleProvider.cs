@@ -34,7 +34,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             _logger = logger;
         }
 
-        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? status, long? technicianId, PlanEntity? activePlan, PlanEntity? draftPlan, UserContext user, int timezoneOffsetMinutes)
+        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? workload, long? technicianId, PlanEntity? activePlan, PlanEntity? draftPlan, UserContext user, int timezoneOffsetMinutes)
         {
             var selectedDate = DateResolver.ParseOrToday(date);
             var viewMode = NormalizeView(view);
@@ -44,7 +44,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
             var boundary = await _planningCalendar.GetBoundaryAsync();
 
-            _logger.LogInformation("svc.schedule.request view={ViewMode} date={Date} week={WeekStart}-{WeekEnd} location={Location} status={Status} technicianId={TechnicianId}", viewMode, selectedDate, weekStart, weekEnd, location, status, technicianId);
+            _logger.LogInformation("svc.schedule.request view={ViewMode} date={Date} week={WeekStart}-{WeekEnd} location={Location} workload={Workload} technicianId={TechnicianId}", viewMode, selectedDate, weekStart, weekEnd, location, workload, technicianId);
 
             var technicians = await _db.Technicians
                 .AsNoTracking()
@@ -143,11 +143,11 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(l => l)
                 .ToList();
-            var availableStatuses = BuildAvailableStatuses(tasks);
+            var availableWorkloadLevels = BuildAvailableWorkloadLevels(tasks);
 
             var issues = BuildIssues(tasks, technicians);
             var summary = BuildSummary(tasks, technicians);
-            _logger.LogInformation("svc.schedule.summary tasks={Tasks} issues={Issues} locations={Locations} statuses={Statuses}", tasks.Count, issues.Count, availableLocations.Count, availableStatuses.Count);
+            _logger.LogInformation("svc.schedule.summary tasks={Tasks} issues={Issues} locations={Locations} workload={Workload}", tasks.Count, issues.Count, availableLocations.Count, availableWorkloadLevels.Count);
 
             var lastPlanPeriod = await _db.Plans
                 .AsNoTracking()
@@ -163,7 +163,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             var firstFreeDate = boundary.FirstFreeDate;
 
             (technicians, tasks) = ApplyLocationFilter(location, technicians, tasks);
-            (technicians, tasks) = ApplyStatusFilter(status, technicians, tasks);
+            (technicians, tasks) = ApplyWorkloadFilter(workload, technicians, tasks);
             (technicians, tasks) = ApplyTechnicianFilter(technicianId, technicians, tasks);
 
             var planStatusText = draftPlan?.Status.ToString() ?? activePlan?.Status.ToString();
@@ -179,7 +179,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 Tasks = tasks,
                 Issues = issues,
                 AvailableLocations = availableLocations,
-                AvailableStatuses = availableStatuses,
+                AvailableStatuses = availableWorkloadLevels,
                 Summary = summary,
                 IsPreviewMode = draftPlan != null,
                 HasDraft = draftPlan != null,
@@ -250,21 +250,21 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             return (filteredTechnicians, filteredTasks);
         }
 
-        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyStatusFilter(string? status, List<Technician> technicians, List<TaskItem> tasks)
+        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyWorkloadFilter(string? workload, List<Technician> technicians, List<TaskItem> tasks)
         {
-            if (string.IsNullOrWhiteSpace(status))
+            if (string.IsNullOrWhiteSpace(workload))
             {
                 return (technicians, tasks);
             }
 
-            var statusKey = status.ToLowerInvariant();
-            if (statusKey == "visi")
+            var workloadKey = workload.ToLowerInvariant();
+            if (workloadKey == "visos" || workloadKey == "all")
             {
                 return (technicians, tasks);
             }
-            var filteredTasks = statusKey switch
+            var filteredTasks = workloadKey switch
             {
-                "normali apkrova" => tasks.Where(t => !t.IsLoad && !t.IsConflict).ToList(),
+                "normali" => tasks.Where(t => !t.IsLoad && !t.IsConflict).ToList(),
                 "apkrova" => tasks.Where(t => t.IsLoad && !t.IsConflict).ToList(),
                 "perkrova" => tasks.Where(t => t.IsConflict).ToList(),
                 _ => tasks
@@ -295,34 +295,34 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             return (filteredTechnicians, filteredTasks);
         }
 
-        private static List<string> BuildAvailableStatuses(IEnumerable<TaskItem> tasks)
+        private static List<string> BuildAvailableWorkloadLevels(IEnumerable<TaskItem> tasks)
         {
-            var statusMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            var workloadMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                { "normal", "Normali apkrova" },
+                { "normal", "Normali" },
                 { "load", "Apkrova" },
                 { "conflict", "Perkrova" }
             };
 
-            var statuses = tasks
+            var workloads = tasks
                 .Select(t => t.LoadStatus)
                 .Where(s => !string.IsNullOrWhiteSpace(s))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Select(s => statusMap.TryGetValue(s, out var label) ? label : s)
+                .Select(s => workloadMap.TryGetValue(s, out var label) ? label : s)
                 .OrderBy(s => s)
                 .ToList();
 
-            // Ensure all standard statuses are available even if not present in current data.
-            foreach (var label in statusMap.Values)
+            // Ensure all standard workload levels are available even if not present in current data.
+            foreach (var label in workloadMap.Values)
             {
-                if (!statuses.Contains(label, StringComparer.OrdinalIgnoreCase))
+                if (!workloads.Contains(label, StringComparer.OrdinalIgnoreCase))
                 {
-                    statuses.Add(label);
+                    workloads.Add(label);
                 }
             }
 
-            statuses.Insert(0, "Visi");
-            return statuses;
+            workloads.Insert(0, "Visos");
+            return workloads;
         }
 
         private static List<IssueItem> BuildIssues(IEnumerable<TaskItem> tasks, IEnumerable<Technician> technicians)
