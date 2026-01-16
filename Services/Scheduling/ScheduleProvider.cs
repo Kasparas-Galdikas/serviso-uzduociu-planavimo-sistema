@@ -239,8 +239,11 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 return (technicians, tasks);
             }
 
+            // Use technician region (Location) as the source of truth for region filtering.
+            var techById = technicians.ToDictionary(t => t.Id);
             var filteredTasks = tasks
-                .Where(t => string.Equals(t.Location, location, StringComparison.OrdinalIgnoreCase))
+                .Where(t => techById.TryGetValue(t.TechnicianId, out var tech) &&
+                            string.Equals(tech.Location, location, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             var filteredTechnicians = technicians
