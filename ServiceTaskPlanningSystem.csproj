@@ -12,6 +12,7 @@
 
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.1">
       <PrivateAssets>all</PrivateAssets>
+      <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
 
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
