@@ -163,7 +163,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             var firstFreeDate = boundary.FirstFreeDate;
 
             (technicians, tasks) = ApplyLocationFilter(location, technicians, tasks);
-            (technicians, tasks) = ApplyWorkloadFilter(workload, technicians, tasks);
+            (technicians, tasks) = ApplyWorkloadFilter(workload, viewMode, selectedDate, technicians, tasks);
             (technicians, tasks) = ApplyTechnicianFilter(technicianId, technicians, tasks);
 
             var planStatusText = draftPlan?.Status.ToString() ?? activePlan?.Status.ToString();
@@ -239,8 +239,11 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 return (technicians, tasks);
             }
 
+            // Use technician region (Location) as the source of truth for region filtering.
+            var techById = technicians.ToDictionary(t => t.Id);
             var filteredTasks = tasks
-                .Where(t => string.Equals(t.Location, location, StringComparison.OrdinalIgnoreCase))
+                .Where(t => techById.TryGetValue(t.TechnicianId, out var tech) &&
+                            string.Equals(tech.Location, location, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             var filteredTechnicians = technicians
@@ -250,7 +253,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             return (filteredTechnicians, filteredTasks);
         }
 
-        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyWorkloadFilter(string? workload, List<Technician> technicians, List<TaskItem> tasks)
+        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyWorkloadFilter(string? workload, string viewMode, DateTime selectedDate, List<Technician> technicians, List<TaskItem> tasks)
         {
             if (string.IsNullOrWhiteSpace(workload))
             {
@@ -262,16 +265,50 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             {
                 return (technicians, tasks);
             }
-            var filteredTasks = workloadKey switch
+
+            var isDayView = string.Equals(viewMode, "day", StringComparison.OrdinalIgnoreCase);
+
+            // For weekly view: consider whole week window. For daily view: consider only the selected day.
+            var tasksForMatching = isDayView
+                ? tasks.Where(t => t.Start.Date == selectedDate.Date).ToList()
+                : tasks;
+
+            // Show technicians who have at least one task in the selected workload bucket (keep their tasks intact).
+            var techIdsByWorkload = tasksForMatching
+                .GroupBy(t => t.TechnicianId)
+                .Select(g => new
+                {
+                    TechnicianId = g.Key,
+                    HasAnyConflict = g.Any(t => t.IsConflict),
+                    HasAnyLoad = g.Any(t => t.IsLoad && !t.IsConflict),
+                    HasAnyNormal = g.Any(t => !t.IsLoad && !t.IsConflict)
+                })
+                .ToList();
+
+            var matchingTechIds = workloadKey switch
             {
-                "normali" => tasks.Where(t => !t.IsLoad && !t.IsConflict).ToList(),
-                "apkrova" => tasks.Where(t => t.IsLoad && !t.IsConflict).ToList(),
-                "perkrova" => tasks.Where(t => t.IsConflict).ToList(),
-                _ => tasks
+                "normali" => techIdsByWorkload
+                    .Where(x => x.HasAnyNormal)
+                    .Select(x => x.TechnicianId)
+                    .ToHashSet(),
+                "apkrova" => techIdsByWorkload
+                    .Where(x => x.HasAnyLoad)
+                    .Select(x => x.TechnicianId)
+                    .ToHashSet(),
+                "perkrova" => techIdsByWorkload
+                    .Where(x => x.HasAnyConflict)
+                    .Select(x => x.TechnicianId)
+                    .ToHashSet(),
+                _ => techIdsByWorkload.Select(x => x.TechnicianId).ToHashSet()
             };
 
             var filteredTechnicians = technicians
-                .Where(t => filteredTasks.Any(x => x.TechnicianId == t.Id))
+                .Where(t => matchingTechIds.Contains(t.Id))
+                .ToList();
+
+            var filteredTasks = tasks
+                .Where(t => matchingTechIds.Contains(t.TechnicianId))
+                .Where(t => !isDayView || t.Start.Date == selectedDate.Date)
                 .ToList();
 
             return (filteredTechnicians, filteredTasks);
