@@ -265,16 +265,42 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             {
                 return (technicians, tasks);
             }
-            var filteredTasks = workloadKey switch
+
+            // Show technicians who have at least one task in the selected workload bucket (keep their tasks intact).
+            var techIdsByWorkload = tasks
+                .GroupBy(t => t.TechnicianId)
+                .Select(g => new
+                {
+                    TechnicianId = g.Key,
+                    HasAnyConflict = g.Any(t => t.IsConflict),
+                    HasAnyLoad = g.Any(t => t.IsLoad && !t.IsConflict),
+                    HasAnyNormal = g.Any(t => !t.IsLoad && !t.IsConflict)
+                })
+                .ToList();
+
+            var matchingTechIds = workloadKey switch
             {
-                "normali" => tasks.Where(t => !t.IsLoad && !t.IsConflict).ToList(),
-                "apkrova" => tasks.Where(t => t.IsLoad && !t.IsConflict).ToList(),
-                "perkrova" => tasks.Where(t => t.IsConflict).ToList(),
-                _ => tasks
+                "normali" => techIdsByWorkload
+                    .Where(x => x.HasAnyNormal)
+                    .Select(x => x.TechnicianId)
+                    .ToHashSet(),
+                "apkrova" => techIdsByWorkload
+                    .Where(x => x.HasAnyLoad)
+                    .Select(x => x.TechnicianId)
+                    .ToHashSet(),
+                "perkrova" => techIdsByWorkload
+                    .Where(x => x.HasAnyConflict)
+                    .Select(x => x.TechnicianId)
+                    .ToHashSet(),
+                _ => techIdsByWorkload.Select(x => x.TechnicianId).ToHashSet()
             };
 
             var filteredTechnicians = technicians
-                .Where(t => filteredTasks.Any(x => x.TechnicianId == t.Id))
+                .Where(t => matchingTechIds.Contains(t.Id))
+                .ToList();
+
+            var filteredTasks = tasks
+                .Where(t => matchingTechIds.Contains(t.TechnicianId))
                 .ToList();
 
             return (filteredTechnicians, filteredTasks);

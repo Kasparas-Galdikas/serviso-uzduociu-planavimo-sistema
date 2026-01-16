@@ -106,13 +106,15 @@
         state?.normalizeView?.(navBtn.dataset.view || baseQuery.get("view") || "day") || "day";
       query.set("view", navView);
 
-      const targetDate = navBtn.dataset.targetDate || "";
+      const targetDate = navBtn.dataset.targetDate || baseQuery.get("date") || "";
       if (targetDate) query.set("date", targetDate);
 
-      const loc = navBtn.dataset.location || "";
+      const loc = navBtn.dataset.location ?? baseQuery.get("location") ?? "";
       if (loc) query.set("location", loc);
-      const workload = navBtn.dataset.workload || "";
+
+      const workload = navBtn.dataset.workload ?? baseQuery.get("workload") ?? "";
       if (workload) query.set("workload", workload);
+
       const technicianId = navBtn.dataset.technicianId || baseQuery.get("technicianId") || "";
       if (technicianId) query.set("technicianId", technicianId);
 
