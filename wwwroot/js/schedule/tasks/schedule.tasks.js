@@ -30,7 +30,9 @@
     const select = modalEl.querySelector("#taskDetailObject");
     if (!select) return;
 
-    const objects = await loadObjects();
+    const objects = (await loadObjects())
+      // Drop any accidentally created placeholder objects (legacy data)
+      .filter((obj) => (obj?.name || "").trim().toLowerCase() !== "- pasirinkite objekta -");
     select.innerHTML = "";
 
     const placeholder = document.createElement("option");
@@ -370,9 +372,14 @@
     // Additional fields
     const skillLevel = modalEl.querySelector("#taskDetailSkill")?.value || null;
     const selectedObjectOption = modalEl.querySelector("#taskDetailObject option:checked");
-    const objectName = selectedObjectOption?.textContent?.trim() || null;
+    const selectedObjectValue = selectedObjectOption?.value || "";
+    const hasSelectedObject = selectedObjectValue !== "";
+    const objectName = hasSelectedObject ? selectedObjectOption.textContent?.trim() || null : null;
     const instructions = modalEl.querySelector("#taskDetailInstructions")?.value || null;
-    const objectAddress = selectedObjectOption?.dataset?.address || location || null;
+    // Only send an object address when an object is actually selected; otherwise we end up creating new objects from the placeholder.
+    const objectAddress = hasSelectedObject
+      ? (selectedObjectOption?.dataset?.address || location || null)
+      : null;
 
     // Validate required fields
     if (!title.trim()) {

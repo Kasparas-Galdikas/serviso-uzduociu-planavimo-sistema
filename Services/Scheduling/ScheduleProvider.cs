@@ -70,6 +70,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 .AsNoTracking()
                 .Include(t => t.Plan)
                 .Include(t => t.Evaluation)
+                .Include(t => t.Object)
                 .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc)
                 .ToListAsync();
 
@@ -197,6 +198,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             var eval = task.Evaluation;
             var tech = technicians.FirstOrDefault(t => t.Id == task.TechnicianId);
             var status = eval?.Status ?? LoadState.Normal;
+            var objectAddress = task.Object?.Address;
 
             // Convert UTC times to local time for display
             var startLocal = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffsetMinutes);
@@ -210,7 +212,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 TechnicianId = (int)task.TechnicianId,
                 Version = version,
                 Title = task.Title,
-                Location = task.Location,
+                // Prefer the object's address when available; fallback to legacy location field.
+                Location = !string.IsNullOrWhiteSpace(objectAddress) ? objectAddress! : task.Location,
                 Start = startLocal,
                 End = endLocal,
                 Priority = task.Priority.ToString().ToLowerInvariant(),
