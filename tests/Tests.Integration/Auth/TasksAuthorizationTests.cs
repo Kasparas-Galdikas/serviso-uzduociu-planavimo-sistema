@@ -136,7 +136,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
             TimezoneOffsetMinutes = -120
         });
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
             TimezoneOffsetMinutes = -120
         });
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
     }
 
     [Fact]
