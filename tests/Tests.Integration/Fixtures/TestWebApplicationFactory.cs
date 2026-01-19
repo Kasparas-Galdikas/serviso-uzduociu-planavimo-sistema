@@ -11,10 +11,12 @@ namespace Tests.Integration.Fixtures;
 public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 {
     private readonly PostgresContainerFixture _postgres;
+    private readonly bool _useTestAuth;
 
-    public TestWebApplicationFactory(PostgresContainerFixture postgres)
+    public TestWebApplicationFactory(PostgresContainerFixture postgres, bool useTestAuth = true)
     {
         _postgres = postgres;
+        _useTestAuth = useTestAuth;
 
         // Set environment variable BEFORE host builds - ConfigurationLoader reads this
         Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", _postgres.ConnectionString);
@@ -22,6 +24,11 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        if (!_useTestAuth)
+        {
+            return;
+        }
+
         builder.ConfigureServices(services =>
         {
             // Replace authentication with test scheme
