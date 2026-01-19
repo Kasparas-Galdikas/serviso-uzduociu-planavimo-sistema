@@ -68,12 +68,13 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var technicianId = await GetTechnicianIdAsync("technician@test.com");
         var client = CreateClient("manager@test.com", timezoneOffsetMinutes: -120);
 
+        // Use 18:00-19:00 and AddDays(10) to avoid overlap with seeded tasks
         var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
         {
             TechnicianId = (int)technicianId,
-            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(2)).ToString("yyyy-MM-dd"),
-            StartMinutes = 8 * 60,
-            EndMinutes = 9 * 60,
+            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(10)).ToString("yyyy-MM-dd"),
+            StartMinutes = 18 * 60,
+            EndMinutes = 19 * 60,
             Title = "Manager created",
             Location = "HQ",
             Priority = TaskPriority.Medium,
@@ -98,9 +99,9 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
         {
             TechnicianId = (int)otherTechId,
-            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(2)).ToString("yyyy-MM-dd"),
-            StartMinutes = 10 * 60,
-            EndMinutes = 11 * 60,
+            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(10)).ToString("yyyy-MM-dd"),
+            StartMinutes = 18 * 60,
+            EndMinutes = 19 * 60,
             Title = "Tech creates for others",
             Location = "HQ",
             Priority = TaskPriority.Medium,
@@ -118,7 +119,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var ownerTechId = await GetTechnicianIdAsync("technician@test.com");
         var otherTechId = await GetTechnicianIdAsync("austeja.j@test.com");
         var managerClient = CreateClient("manager@test.com", timezoneOffsetMinutes: -120);
-        var task = await CreateTaskAsync(managerClient, ownerTechId, DateTime.UtcNow.Date.AddDays(2));
+        var task = await CreateTaskAsync(managerClient, ownerTechId, DateTime.UtcNow.Date.AddDays(10));
         var version = await GetTaskVersionAsync(task.Id);
 
         var attackerClient = CreateClient("austeja.j@test.com", timezoneOffsetMinutes: -120, technicianId: otherTechId);
@@ -144,9 +145,11 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         await ResetAndReseedAsync();
         var techId = await GetTechnicianIdAsync("technician@test.com");
         var managerClient = CreateClient("manager@test.com", timezoneOffsetMinutes: -120);
-        var task = await CreateTaskAsync(managerClient, techId, DateTime.UtcNow.Date.AddDays(-2));
 
-        // Force task into the past (end already elapsed)
+        // Create a task in the future first (API rejects past dates)
+        var task = await CreateTaskAsync(managerClient, techId, DateTime.UtcNow.Date.AddDays(10));
+
+        // Force task into the past via direct DB update (end already elapsed)
         await UpdateTaskTimestampsAsync(task.Id, DateTime.UtcNow.AddHours(-2), DateTime.UtcNow.AddHours(-1));
         var version = await GetTaskVersionAsync(task.Id);
 
@@ -173,14 +176,16 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var sourceTechId = await GetTechnicianIdAsync("technician@test.com");
         var targetTechId = await GetTechnicianIdAsync("austeja.j@test.com");
         var client = CreateClient("manager@test.com", timezoneOffsetMinutes: 120);
-        var task = await CreateTaskAsync(client, sourceTechId, DateTime.UtcNow.Date.AddDays(2));
+        // Use AddDays(10) to avoid overlap with seeded tasks (seed creates 5 days of tasks)
+        var task = await CreateTaskAsync(client, sourceTechId, DateTime.UtcNow.Date.AddDays(10));
         var version = await GetTaskVersionAsync(task.Id);
 
+        // Move to same day different slot to avoid any seeded task overlap
         var response = await client.PatchAsJsonAsync($"/api/tasks/{task.Id}/move", new MoveTaskRequestDto
         {
             TargetTechnicianId = targetTechId,
-            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(3)).ToString("yyyy-MM-dd"),
-            TargetSlotStartMinutes = 9 * 60,
+            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(10)).ToString("yyyy-MM-dd"),
+            TargetSlotStartMinutes = 19 * 60,
             Version = version,
             TimezoneOffsetMinutes = 120
         });
@@ -197,15 +202,16 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var ownerTechId = await GetTechnicianIdAsync("technician@test.com");
         var otherTechId = await GetTechnicianIdAsync("austeja.j@test.com");
         var managerClient = CreateClient("manager@test.com", timezoneOffsetMinutes: 120);
-        var task = await CreateTaskAsync(managerClient, ownerTechId, DateTime.UtcNow.Date.AddDays(2));
+        var task = await CreateTaskAsync(managerClient, ownerTechId, DateTime.UtcNow.Date.AddDays(10));
         var version = await GetTaskVersionAsync(task.Id);
 
+        // Try to move to 19:00 slot (fits in working window 08:00-20:00) - should fail due to permissions, not overlap
         var techClient = CreateClient("technician@test.com", timezoneOffsetMinutes: 120, technicianId: ownerTechId);
         var response = await techClient.PatchAsJsonAsync($"/api/tasks/{task.Id}/move", new MoveTaskRequestDto
         {
             TargetTechnicianId = otherTechId,
-            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(3)).ToString("yyyy-MM-dd"),
-            TargetSlotStartMinutes = 10 * 60,
+            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(11)).ToString("yyyy-MM-dd"),
+            TargetSlotStartMinutes = 19 * 60,
             Version = version,
             TimezoneOffsetMinutes = 120
         });
@@ -219,14 +225,15 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         await ResetAndReseedAsync();
         var techId = await GetTechnicianIdAsync("technician@test.com");
         var client = CreateClient("manager@test.com", timezoneOffsetMinutes: 120);
-        var task = await CreateTaskAsync(client, techId, DateTime.UtcNow.Date.AddDays(2));
+        var task = await CreateTaskAsync(client, techId, DateTime.UtcNow.Date.AddDays(10));
         var actualVersion = await GetTaskVersionAsync(task.Id);
 
+        // Move to 19:00 to avoid overlap with seeded tasks
         var response = await client.PatchAsJsonAsync($"/api/tasks/{task.Id}/move", new MoveTaskRequestDto
         {
             TargetTechnicianId = techId,
-            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(2)).ToString("yyyy-MM-dd"),
-            TargetSlotStartMinutes = 14 * 60,
+            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(10)).ToString("yyyy-MM-dd"),
+            TargetSlotStartMinutes = 19 * 60,
             Version = actualVersion + 5,
             TimezoneOffsetMinutes = 120
         });
@@ -242,7 +249,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         await ResetAndReseedAsync();
         var techId = await GetTechnicianIdAsync("technician@test.com");
         var managerClient = CreateClient("manager@test.com", timezoneOffsetMinutes: 0);
-        var task = await CreateTaskAsync(managerClient, techId, DateTime.UtcNow.Date.AddDays(1));
+        var task = await CreateTaskAsync(managerClient, techId, DateTime.UtcNow.Date.AddDays(10));
         var version = await GetTaskVersionAsync(task.Id);
 
         var techClient = CreateClient("technician@test.com", timezoneOffsetMinutes: 0, technicianId: techId);
@@ -266,7 +273,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var ownerTechId = await GetTechnicianIdAsync("technician@test.com");
         var otherTechId = await GetTechnicianIdAsync("austeja.j@test.com");
         var managerClient = CreateClient("manager@test.com", timezoneOffsetMinutes: 0);
-        var task = await CreateTaskAsync(managerClient, ownerTechId, DateTime.UtcNow.Date.AddDays(1));
+        var task = await CreateTaskAsync(managerClient, ownerTechId, DateTime.UtcNow.Date.AddDays(10));
         var version = await GetTaskVersionAsync(task.Id);
 
         var techClient = CreateClient("austeja.j@test.com", timezoneOffsetMinutes: 0, technicianId: otherTechId);
@@ -319,13 +326,14 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
 
     private async Task<(long Id, DateTime LocalStart, DateTime LocalEnd)> CreateTaskAsync(HttpClient client, long technicianId, DateTime date)
     {
+        // Use 18:00-19:00 to avoid overlap with seeded tasks (which end by 18:00)
         var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
         {
             TechnicianId = (int)technicianId,
             TargetDate = DateOnly.FromDateTime(date.Date).ToString("yyyy-MM-dd"),
-            StartMinutes = 8 * 60,
-            EndMinutes = 9 * 60,
-            Title = "Seed task",
+            StartMinutes = 18 * 60,
+            EndMinutes = 19 * 60,
+            Title = "Test task",
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
@@ -336,8 +344,8 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var created = await response.Content.ReadFromJsonAsync<TaskCreatedOrUpdatedResponseDto>();
         created!.Id.Should().BeGreaterThan(0);
 
-        var localStart = DateTime.SpecifyKind(date.Date.AddHours(8), DateTimeKind.Unspecified);
-        var localEnd = DateTime.SpecifyKind(date.Date.AddHours(9), DateTimeKind.Unspecified);
+        var localStart = DateTime.SpecifyKind(date.Date.AddHours(18), DateTimeKind.Unspecified);
+        var localEnd = DateTime.SpecifyKind(date.Date.AddHours(19), DateTimeKind.Unspecified);
         return (created.Id, localStart, localEnd);
     }
 
@@ -345,8 +353,11 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
     {
         using var scope = _fixture.Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
-        var task = await db.Tasks.AsNoTracking().FirstAsync(t => t.Id == taskId);
-        return db.Entry(task).Property<uint>("xmin").CurrentValue;
+        // Query xmin directly - EF shadow property access after AsNoTracking doesn't work reliably
+        return await db.Tasks
+            .Where(t => t.Id == taskId)
+            .Select(t => EF.Property<uint>(t, "xmin"))
+            .FirstAsync();
     }
 
     private async Task UpdateTaskTimestampsAsync(long taskId, DateTime startUtc, DateTime endUtc)
