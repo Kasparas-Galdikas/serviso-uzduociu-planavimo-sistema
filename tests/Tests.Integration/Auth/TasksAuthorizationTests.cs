@@ -288,6 +288,26 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task Manager_UsingTechnicianUpdateEndpoint_IsForbidden()
+    {
+        await ResetAndReseedAsync();
+        var techId = await GetTechnicianIdAsync("technician@test.com");
+        var managerClient = CreateClient("manager@test.com", timezoneOffsetMinutes: 0);
+        var task = await CreateTaskAsync(managerClient, techId, DateTime.UtcNow.Date.AddDays(10));
+        var version = await GetTaskVersionAsync(task.Id);
+
+        var response = await managerClient.PatchAsJsonAsync($"/api/tasks/{task.Id}/technician-update", new TechnicianUpdateTaskRequestDto
+        {
+            Status = ScheduleTaskStatus.InProgress,
+            Comment = "Managers not allowed here",
+            Version = version,
+            TimezoneOffsetMinutes = 0
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
     private HttpClient CreateClient(string email, string role = "manager", int? timezoneOffsetMinutes = null, long? technicianId = null)
     {
         var client = _fixture.Factory.CreateClient();
