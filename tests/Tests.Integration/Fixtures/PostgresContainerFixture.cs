@@ -1,14 +1,11 @@
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
-using ServiceTaskPlanningSystem.Data;
 using Xunit;
 
 namespace Tests.Integration.Fixtures;
 
 /// <summary>
-/// Spins up a disposable PostgreSQL container and applies migrations.
-/// Shared across integration tests to avoid per-test container cost.
+/// Spins up a disposable PostgreSQL container for integration tests.
+/// Migrations are applied by the app's Program.cs when the TestWebApplicationFactory boots.
 /// </summary>
 public sealed class PostgresContainerFixture : IAsyncLifetime
 {
@@ -30,30 +27,10 @@ public sealed class PostgresContainerFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _container.StartAsync();
-        await ApplyMigrationsAsync();
     }
 
     public async Task DisposeAsync()
     {
         await _container.DisposeAsync();
-    }
-
-    private async Task ApplyMigrationsAsync()
-    {
-        var options = new DbContextOptionsBuilder<ScheduleDbContext>()
-            .UseNpgsql(ConnectionString, npgsqlOptions =>
-            {
-                npgsqlOptions.MapEnum<UserRole>();
-                npgsqlOptions.MapEnum<PlanStatus>();
-                npgsqlOptions.MapEnum<TaskPriority>();
-                npgsqlOptions.MapEnum<ScheduleTaskStatus>("task_status");
-                npgsqlOptions.MapEnum<RiskLevel>();
-                npgsqlOptions.MapEnum<LoadState>();
-            })
-            .UseSnakeCaseNamingConvention()
-            .Options;
-
-        await using var db = new ScheduleDbContext(options);
-        await db.Database.MigrateAsync();
     }
 }

@@ -1,4 +1,3 @@
-using System.Threading.Tasks;
 using Xunit;
 
 namespace Tests.Integration.Fixtures;
@@ -16,6 +15,10 @@ public sealed class TestWebApplicationFactoryFixture : IAsyncLifetime
     {
         await Postgres.InitializeAsync();
         Factory = new TestWebApplicationFactory(Postgres);
+
+        // Force the app to boot, which runs migrations via Program.cs
+        // This must happen before Respawn can analyze the schema
+        _ = Factory.Services;
     }
 
     public async Task DisposeAsync()

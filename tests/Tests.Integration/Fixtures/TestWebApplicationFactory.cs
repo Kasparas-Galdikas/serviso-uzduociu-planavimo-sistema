@@ -1,11 +1,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
-using ServiceTaskPlanningSystem.Data;
 
 namespace Tests.Integration.Fixtures;
 
@@ -19,33 +15,21 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
     public TestWebApplicationFactory(PostgresContainerFixture postgres)
     {
         _postgres = postgres;
+
+        // Set environment variable BEFORE host builds - ConfigurationLoader reads this
+        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", _postgres.ConnectionString);
     }
 
-    protected override IHost CreateHost(IHostBuilder builder)
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Development");
-
         builder.ConfigureServices(services =>
         {
+            // Replace authentication with test scheme
             services.AddAuthentication(options =>
             {
                 options.DefaultAuthenticateScheme = TestAuthHandler.Scheme;
                 options.DefaultChallengeScheme = TestAuthHandler.Scheme;
             }).AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.Scheme, _ => { });
-
-            services.RemoveAll(typeof(ScheduleDbContext));
-            services.AddDbContext<ScheduleDbContext>(options =>
-                options.UseNpgsql(_postgres.ConnectionString, npgsqlOptions =>
-                {
-                    npgsqlOptions.MapEnum<UserRole>();
-                    npgsqlOptions.MapEnum<PlanStatus>();
-                    npgsqlOptions.MapEnum<TaskPriority>();
-                    npgsqlOptions.MapEnum<ScheduleTaskStatus>("task_status");
-                    npgsqlOptions.MapEnum<RiskLevel>();
-                    npgsqlOptions.MapEnum<LoadState>();
-                }).UseSnakeCaseNamingConvention());
         });
-
-        return base.CreateHost(builder);
     }
 }
