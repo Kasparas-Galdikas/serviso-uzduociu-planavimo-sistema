@@ -29,13 +29,24 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        var email = Request.Headers.TryGetValue("X-Test-Email", out var emailHeader)
-            ? emailHeader.ToString()
-            : "manager@example.com";
+        if (!Request.Headers.TryGetValue("X-Test-Email", out var emailHeader) ||
+            string.IsNullOrWhiteSpace(emailHeader))
+        {
+            return Task.FromResult(AuthenticateResult.Fail("Missing X-Test-Email"));
+        }
 
-        var role = Request.Headers.TryGetValue("X-Test-Role", out var roleHeader)
-            ? roleHeader.ToString()
-            : "manager";
+        if (!Request.Headers.TryGetValue("X-Test-Role", out var roleHeader) ||
+            string.IsNullOrWhiteSpace(roleHeader))
+        {
+            return Task.FromResult(AuthenticateResult.Fail("Missing X-Test-Role"));
+        }
+
+        var email = emailHeader.ToString();
+        var role = roleHeader.ToString().ToLowerInvariant();
+        if (role != "manager" && role != "technician")
+        {
+            return Task.FromResult(AuthenticateResult.Fail($"Unsupported role: {role}"));
+        }
 
         var techIdClaim = Request.Headers.TryGetValue("X-Test-TechnicianId", out var techHeader)
             ? techHeader.ToString()

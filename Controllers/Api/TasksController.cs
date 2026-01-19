@@ -390,57 +390,127 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return ValidationProblem(ModelState);
             }
 
-            try
+            if (dto.EndAt <= dto.StartAt)
             {
-                // Convert local times from frontend to UTC for storage
-                var utcStartAt = _timeService.ConvertLocalToUtc(dto.StartAt, dto.TimezoneOffsetMinutes);
-                var utcEndAt = _timeService.ConvertLocalToUtc(dto.EndAt, dto.TimezoneOffsetMinutes);
-
-                _logger.LogInformation(
-                    "api.task.update.request id={Id} tz={Tz} localStart={LocalStart} utcStart={UtcStart}",
-                    id, dto.TimezoneOffsetMinutes, dto.StartAt, utcStartAt);
-
-                var user = _userContextResolver.GetCurrentUser();
-                var updated = await _planService.UpdateTaskAsync(id, task =>
-                {
-                    task.Title = dto.Title;
-                    task.Location = dto.Location;
-                    task.StartAt = utcStartAt;
-                    task.EndAt = utcEndAt;
-                    task.Priority = dto.Priority;
-                    task.Status = dto.Status;
-                    task.SkillLevel = dto.SkillLevel ?? string.Empty;
-                    task.Instructions = dto.Instructions ?? string.Empty;
-                    if (dto.TechnicianComment != null)
-                    {
-                        task.TechnicianComment = dto.TechnicianComment;
-                    }
-                }, dto.TechnicianId, user, dto.TimezoneOffsetMinutes, dto.ObjectName, dto.ObjectAddress, cancellationToken);
-
-                var version = await _db.Tasks
-                    .AsNoTracking()
-                    .Where(t => t.Id == id)
-                    .Select(t => EF.Property<uint>(t, "xmin"))
-                    .FirstAsync(cancellationToken);
-
-                var response = new TaskCreatedOrUpdatedResponseDto
-                {
-                    Id = updated.Id,
-                    Version = version,
-                    Load = await BuildLoadSnapshotAsync(updated.TechnicianId, updated.StartAt.Date, cancellationToken)
-                };
-
-                _logger.LogInformation("api.task.update id={Id} planId={PlanId} version={Version}", id, updated.PlanId, version);
-                return Ok(response);
+                return UnprocessableEntity(new { message = "Pabaigos laikas turi b?ti v?lesnis u? prad?i?." });
             }
-            catch (InvalidOperationException ex)
+
+            // Convert local times from frontend to UTC for storage
+            var utcStartAt = _timeService.ConvertLocalToUtc(dto.StartAt, dto.TimezoneOffsetMinutes);
+            var utcEndAt = _timeService.ConvertLocalToUtc(dto.EndAt, dto.TimezoneOffsetMinutes);
+
+            _logger.LogInformation(
+                "api.task.update.request id={Id} tz={Tz} localStart={LocalStart} utcStart={UtcStart}",
+                id, dto.TimezoneOffsetMinutes, dto.StartAt, utcStartAt);
+
+            var existing = await _db.Tasks
+                .Include(t => t.Plan)
+                .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+
+            if (existing == null)
             {
-                _logger.LogWarning(ex, "api.task.update.conflict id={Id}", id);
-                return Conflict(new { message = ex.Message });
+                return NotFound(new { message = "U?duotis nerasta." });
             }
+
+            var currentVersion = _db.Entry(existing).Property<uint>("xmin").CurrentValue;
+            if (dto.Version == 0 || dto.Version != currentVersion)
+            {
+                return Conflict(new { message = "U?duotis buvo pakeista kito vartotojo.", version = currentVersion });
+            }
+
+            var user = _userContextResolver.GetCurrentUser();
+            if (user.IsTechnician && (!user.TechnicianId.HasValue || existing.TechnicianId != user.TechnicianId.Value))
+            {
+                return StatusCode(403, new { message = "Galite redaguoti tik savo u?duotis." });
+            }
+
+            if (!_timeService.IsTaskStillEditable(existing.EndAt))
+            {
+                return UnprocessableEntity(new { message = "?i u?duotis nebegali b?ti redaguojama." });
+            }
+
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(existing, user, dto.TimezoneOffsetMinutes);
+            if (!canEdit)
+            {
+                return StatusCode(403, new { message = "Neturite teisi? atlikti ?io veiksmo." });
+            }
+
+            var technicianExists = await _db.Technicians
+                .AsNoTracking()
+                .AnyAsync(t => t.Id == dto.TechnicianId, cancellationToken);
+
+            if (!technicianExists)
+            {
+                return UnprocessableEntity(new { message = "Technikas nerastas." });
+            }
+
+            // Validate working window and slot alignment in caller's local time
+            var startLocal = dto.StartAt;
+            var endLocal = dto.EndAt;
+            if (startLocal.Date != endLocal.Date)
+            {
+                return UnprocessableEntity(new { message = "U?duotis turi tilpti vien? dien?." });
+            }
+
+            var startMinutes = startLocal.Hour * 60 + startLocal.Minute;
+            var endMinutes = endLocal.Hour * 60 + endLocal.Minute;
+            if (startMinutes < ScheduleGrid.DayStartMinutes || endMinutes > ScheduleGrid.DayEndMinutes)
+            {
+                return UnprocessableEntity(new { message = "U?duotis privalo tilpti ? darbo laik?." });
+            }
+
+            if (startMinutes % ScheduleGrid.SlotSizeMinutes != 0 || endMinutes % ScheduleGrid.SlotSizeMinutes != 0)
+            {
+                return UnprocessableEntity(new { message = "Laikas turi atitikti grafiko ?ingsn?." });
+            }
+
+            var hasOverlap = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.Id != id)
+                .Where(t => t.TechnicianId == dto.TechnicianId)
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                .Where(t => t.StartAt < utcEndAt && t.EndAt > utcStartAt)
+                .AnyAsync(cancellationToken);
+
+            if (hasOverlap)
+            {
+                return Conflict(new { message = "Laiko langas u?imtas (persidengia u?duotys).", version = currentVersion });
+            }
+
+            var updated = await _planService.UpdateTaskAsync(id, task =>
+            {
+                task.Title = dto.Title;
+                task.Location = dto.Location;
+                task.StartAt = utcStartAt;
+                task.EndAt = utcEndAt;
+                task.Priority = dto.Priority;
+                task.Status = dto.Status;
+                task.SkillLevel = dto.SkillLevel ?? string.Empty;
+                task.Instructions = dto.Instructions ?? string.Empty;
+                if (dto.TechnicianComment != null)
+                {
+                    task.TechnicianComment = dto.TechnicianComment;
+                }
+            }, dto.TechnicianId, user, dto.TimezoneOffsetMinutes, dto.ObjectName, dto.ObjectAddress, cancellationToken);
+
+            var version = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.Id == id)
+                .Select(t => EF.Property<uint>(t, "xmin"))
+                .FirstAsync(cancellationToken);
+
+            var response = new TaskCreatedOrUpdatedResponseDto
+            {
+                Id = updated.Id,
+                Version = version,
+                Load = await BuildLoadSnapshotAsync(updated.TechnicianId, updated.StartAt.Date, cancellationToken)
+            };
+
+            _logger.LogInformation("api.task.update id={Id} planId={PlanId} version={Version}", id, updated.PlanId, version);
+            return Ok(response);
         }
 
-        [HttpPatch("{id:long}/move")]
+[HttpPatch("{id:long}/move")]
         [Authorize(Policy = "CanEditTask")]
         public async Task<IActionResult> MoveTask(long id, [FromBody] MoveTaskRequestDto dto, CancellationToken cancellationToken)
         {
@@ -518,37 +588,42 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             }
 
             var user = _userContextResolver.GetCurrentUser();
+            if (user.IsManager)
+            {
+                return StatusCode(403, new { message = "Managers must use the main edit endpoint." });
+            }
 
-            // Load task with plan for permission checks
             var task = await _db.Tasks
                 .Include(t => t.Plan)
                 .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
 
             if (task == null)
             {
-                return NotFound(new { message = "Užduotis nerasta." });
+                return NotFound(new { message = "Uzduotis nerasta." });
             }
 
-            // SECURITY: Technicians can only edit their OWN tasks
             if (user.IsTechnician && (!user.TechnicianId.HasValue || task.TechnicianId != user.TechnicianId.Value))
             {
                 _logger.LogWarning(
                     "api.task.technician-update.forbidden userId={UserId} taskId={TaskId} ownerId={OwnerId}",
                     user.UserId, id, task.TechnicianId);
-                return StatusCode(403, new { message = "Galite redaguoti tik savo užduotis." });
+                return StatusCode(403, new { message = "Galite redaguoti tik savo uzduotis." });
             }
 
-            // Check if task is still editable (time-based permission)
+            if (!_timeService.IsTaskStillEditable(task.EndAt))
+            {
+                return UnprocessableEntity(new { message = "Si uzduotis nebegali buti redaguojama." });
+            }
+
             var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, dto.TimezoneOffsetMinutes);
             if (!canEdit)
             {
                 _logger.LogWarning(
                     "api.task.technician-update.not-editable userId={UserId} taskId={TaskId}",
                     user.UserId, id);
-                return StatusCode(403, new { message = "Ši užduotis nebegali būti redaguojama." });
+                return StatusCode(403, new { message = "Si uzduotis nebegali buti redaguojama." });
             }
 
-            // Optimistic concurrency check
             var currentVersion = await _db.Tasks
                 .AsNoTracking()
                 .Where(t => t.Id == id)
@@ -562,12 +637,11 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     id, dto.Version, currentVersion);
                 return Conflict(new
                 {
-                    message = "Užduotis buvo pakeista kito vartotojo. Prašome atnaujinti puslapį.",
+                    message = "Uzduotis buvo pakeista kito vartotojo. Prasome atnaujinti puslapi.",
                     version = currentVersion
                 });
             }
 
-            // Update ONLY allowed fields (Status and TechnicianComment)
             task.Status = dto.Status;
             task.TechnicianComment = dto.Comment;
 
@@ -596,7 +670,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 _logger.LogWarning(
                     "api.task.technician-update.concurrency taskId={Id}",
                     id);
-                return Conflict(new { message = "Užduotis buvo pakeista kito vartotojo. Prašome atnaujinti puslapį." });
+                return Conflict(new { message = "Uzduotis buvo pakeista kito vartotojo. Prasome atnaujinti puslapi." });
             }
         }
 
@@ -614,9 +688,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         }
 
         /// Extract browser timezone offset from request headers.
-        /// Default to 0 if not provided.
-        /// Note: The offset is already signed correctly from JavaScript (-120 for UTC+2),
-        /// so we don't apply Math.Abs() here.
         private int GetBrowserTimezoneOffset()
         {
             // Try header first (for AJAX requests)
