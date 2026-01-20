@@ -10,7 +10,7 @@ namespace ServiceTaskPlanningSystem.Models.DTOs.Requests;
 public class CreateTaskRequestDto
 {
     [Required(ErrorMessage = "Darbuotojas yra privalomas.")]
-    public int TechnicianId { get; set; }
+    public long TechnicianId { get; set; }
 
     [Required(ErrorMessage = "Data yra privaloma.")]
     [RegularExpression(@"^\d{4}-\d{2}-\d{2}$", ErrorMessage = "Datos formatas turi būti yyyy-MM-dd.")]

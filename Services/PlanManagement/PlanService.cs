@@ -36,7 +36,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
         private sealed record WorkingWindow(int StartMinutes, int EndMinutes);
 
-        private static WorkingWindow GetWorkingWindow(int technicianId, DateTime date) =>
+        private static WorkingWindow GetWorkingWindow(long technicianId, DateTime date) =>
             new WorkingWindow(ScheduleGrid.DayStartMinutes, ScheduleGrid.DayEndMinutes);
 
         private async Task<long?> FindOrCreateObjectAsync(string? objectName, string? objectAddress, long? regionId, CancellationToken cancellationToken = default)
@@ -95,7 +95,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
         private async Task<(PlacementError Error, string Message, DateTime StartAt, DateTime EndAt, long? RegionId)> ValidatePlacementAsync(
             long? ignoreTaskId,
-            int targetTechnicianId,
+            long targetTechnicianId,
             DateTime targetDate,
             int startMinutes,
             int endMinutes,
@@ -341,7 +341,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _logger.LogInformation("svc.plan.span.adjust planId={PlanId} start={Start} end={End} weeks={Weeks}", plan.Id, plan.PeriodStart, plan.PeriodEnd, plan.Weeks);
         }
 
-        public async Task<TaskCreateResult> CreateTaskAsync(int technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, string location, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<TaskCreateResult> CreateTaskAsync(long technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, string location, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var taskDate = targetDate.Date;
 
@@ -501,7 +501,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             return task;
         }
 
-        public async Task<TaskMoveResult> MoveTaskAsync(long taskId, int targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<TaskMoveResult> MoveTaskAsync(long taskId, long targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
                 .Include(t => t.Plan)
@@ -603,14 +603,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, "Neturite teisiu keisti uzduoties laiko.");
             }
 
-            if (task.TechnicianId > int.MaxValue || task.TechnicianId < int.MinValue)
-            {
-                return new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, "Netinkamas techniko identifikatorius.");
-            }
-
             var validation = await ValidatePlacementAsync(
                 ignoreTaskId: task.Id,
-                targetTechnicianId: (int)task.TechnicianId,
+                targetTechnicianId: task.TechnicianId,
                 targetDate: targetDate,
                 startMinutes: targetSlotStartMinutes,
                 endMinutes: targetSlotEndMinutes,

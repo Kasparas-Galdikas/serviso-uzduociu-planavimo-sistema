@@ -658,7 +658,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var user = _userContextResolver.GetCurrentUser();
             var result = await _planService.MoveTaskAsync(
                 id,
-                (int)dto.TargetTechnicianId,
+                dto.TargetTechnicianId,
                 targetDate,
                 dto.TargetSlotStartMinutes,
                 dto.Version,
