@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
+using Tests.Integration.Builders;
 using Tests.Integration.Fixtures;
 using Tests.Integration.Seeds;
 using Xunit;
@@ -69,21 +70,11 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var client = CreateClient("manager@test.com", timezoneOffsetMinutes: -120);
 
         // Use 18:00-19:00 and AddDays(10) to avoid overlap with seeded tasks
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)technicianId,
-            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(10)).ToString("yyyy-MM-dd"),
-            StartMinutes = 18 * 60,
-            EndMinutes = 19 * 60,
-            Title = "Manager created",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = -120,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(10)).ToString("yyyy-MM-dd");
+        var dto = TestTaskRequestBuilder.Create(technicianId, targetDate, 18 * 60, 19 * 60, "Manager created")
+            .WithTimezone(-120)
+            .Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var payload = await response.Content.ReadFromJsonAsync<TaskCreatedOrUpdatedResponseDto>();
@@ -99,21 +90,11 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var otherTechId = await GetTechnicianIdAsync("austeja.j@test.com");
         var client = CreateClient("technician@test.com", timezoneOffsetMinutes: -120, technicianId: ownTechId);
 
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)otherTechId,
-            TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(10)).ToString("yyyy-MM-dd"),
-            StartMinutes = 18 * 60,
-            EndMinutes = 19 * 60,
-            Title = "Tech for others",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = -120,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(10)).ToString("yyyy-MM-dd");
+        var dto = TestTaskRequestBuilder.Create(otherTechId, targetDate, 18 * 60, 19 * 60, "Tech for others")
+            .WithTimezone(-120)
+            .Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
@@ -129,18 +110,11 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var version = await GetTaskVersionAsync(task.Id);
 
         var attackerClient = CreateClient("austeja.j@test.com", timezoneOffsetMinutes: -120, technicianId: otherTechId);
-        var response = await attackerClient.PatchAsJsonAsync($"/api/tasks/{task.Id}", new UpdateTaskRequestDto
-        {
-            Title = "Should fail",
-            Location = "Anywhere",
-            TechnicianId = ownerTechId,
-            StartAt = task.LocalStart,
-            EndAt = task.LocalEnd,
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            Version = version,
-            TimezoneOffsetMinutes = -120
-        });
+        var updateDto = TestUpdateTaskRequestBuilder.Create(ownerTechId, task.LocalStart, task.LocalEnd, "Should fail", version)
+            .WithLocation("Anywhere")
+            .WithTimezone(-120)
+            .Build();
+        var response = await attackerClient.PatchAsJsonAsync($"/api/tasks/{task.Id}", updateDto);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
@@ -159,18 +133,11 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         await UpdateTaskTimestampsAsync(task.Id, DateTime.UtcNow.AddHours(-2), DateTime.UtcNow.AddHours(-1));
         var version = await GetTaskVersionAsync(task.Id);
 
-        var response = await managerClient.PatchAsJsonAsync($"/api/tasks/{task.Id}", new UpdateTaskRequestDto
-        {
-            Title = "Past update",
-            Location = "Past",
-            TechnicianId = techId,
-            StartAt = task.LocalStart,
-            EndAt = task.LocalEnd,
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            Version = version,
-            TimezoneOffsetMinutes = -120
-        });
+        var updateDto = TestUpdateTaskRequestBuilder.Create(techId, task.LocalStart, task.LocalEnd, "Past update", version)
+            .WithLocation("Past")
+            .WithTimezone(-120)
+            .Build();
+        var response = await managerClient.PatchAsJsonAsync($"/api/tasks/{task.Id}", updateDto);
 
         response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
     }
@@ -353,21 +320,10 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
     private async Task<(long Id, DateTime LocalStart, DateTime LocalEnd)> CreateTaskAsync(HttpClient client, long technicianId, DateTime date)
     {
         // Use 18:00-19:00 to avoid overlap with seeded tasks (which end by 18:00)
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)technicianId,
-            TargetDate = DateOnly.FromDateTime(date.Date).ToString("yyyy-MM-dd"),
-            StartMinutes = 18 * 60,
-            EndMinutes = 19 * 60,
-            Title = "Test task",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = -120,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var dto = TestTaskRequestBuilder.Create(technicianId, date, 18 * 60, 19 * 60, "Test task")
+            .WithTimezone(-120)
+            .Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         response.EnsureSuccessStatusCode();
         var created = await response.Content.ReadFromJsonAsync<TaskCreatedOrUpdatedResponseDto>();

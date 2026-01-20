@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
+using Tests.Integration.Builders;
 using Tests.Integration.Fixtures;
 using Tests.Integration.Seeds;
 using Xunit;
@@ -141,18 +142,8 @@ public sealed class ScheduleViewTests : IAsyncLifetime
 
     private async Task<TaskCreatedOrUpdatedResponseDto> CreateTaskAsync(HttpClient client, long techId, string targetDate, int startMinutes, int endMinutes, string title)
     {
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)techId,
-            TargetDate = targetDate,
-            StartMinutes = startMinutes,
-            EndMinutes = endMinutes,
-            Title = title,
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
-        });
+        var dto = TestTaskRequestBuilder.Create(techId, targetDate, startMinutes, endMinutes, title).Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<TaskCreatedOrUpdatedResponseDto>())!;

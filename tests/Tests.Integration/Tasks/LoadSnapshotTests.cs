@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
+using Tests.Integration.Builders;
 using Tests.Integration.Fixtures;
 using Tests.Integration.Seeds;
 using Xunit;
@@ -39,33 +40,13 @@ public sealed class LoadSnapshotTests : IAsyncLifetime
         var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(15)).ToString("yyyy-MM-dd");
 
         // First 6-hour task
-        var firstResponse = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)techId,
-            TargetDate = targetDate,
-            StartMinutes = 8 * 60,
-            EndMinutes = 14 * 60,
-            Title = "Morning",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
-        });
+        var firstDto = TestTaskRequestBuilder.Create(techId, targetDate, 8 * 60, 14 * 60, "Morning").Build();
+        var firstResponse = await client.PostAsJsonAsync("/api/tasks", firstDto);
         firstResponse.EnsureSuccessStatusCode();
 
         // Second 6-hour task (total 12h > 8h limit) same day, non-overlapping
-        var secondResponse = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)techId,
-            TargetDate = targetDate,
-            StartMinutes = 14 * 60,
-            EndMinutes = 20 * 60,
-            Title = "Evening",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
-        });
+        var secondDto = TestTaskRequestBuilder.Create(techId, targetDate, 14 * 60, 20 * 60, "Evening").Build();
+        var secondResponse = await client.PostAsJsonAsync("/api/tasks", secondDto);
 
         secondResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var payload = await secondResponse.Content.ReadFromJsonAsync<TaskCreatedOrUpdatedResponseDto>();

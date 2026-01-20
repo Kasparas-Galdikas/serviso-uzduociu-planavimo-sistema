@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
+using Tests.Integration.Builders;
 using Tests.Integration.Fixtures;
 using Tests.Integration.Seeds;
 using Xunit;
@@ -43,21 +44,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         await CreateTaskAsync(client, techId, targetDate, 9 * 60, 10 * 60, "Existing Task");
 
         // Act - Try to create task at exact same time slot
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)techId,
-            TargetDate = targetDate,
-            StartMinutes = 9 * 60,
-            EndMinutes = 10 * 60,
-            Title = "Overlapping Task",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var dto = TestTaskRequestBuilder.Create(techId, targetDate, 9 * 60, 10 * 60, "Overlapping Task").Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -75,21 +63,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         await CreateTaskAsync(client, techId, targetDate, 10 * 60, 12 * 60, "Existing Task");
 
         // Act - Try to create task 9:00-11:00 (overlaps at start)
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)techId,
-            TargetDate = targetDate,
-            StartMinutes = 9 * 60,
-            EndMinutes = 11 * 60,
-            Title = "Overlapping Task",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var dto = TestTaskRequestBuilder.Create(techId, targetDate, 9 * 60, 11 * 60, "Overlapping Task").Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -107,21 +82,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         await CreateTaskAsync(client, techId, targetDate, 10 * 60, 12 * 60, "Existing Task");
 
         // Act - Try to create task 11:00-13:00 (overlaps at end)
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)techId,
-            TargetDate = targetDate,
-            StartMinutes = 11 * 60,
-            EndMinutes = 13 * 60,
-            Title = "Overlapping Task",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var dto = TestTaskRequestBuilder.Create(techId, targetDate, 11 * 60, 13 * 60, "Overlapping Task").Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -139,21 +101,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         await CreateTaskAsync(client, techId, targetDate, 9 * 60, 13 * 60, "Existing Task");
 
         // Act - Try to create task 10:00-12:00 (fully contained)
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)techId,
-            TargetDate = targetDate,
-            StartMinutes = 10 * 60,
-            EndMinutes = 12 * 60,
-            Title = "Contained Task",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var dto = TestTaskRequestBuilder.Create(techId, targetDate, 10 * 60, 12 * 60, "Contained Task").Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -171,21 +120,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         await CreateTaskAsync(client, techId, targetDate, 10 * 60, 12 * 60, "Existing Task");
 
         // Act - Try to create task 9:00-13:00 (fully contains existing)
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)techId,
-            TargetDate = targetDate,
-            StartMinutes = 9 * 60,
-            EndMinutes = 13 * 60,
-            Title = "Containing Task",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var dto = TestTaskRequestBuilder.Create(techId, targetDate, 9 * 60, 13 * 60, "Containing Task").Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -203,21 +139,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         await CreateTaskAsync(client, techId, targetDate, 9 * 60, 10 * 60, "First Task");
 
         // Act - Create task immediately after: 10:00-11:00 (adjacent, no overlap)
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)techId,
-            TargetDate = targetDate,
-            StartMinutes = 10 * 60,
-            EndMinutes = 11 * 60,
-            Title = "Adjacent Task",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var dto = TestTaskRequestBuilder.Create(techId, targetDate, 10 * 60, 11 * 60, "Adjacent Task").Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -236,21 +159,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         await CreateTaskAsync(client, techId, targetDate, 9 * 60, 10 * 60, "Tech1 Task");
 
         // Act - Create task at same time for different technician
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)otherTechId,
-            TargetDate = targetDate,
-            StartMinutes = 9 * 60,
-            EndMinutes = 10 * 60,
-            Title = "Tech2 Task",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var dto = TestTaskRequestBuilder.Create(otherTechId, targetDate, 9 * 60, 10 * 60, "Tech2 Task").Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -269,21 +179,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         await CreateTaskAsync(client, techId, targetDate1, 9 * 60, 10 * 60, "Day1 Task");
 
         // Act - Create task at same time but different date
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)techId,
-            TargetDate = targetDate2,
-            StartMinutes = 9 * 60,
-            EndMinutes = 10 * 60,
-            Title = "Day2 Task",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var dto2 = TestTaskRequestBuilder.Create(techId, targetDate2, 9 * 60, 10 * 60, "Day2 Task").Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto2);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -425,18 +322,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         var endAt = DateTime.Parse(targetDate).AddMinutes(13 * 60);   // 13:00 - overlaps with Task 2
 
         // Act - Try to update Task 1 to overlap with Task 2
-        var response = await client.PatchAsJsonAsync($"/api/tasks/{task1.Id}", new UpdateTaskRequestDto
-        {
-            TechnicianId = techId,
-            StartAt = startAt,
-            EndAt = endAt,
-            Title = "Updated Task 1",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            Version = version,
-            TimezoneOffsetMinutes = 0
-        });
+        var updateDto = TestUpdateTaskRequestBuilder.Create(techId, startAt, endAt, "Updated Task 1", version).Build();
+        var response = await client.PatchAsJsonAsync($"/api/tasks/{task1.Id}", updateDto);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -457,18 +344,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         var endAt = DateTime.Parse(targetDate).AddMinutes(15 * 60);   // 15:00
 
         // Act - Update task to a free slot
-        var response = await client.PatchAsJsonAsync($"/api/tasks/{task.Id}", new UpdateTaskRequestDto
-        {
-            TechnicianId = techId,
-            StartAt = startAt,
-            EndAt = endAt,
-            Title = "Updated Task",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            Version = version,
-            TimezoneOffsetMinutes = 0
-        });
+        var updateDto = TestUpdateTaskRequestBuilder.Create(techId, startAt, endAt, "Updated Task", version).Build();
+        var response = await client.PatchAsJsonAsync($"/api/tasks/{task.Id}", updateDto);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -491,18 +368,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         var endAt = DateTime.Parse(targetDate).AddMinutes(10 * 60 + 30); // 10:30 - extends into Task 2
 
         // Act - Try to extend Task 1 into Task 2's slot
-        var response = await client.PatchAsJsonAsync($"/api/tasks/{task1.Id}", new UpdateTaskRequestDto
-        {
-            TechnicianId = techId,
-            StartAt = startAt,
-            EndAt = endAt,
-            Title = "Extended Task 1",
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            Version = version,
-            TimezoneOffsetMinutes = 0
-        });
+        var updateDto = TestUpdateTaskRequestBuilder.Create(techId, startAt, endAt, "Extended Task 1", version).Build();
+        var response = await client.PatchAsJsonAsync($"/api/tasks/{task1.Id}", updateDto);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -618,21 +485,8 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
 
     private async Task<TaskCreatedOrUpdatedResponseDto> CreateTaskAsync(HttpClient client, long techId, string targetDate, int startMinutes, int endMinutes, string title)
     {
-        var response = await client.PostAsJsonAsync("/api/tasks", new CreateTaskRequestDto
-        {
-            TechnicianId = (int)techId,
-            TargetDate = targetDate,
-            StartMinutes = startMinutes,
-            EndMinutes = endMinutes,
-            Title = title,
-            Location = "HQ",
-            Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0,
-            SkillLevel = "Junior",
-            ObjectName = "Test Object",
-            ObjectAddress = "Test Address 1"
-        });
+        var dto = TestTaskRequestBuilder.Create(techId, targetDate, startMinutes, endMinutes, title).Build();
+        var response = await client.PostAsJsonAsync("/api/tasks", dto);
 
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<TaskCreatedOrUpdatedResponseDto>())!;
