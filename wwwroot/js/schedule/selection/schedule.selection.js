@@ -30,6 +30,7 @@
     const min = String(mm % 60).padStart(2, "0");
     return `${h}:${min}`;
   };
+  const formatRange = (start, end) => `${minutesToTime(start)}–${minutesToTime(end)}`;
 
   const isEmptySlotCell = (td) => td?.classList?.contains("empty-slot") && !!td.querySelector?.(".schedule-slot");
 
@@ -408,7 +409,7 @@
     modal.querySelector("#taskDetailLocation").value = "";
     modal.querySelector("#taskDetailStart").value = startDateTime;
     modal.querySelector("#taskDetailEnd").value = endDateTime;
-    modal.querySelector("#taskDetailPriority").value = "1"; // Medium
+    modal.querySelector("#taskDetailPriority").value = ""; // force user to choose
     modal.querySelector("#taskDetailStatus").value = "0"; // Planned
 
     // Set title
@@ -459,6 +460,7 @@
       taskType: formData.taskType,
       skillLevel: formData.skillLevel,
       objectName: formData.objectName,
+      objectAddress: formData.objectAddress,
       objectType: formData.objectType,
       instructions: formData.instructions,
       safetyRequirements: formData.safetyRequirements,
@@ -479,21 +481,32 @@
 
       if (resp.status === 409) {
         const msg = (await resp.json().catch(() => null))?.message || "Laiko langas uzimtas.";
-        throw new Error(msg);
+        return { success: false, error: msg, errorType: "conflict" };
+      }
+
+      if (resp.status === 400) {
+        // ValidationProblem response - parse errors object
+        const errorData = await resp.json().catch(() => ({}));
+        if (errorData.errors && typeof errorData.errors === "object") {
+          // Return validation errors for form to display
+          return { success: false, validationErrors: errorData.errors, errorType: "validation" };
+        }
+        const msg = errorData.message || "Patikrinkite įvestus duomenis.";
+        return { success: false, error: msg, errorType: "validation" };
       }
 
       if (resp.status === 422) {
         const msg = (await resp.json().catch(() => null))?.message || "Netinkamas laiko langas.";
-        throw new Error(msg);
+        return { success: false, error: msg, errorType: "unprocessable" };
       }
 
       if (resp.status === 403) {
         const msg = (await resp.json().catch(() => null))?.message || "Neturite teisiu kurti uzduoties.";
-        throw new Error(msg);
+        return { success: false, error: msg, errorType: "forbidden" };
       }
 
       if (!resp.ok) {
-        throw new Error("Nepavyko sukurti uzduoties.");
+        return { success: false, error: "Įvyko klaida kuriant užduotį.", errorType: "unknown" };
       }
 
       // Response includes TaskCreatedOrUpdatedResponseDto with id and version
@@ -514,8 +527,7 @@
       return { success: true, id };
     } catch (err) {
       logEvent("ui.task.create.error", { error: err?.message }, "error");
-      alert(err?.message || "Nepavyko sukurti uzduoties.");
-      return { success: false, error: err?.message };
+      return { success: false, error: err?.message || "Įvyko nenumatyta klaida.", errorType: "exception" };
     }
   };
 
@@ -583,6 +595,12 @@
       if (!selection.active) return;
       if (evt.target?.closest?.("#scheduleTables")) return;
       if (evt.target?.closest?.(".slot-selection-bar")) return;
+      // Don't clear selection when interacting with the task detail panel (offcanvas)
+      if (evt.target?.closest?.("#taskDetailModal")) return;
+      if (evt.target?.closest?.(".offcanvas")) return;
+      // Don't clear selection when interacting with Select2 dropdowns
+      if (evt.target?.closest?.(".select2-container")) return;
+      if (evt.target?.closest?.(".select2-dropdown")) return;
       clearSelection("outside.click");
     });
 
@@ -712,9 +730,161 @@
     logEvent("ui.slot.selection.init");
   };
 
+  // === Inline resize for existing task cards (reuses slot-selection visuals) ===
+  const startTaskResize = ({ anchorEl, taskId, version, techId, date, startMinutes, endMinutes, onApply }) => {
+    if (!anchorEl || !taskId || !date) return;
+    const { slotSizeMinutes, dayStartMinutes, dayEndMinutes } = getGrid();
+    let currentStart = startMinutes ?? 0;
+    let currentEnd = endMinutes ?? currentStart + slotSizeMinutes;
+
+    const parentCell = anchorEl.closest("td") || anchorEl.parentElement;
+    if (!parentCell) return;
+    const container = parentCell;
+    if (getComputedStyle(container).position === "static") {
+      container.style.position = "relative";
+    }
+
+    const bar = document.createElement("div");
+    bar.className = "slot-selection-bar task-resize-bar";
+    bar.innerHTML = `
+      <button type="button" class="slot-selection-hit" data-slot-hit aria-label="Keisti laiką"></button>
+      <button type="button" class="slot-selection-handle" data-slot-handle="left" aria-label="Anksčiau">
+        <span class="slot-selection-handle-pill" aria-hidden="true">⟨</span>
+      </button>
+      <div class="slot-selection-range" data-slot-range aria-hidden="true">${formatRange(currentStart, currentEnd)}</div>
+      <button type="button" class="slot-selection-handle" data-slot-handle="right" aria-label="Vėliau">
+        <span class="slot-selection-handle-pill" aria-hidden="true">⟩</span>
+      </button>
+    `;
+
+    bar.style.position = "absolute";
+    bar.style.left = "6px";
+    bar.style.right = "6px";
+    bar.style.top = "6px";
+    bar.style.height = "42px";
+    bar.style.zIndex = "8";
+
+    const teardown = () => {
+      bar.remove();
+    };
+
+    const applyUpdate = async (nextStart, nextEnd) => {
+      if (typeof onApply !== "function") return false;
+      const ok = await onApply({
+        taskId,
+        version,
+        techId,
+        date,
+        startMinutes: nextStart,
+        endMinutes: nextEnd
+      });
+      if (ok) {
+        currentStart = nextStart;
+        currentEnd = nextEnd;
+        const label = bar.querySelector("[data-slot-range]");
+        if (label) label.textContent = formatRange(currentStart, currentEnd);
+      }
+      return ok;
+    };
+
+    const adjust = async (dir, shrink = false) => {
+      let nextStart = currentStart;
+      let nextEnd = currentEnd;
+      if (dir === "left" && !shrink) {
+        if (currentStart - slotSizeMinutes < dayStartMinutes) return;
+        nextStart = currentStart - slotSizeMinutes;
+      } else if (dir === "left" && shrink) {
+        if (currentEnd - slotSizeMinutes <= currentStart + slotSizeMinutes) return;
+        nextStart = currentStart + slotSizeMinutes;
+      } else if (dir === "right" && !shrink) {
+        if (currentEnd + slotSizeMinutes > dayEndMinutes) return;
+        nextEnd = currentEnd + slotSizeMinutes;
+      } else if (dir === "right" && shrink) {
+        if (currentEnd - slotSizeMinutes <= currentStart + slotSizeMinutes) return;
+        nextEnd = currentEnd - slotSizeMinutes;
+      }
+
+      const ok = await applyUpdate(nextStart, nextEnd);
+      if (ok) {
+        version = (version || 0) + 1; // optimistic; caller should update actual version
+      }
+    };
+
+    const attachDrag = (handle, dir) => {
+      if (!handle) return;
+      handle.style.cursor = "ew-resize";
+      handle.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handle.setPointerCapture(e.pointerId);
+
+        const startX = e.clientX;
+        const baseStart = currentStart;
+        const baseEnd = currentEnd;
+
+        const move = (ev) => {
+          const dx = ev.clientX - startX;
+          const slotsDelta = Math.round(dx / (slotSizeMinutes * 2)); // rough scale safeguard
+          let nextStart = baseStart;
+          let nextEnd = baseEnd;
+          if (dir === "left") {
+            nextStart = baseStart + slotsDelta * slotSizeMinutes;
+            nextStart = Math.min(nextStart, nextEnd - slotSizeMinutes);
+          } else {
+            nextEnd = baseEnd + slotsDelta * slotSizeMinutes;
+            nextEnd = Math.max(nextEnd, nextStart + slotSizeMinutes);
+          }
+          nextStart = Math.max(dayStartMinutes, nextStart);
+          nextEnd = Math.min(dayEndMinutes, nextEnd);
+          currentStart = nextStart;
+          currentEnd = nextEnd;
+          const label = bar.querySelector("[data-slot-range]");
+          if (label) label.textContent = formatRange(currentStart, currentEnd);
+        };
+
+        const up = async (ev) => {
+          handle.releasePointerCapture(ev.pointerId);
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", up);
+          handle.removeEventListener("pointercancel", up);
+          const changed = currentStart !== baseStart || currentEnd !== baseEnd;
+          if (changed) {
+            await applyUpdate(currentStart, currentEnd);
+          }
+        };
+
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+        handle.addEventListener("pointercancel", up);
+      });
+    };
+
+    attachDrag(bar.querySelector('[data-slot-handle="left"]'), "left");
+    attachDrag(bar.querySelector('[data-slot-handle="right"]'), "right");
+
+    // Click to step by one slot (kept for keyboard/mouse users)
+    bar.querySelector('[data-slot-handle="left"]')?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      adjust("left", e.shiftKey || e.altKey);
+    });
+    bar.querySelector('[data-slot-handle="right"]')?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      adjust("right", e.shiftKey || e.altKey);
+    });
+
+    bar.querySelector("[data-slot-hit]")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      teardown();
+    });
+
+    container.appendChild(bar);
+  };
+
   schedule.selection = {
     initOnce,
     clearSelection,
     submitCreateTask,
+    startTaskResize
   };
 })();

@@ -79,7 +79,10 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = -120
+            TimezoneOffsetMinutes = -120,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -102,11 +105,14 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
             TargetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(10)).ToString("yyyy-MM-dd"),
             StartMinutes = 18 * 60,
             EndMinutes = 19 * 60,
-            Title = "Tech creates for others",
+            Title = "Tech for others",
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = -120
+            TimezoneOffsetMinutes = -120,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -357,7 +363,10 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = -120
+            TimezoneOffsetMinutes = -120,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         response.EnsureSuccessStatusCode();

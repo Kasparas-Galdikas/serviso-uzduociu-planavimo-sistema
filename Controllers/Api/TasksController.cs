@@ -141,6 +141,24 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
             }
 
+            if (dto.TechnicianId <= 0)
+            {
+                return UnprocessableEntity(new { message = "Priskirtas darbuotojas yra privalomas." });
+            }
+
+            if (string.IsNullOrWhiteSpace(dto.SkillLevel) ||
+                string.IsNullOrWhiteSpace(dto.ObjectName) ||
+                string.IsNullOrWhiteSpace(dto.ObjectAddress) ||
+                string.IsNullOrWhiteSpace(dto.Location))
+            {
+                return UnprocessableEntity(new { message = "Privalomi laukai (kvalifikacija, objektas ir adresas) turi buti uzpildyti." });
+            }
+
+            var normalizedSkillLevel = dto.SkillLevel.Trim();
+            var normalizedObjectName = dto.ObjectName.Trim();
+            var normalizedObjectAddress = dto.ObjectAddress.Trim();
+            var normalizedLocation = dto.Location.Trim();
+
             var user = _userContextResolver.GetCurrentUser();
             var result = await _planService.CreateTaskAsync(
                 dto.TechnicianId,
@@ -148,12 +166,12 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 dto.StartMinutes,
                 dto.EndMinutes,
                 dto.Title,
-                dto.Location,
+                normalizedLocation,
                 dto.Priority,
                 dto.Status,
-                dto.SkillLevel ?? string.Empty,
-                dto.ObjectName ?? string.Empty,
-                dto.ObjectAddress ?? string.Empty,
+                normalizedSkillLevel,
+                normalizedObjectName,
+                normalizedObjectAddress,
                 dto.Instructions ?? string.Empty,
                 user,
                 dto.TimezoneOffsetMinutes,
@@ -210,7 +228,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var timezoneOffset = GetBrowserTimezoneOffset();
             var user = _userContextResolver.GetCurrentUser();
             var isEditable = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffset);
-            
+
             // Convert UTC times from database to local time for frontend
             var localStartAt = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffset);
             var localEndAt = _timeService.ConvertUtcToLocal(task.EndAt, timezoneOffset);
@@ -240,6 +258,101 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             _logger.LogInformation("api.task.get id={Id} editable={Editable} tz={Tz} utcStart={UtcStart} localStart={LocalStart}", id, isEditable, timezoneOffset, task.StartAt, localStartAt);
             return Ok(response);
+        }
+
+        [HttpDelete("{id:long}")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> DeleteTask(long id, [FromBody] DeleteTaskRequestDto dto, CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("api.task.delete.requested id={Id} version={Version}", id, dto.Version);
+
+            if (!ModelState.IsValid)
+            {
+                _logger.LogWarning("api.task.delete.validation-failed id={Id}", id);
+                return ValidationProblem(ModelState);
+            }
+
+            var user = _userContextResolver.GetCurrentUser();
+            var result = await _planService.DeleteTaskAsync(id, dto.Version, user, dto.TimezoneOffsetMinutes, cancellationToken);
+
+            if (result.Ok && result.Task != null)
+            {
+                var response = new TaskDeletedResponseDto
+                {
+                    DeletedTaskId = result.Task.Id,
+                    Version = result.CurrentVersion ?? dto.Version,
+                    Load = await BuildLoadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                };
+                _logger.LogInformation("api.task.delete.succeeded id={Id}", id);
+                return Ok(response);
+            }
+
+            _logger.LogWarning("api.task.delete.rejected id={Id} reason={Reason}", id, result.Error);
+
+            return result.Error switch
+            {
+                TaskDeleteError.NotFound => NotFound(new { message = result.Message }),
+                TaskDeleteError.NotEditable => StatusCode(403, new { message = result.Message }),
+                TaskDeleteError.Stale => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                _ => StatusCode(500, new { message = "Nepavyko istrinti uzduoties." })
+            };
+        }
+
+        [HttpPatch("{id:long}/time")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> UpdateTaskTime(long id, [FromBody] UpdateTaskTimeRequestDto dto, CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("api.task.time.requested id={Id} start={Start} end={End} version={Version}", id, dto.TargetSlotStartMinutes, dto.TargetSlotEndMinutes, dto.Version);
+
+            if (!ModelState.IsValid)
+            {
+                _logger.LogWarning("api.task.time.validation-failed id={Id}", id);
+                return ValidationProblem(ModelState);
+            }
+
+            if (!TryParseDate(dto.TargetDate, out var targetDate))
+            {
+                return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
+            }
+
+            var user = _userContextResolver.GetCurrentUser();
+            var result = await _planService.UpdateTaskTimeAsync(
+                id,
+                targetDate,
+                dto.TargetSlotStartMinutes,
+                dto.TargetSlotEndMinutes,
+                dto.Version,
+                user,
+                dto.TimezoneOffsetMinutes,
+                cancellationToken);
+
+            if (result.Ok && result.Task != null)
+            {
+                var localStart = _timeService.ConvertUtcToLocal(result.Task.StartAt, dto.TimezoneOffsetMinutes);
+                var localEnd = _timeService.ConvertUtcToLocal(result.Task.EndAt, dto.TimezoneOffsetMinutes);
+                var response = new TaskMovedResponseDto
+                {
+                    Id = result.Task.Id,
+                    Version = result.CurrentVersion ?? dto.Version,
+                    TechnicianId = result.Task.TechnicianId,
+                    StartAt = localStart,
+                    EndAt = localEnd,
+                    Load = await BuildLoadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                };
+                _logger.LogInformation("api.task.time.succeeded id={Id}", id);
+                return Ok(response);
+            }
+
+            _logger.LogWarning("api.task.time.rejected id={Id} reason={Reason}", id, result.Error);
+
+            return result.Error switch
+            {
+                TaskTimeUpdateError.NotFound => NotFound(new { message = result.Message }),
+                TaskTimeUpdateError.NotEditable => StatusCode(403, new { message = result.Message }),
+                TaskTimeUpdateError.Stale => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                TaskTimeUpdateError.Overlap => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                _ => UnprocessableEntity(new { message = result.Message ?? "Netinkamas laiko langas." })
+            };
         }
 
         [HttpPost("preview/drag")]
@@ -395,6 +508,20 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return UnprocessableEntity(new { message = "Pabaigos laikas turi b?ti v?lesnis u? prad?i?." });
             }
 
+            if (string.IsNullOrWhiteSpace(dto.SkillLevel) ||
+                string.IsNullOrWhiteSpace(dto.ObjectName) ||
+                string.IsNullOrWhiteSpace(dto.ObjectAddress) ||
+                string.IsNullOrWhiteSpace(dto.Location))
+            {
+                return UnprocessableEntity(new { message = "Privalomi laukai (kvalifikacija, objektas ir adresas) turi buti uzpildyti." });
+            }
+
+            var normalizedSkillLevel = dto.SkillLevel.Trim();
+            var normalizedObjectName = dto.ObjectName.Trim();
+            var normalizedObjectAddress = dto.ObjectAddress.Trim();
+            var normalizedLocation = dto.Location.Trim();
+            var normalizedInstructions = (dto.Instructions ?? string.Empty).Trim();
+
             // Convert local times from frontend to UTC for storage
             var utcStartAt = _timeService.ConvertLocalToUtc(dto.StartAt, dto.TimezoneOffsetMinutes);
             var utcEndAt = _timeService.ConvertLocalToUtc(dto.EndAt, dto.TimezoneOffsetMinutes);
@@ -480,18 +607,18 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var updated = await _planService.UpdateTaskAsync(id, task =>
             {
                 task.Title = dto.Title;
-                task.Location = dto.Location;
+                task.Location = normalizedLocation;
                 task.StartAt = utcStartAt;
                 task.EndAt = utcEndAt;
                 task.Priority = dto.Priority;
                 task.Status = dto.Status;
-                task.SkillLevel = dto.SkillLevel ?? string.Empty;
-                task.Instructions = dto.Instructions ?? string.Empty;
+                task.SkillLevel = normalizedSkillLevel;
+                task.Instructions = normalizedInstructions;
                 if (dto.TechnicianComment != null)
                 {
                     task.TechnicianComment = dto.TechnicianComment;
                 }
-            }, dto.TechnicianId, user, dto.TimezoneOffsetMinutes, dto.ObjectName, dto.ObjectAddress, cancellationToken);
+            }, dto.TechnicianId, user, dto.TimezoneOffsetMinutes, normalizedObjectName, normalizedObjectAddress, cancellationToken);
 
             var version = await _db.Tasks
                 .AsNoTracking()
@@ -510,7 +637,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             return Ok(response);
         }
 
-[HttpPatch("{id:long}/move")]
+        [HttpPatch("{id:long}/move")]
         [Authorize(Policy = "CanEditTask")]
         public async Task<IActionResult> MoveTask(long id, [FromBody] MoveTaskRequestDto dto, CancellationToken cancellationToken)
         {

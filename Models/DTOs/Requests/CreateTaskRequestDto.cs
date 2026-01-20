@@ -9,30 +9,31 @@ namespace ServiceTaskPlanningSystem.Models.DTOs.Requests;
 /// </summary>
 public class CreateTaskRequestDto
 {
-    [Required(ErrorMessage = "Technician ID is required.")]
+    [Required(ErrorMessage = "Darbuotojas yra privalomas.")]
     public int TechnicianId { get; set; }
 
-    [Required(ErrorMessage = "Target date is required.")]
-    [RegularExpression(@"^\d{4}-\d{2}-\d{2}$", ErrorMessage = "Date must be in yyyy-MM-dd format.")]
+    [Required(ErrorMessage = "Data yra privaloma.")]
+    [RegularExpression(@"^\d{4}-\d{2}-\d{2}$", ErrorMessage = "Datos formatas turi būti yyyy-MM-dd.")]
     public string TargetDate { get; set; } = string.Empty;
 
-    [Range(0, 1440, ErrorMessage = "Start minutes must be between 0 and 1440.")]
+    [Range(0, 1440, ErrorMessage = "Pradžios laikas netinkamas.")]
     public int StartMinutes { get; set; }
 
-    [Range(0, 1440, ErrorMessage = "End minutes must be between 0 and 1440.")]
+    [Range(0, 1440, ErrorMessage = "Pabaigos laikas netinkamas.")]
     public int EndMinutes { get; set; }
 
-    [Required(ErrorMessage = "Title is required.")]
-    [StringLength(200, ErrorMessage = "Title cannot exceed 200 characters.")]
+    [Required(ErrorMessage = "Pavadinimas yra privalomas.")]
+    [StringLength(20, ErrorMessage = "Pavadinimas negali viršyti 20 simbolių.")]
     public string Title { get; set; } = string.Empty;
 
-    [StringLength(200, ErrorMessage = "Location cannot exceed 200 characters.")]
+    [Required(ErrorMessage = "Vieta yra privaloma.")]
+    [StringLength(200, ErrorMessage = "Vieta negali viršyti 200 simbolių.")]
     public string Location { get; set; } = string.Empty;
 
-    [Required(ErrorMessage = "Priority is required.")]
+    [Required(ErrorMessage = "Prioritetas yra privalomas.")]
     public TaskPriority Priority { get; set; } = TaskPriority.Medium;
 
-    [Required(ErrorMessage = "Status is required.")]
+    [Required(ErrorMessage = "Statusas yra privalomas.")]
     public ScheduleTaskStatus Status { get; set; } = ScheduleTaskStatus.Planned;
 
     /// <summary>
@@ -40,18 +41,21 @@ public class CreateTaskRequestDto
     /// Used to convert local times to UTC for storage.
     /// Example: UTC+2 (EET) = -120, UTC-5 (EST) = 300
     /// </summary>
-    [Range(-1440, 1440, ErrorMessage = "Timezone offset must be between -1440 and 1440 minutes.")]
+    [Range(-1440, 1440, ErrorMessage = "Laiko juostos poslinkis netinkamas.")]
     public int TimezoneOffsetMinutes { get; set; }
 
-    [StringLength(100, ErrorMessage = "Skill level cannot exceed 100 characters.")]
-    public string? SkillLevel { get; set; }
+    [Required(ErrorMessage = "Kvalifikacijos lygis yra privalomas.")]
+    [StringLength(100, ErrorMessage = "Kvalifikacijos lygis negali viršyti 100 simbolių.")]
+    public string SkillLevel { get; set; } = string.Empty;
 
-    [StringLength(200, ErrorMessage = "Object name cannot exceed 200 characters.")]
-    public string? ObjectName { get; set; }
+    [Required(ErrorMessage = "Objekto pavadinimas yra privalomas.")]
+    [StringLength(200, ErrorMessage = "Objekto pavadinimas negali viršyti 200 simbolių.")]
+    public string ObjectName { get; set; } = string.Empty;
 
-    [StringLength(200, ErrorMessage = "Object address cannot exceed 200 characters.")]
-    public string? ObjectAddress { get; set; }
+    [Required(ErrorMessage = "Objekto adresas yra privalomas.")]
+    [StringLength(200, ErrorMessage = "Objekto adresas negali viršyti 200 simbolių.")]
+    public string ObjectAddress { get; set; } = string.Empty;
 
-    [StringLength(2000, ErrorMessage = "Instructions cannot exceed 2000 characters.")]
+    [StringLength(2000, ErrorMessage = "Instrukcijos negali viršyti 2000 simbolių.")]
     public string? Instructions { get; set; }
 }

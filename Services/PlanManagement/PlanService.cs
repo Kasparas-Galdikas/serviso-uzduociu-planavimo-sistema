@@ -164,6 +164,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return (PlacementError.NotEditable, "Neturite teisiu atlikti sio veiksmo.", default, default, null);
             }
 
+            // Prevent placing tasks with start time in the past
+            if (!_timeService.IsTaskStillEditable(startAt))
+            {
+                return (PlacementError.InvalidWindow, "Negalima nustatyti pradžios laiko praeityje.", default, default, null);
+            }
+
             var hasOverlap = await _db.Tasks
                 .AsNoTracking()
                 .Where(t => ignoreTaskId == null || t.Id != ignoreTaskId.Value)
@@ -567,6 +573,137 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             return new TaskMoveResult(TaskMoveError.None, Task: task, CurrentVersion: _db.Entry(task).Property<uint>("xmin").CurrentValue);
+        }
+
+        public async Task<TaskTimeUpdateResult> UpdateTaskTimeAsync(long taskId, DateTime targetDate, int targetSlotStartMinutes, int targetSlotEndMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        {
+            var task = await _db.Tasks
+                .Include(t => t.Plan)
+                .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+
+            if (task == null)
+            {
+                return new TaskTimeUpdateResult(TaskTimeUpdateError.NotFound, $"Task {taskId} was not found.");
+            }
+
+            var currentVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
+            if (expectedVersion == 0 || expectedVersion != currentVersion)
+            {
+                return new TaskTimeUpdateResult(TaskTimeUpdateError.Stale, "Uzduotis pasikeite (stale). Atnaujinkite lentele ir bandykite dar karta.", CurrentVersion: currentVersion);
+            }
+
+            if (targetSlotEndMinutes <= targetSlotStartMinutes)
+            {
+                return new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, "Pabaiga turi buti veliau nei pradzia.");
+            }
+
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffsetMinutes);
+            if (!canEdit || !_timeService.IsTaskStillEditable(task.EndAt))
+            {
+                return new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, "Neturite teisiu keisti uzduoties laiko.");
+            }
+
+            if (task.TechnicianId > int.MaxValue || task.TechnicianId < int.MinValue)
+            {
+                return new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, "Netinkamas techniko identifikatorius.");
+            }
+
+            var validation = await ValidatePlacementAsync(
+                ignoreTaskId: task.Id,
+                targetTechnicianId: (int)task.TechnicianId,
+                targetDate: targetDate,
+                startMinutes: targetSlotStartMinutes,
+                endMinutes: targetSlotEndMinutes,
+                plan: task.Plan,
+                status: task.Status,
+                user: user,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                requireEndAligned: true,
+                cancellationToken: cancellationToken);
+
+            if (validation.Error != PlacementError.None)
+            {
+                return validation.Error switch
+                {
+                    PlacementError.NotEditable => new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, validation.Message),
+                    PlacementError.Overlap => new TaskTimeUpdateResult(TaskTimeUpdateError.Overlap, validation.Message),
+                    _ => new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, validation.Message)
+                };
+            }
+
+            task.StartAt = validation.StartAt;
+            task.EndAt = validation.EndAt;
+
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return new TaskTimeUpdateResult(TaskTimeUpdateError.Stale, "Uzduotis pasikeite (stale).", CurrentVersion: currentVersion);
+            }
+
+            if (task.PlanId.HasValue)
+            {
+                await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
+                await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
+            }
+
+            var newVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
+            return new TaskTimeUpdateResult(TaskTimeUpdateError.None, Task: task, CurrentVersion: newVersion);
+        }
+
+        public async Task<TaskDeleteResult> DeleteTaskAsync(long taskId, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        {
+            _logger.LogInformation("svc.task.delete.requested taskId={TaskId} expectedVersion={Version}", taskId, expectedVersion);
+
+            var task = await _db.Tasks
+                .Include(t => t.Plan)
+                .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+
+            if (task == null)
+            {
+                _logger.LogWarning("svc.task.delete.not-found taskId={TaskId}", taskId);
+                return new TaskDeleteResult(TaskDeleteError.NotFound, $"Task {taskId} was not found.");
+            }
+
+            var currentVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
+            if (expectedVersion == 0 || expectedVersion != currentVersion)
+            {
+                _logger.LogWarning("svc.task.delete.stale taskId={TaskId} expectedVersion={Expected} currentVersion={Current}", taskId, expectedVersion, currentVersion);
+                return new TaskDeleteResult(TaskDeleteError.Stale, "Uzduotis pasikeite (stale). Atnaujinkite lentele ir bandykite dar karta.", CurrentVersion: currentVersion);
+            }
+
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffsetMinutes);
+            if (!canEdit || !_timeService.IsTaskStillEditable(task.EndAt))
+            {
+                _logger.LogWarning("svc.task.delete.not-editable taskId={TaskId}", taskId);
+                return new TaskDeleteResult(TaskDeleteError.NotEditable, "Neturite teisiu istrinti sios uzduoties.");
+            }
+
+            var planId = task.PlanId;
+            var plan = task.Plan;
+
+            _db.Tasks.Remove(task);
+
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                _logger.LogWarning("svc.task.delete.stale-on-save taskId={TaskId}", taskId);
+                return new TaskDeleteResult(TaskDeleteError.Stale, "Uzduotis pasikeite (stale).", CurrentVersion: currentVersion);
+            }
+
+            if (planId.HasValue && plan != null)
+            {
+                await AdjustPlanSpanAsync(plan, cancellationToken);
+                await _evaluationEngine.RecalculatePlanAsync(planId.Value, cancellationToken);
+            }
+
+            _logger.LogInformation("svc.task.delete.ok taskId={TaskId}", taskId);
+            return new TaskDeleteResult(TaskDeleteError.None, Task: task, CurrentVersion: 0);
         }
 
         public async Task PublishDraftAsync(CancellationToken cancellationToken = default)

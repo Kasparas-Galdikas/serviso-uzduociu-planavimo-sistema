@@ -10,34 +10,35 @@ namespace ServiceTaskPlanningSystem.Models.DTOs.Requests;
 /// </summary>
 public class UpdateTaskRequestDto
 {
-    [Required(ErrorMessage = "Title is required.")]
-    [StringLength(200, ErrorMessage = "Title cannot exceed 200 characters.")]
+    [Required(ErrorMessage = "Pavadinimas yra privalomas.")]
+    [StringLength(20, ErrorMessage = "Pavadinimas negali viršyti 20 simbolių.")]
     public string Title { get; set; } = string.Empty;
 
-    [StringLength(200, ErrorMessage = "Location cannot exceed 200 characters.")]
+    [Required(ErrorMessage = "Vieta yra privaloma.")]
+    [StringLength(200, ErrorMessage = "Vieta negali viršyti 200 simbolių.")]
     public string Location { get; set; } = string.Empty;
 
-    [Required(ErrorMessage = "Technician is required.")]
-    [Range(1, long.MaxValue, ErrorMessage = "Technician must be a valid id.")]
+    [Required(ErrorMessage = "Darbuotojas yra privalomas.")]
+    [Range(1, long.MaxValue, ErrorMessage = "Darbuotojas turi būti pasirinktas.")]
     public long TechnicianId { get; set; }
 
-    [Required(ErrorMessage = "Start time is required.")]
+    [Required(ErrorMessage = "Pradžios laikas yra privalomas.")]
     public DateTime StartAt { get; set; }
 
-    [Required(ErrorMessage = "End time is required.")]
+    [Required(ErrorMessage = "Pabaigos laikas yra privalomas.")]
     public DateTime EndAt { get; set; }
 
-    [Required(ErrorMessage = "Priority is required.")]
+    [Required(ErrorMessage = "Prioritetas yra privalomas.")]
     public TaskPriority Priority { get; set; }
 
-    [Required(ErrorMessage = "Status is required.")]
+    [Required(ErrorMessage = "Statusas yra privalomas.")]
     public ScheduleTaskStatus Status { get; set; }
 
     /// <summary>
     /// Optimistic concurrency control - prevent lost updates.
     /// Must match the current version returned by GET or previous UPDATE.
     /// </summary>
-    [Required(ErrorMessage = "Version is required for concurrency control.")]
+    [Required(ErrorMessage = "Versija yra privaloma.")]
     public uint Version { get; set; }
 
     /// <summary>
@@ -45,21 +46,24 @@ public class UpdateTaskRequestDto
     /// Used to convert local StartAt/EndAt times to UTC for storage.
     /// Example: UTC+2 (EET) = -120, UTC-5 (EST) = 300
     /// </summary>
-    [Range(-1440, 1440, ErrorMessage = "Timezone offset must be between -1440 and 1440 minutes.")]
+    [Range(-1440, 1440, ErrorMessage = "Laiko juostos poslinkis netinkamas.")]
     public int TimezoneOffsetMinutes { get; set; }
 
-    [StringLength(100, ErrorMessage = "Skill level cannot exceed 100 characters.")]
-    public string? SkillLevel { get; set; }
+    [Required(ErrorMessage = "Kvalifikacijos lygis yra privalomas.")]
+    [StringLength(100, ErrorMessage = "Kvalifikacijos lygis negali viršyti 100 simbolių.")]
+    public string SkillLevel { get; set; } = string.Empty;
 
-    [StringLength(200, ErrorMessage = "Object name cannot exceed 200 characters.")]
-    public string? ObjectName { get; set; }
+    [Required(ErrorMessage = "Objekto pavadinimas yra privalomas.")]
+    [StringLength(200, ErrorMessage = "Objekto pavadinimas negali viršyti 200 simbolių.")]
+    public string ObjectName { get; set; } = string.Empty;
 
-    [StringLength(200, ErrorMessage = "Object address cannot exceed 200 characters.")]
-    public string? ObjectAddress { get; set; }
+    [Required(ErrorMessage = "Objekto adresas yra privalomas.")]
+    [StringLength(200, ErrorMessage = "Objekto adresas negali viršyti 200 simbolių.")]
+    public string ObjectAddress { get; set; } = string.Empty;
 
-    [StringLength(2000, ErrorMessage = "Instructions cannot exceed 2000 characters.")]
+    [StringLength(2000, ErrorMessage = "Instrukcijos negali viršyti 2000 simbolių.")]
     public string? Instructions { get; set; }
 
-    [StringLength(2000, ErrorMessage = "Technician comment cannot exceed 2000 characters.")]
+    [StringLength(2000, ErrorMessage = "Darbuotojo komentaras negali viršyti 2000 simbolių.")]
     public string? TechnicianComment { get; set; }
 }

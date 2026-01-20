@@ -11,6 +11,61 @@
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
+  const formatRange = (startMinutes, endMinutes) => {
+    const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    return `${fmt(startMinutes)}–${fmt(endMinutes)}`;
+  };
+
+  // Select2 initialization helper
+  const initSelect2 = (selectEl, placeholder) => {
+    if (!selectEl || typeof $ === "undefined" || !$.fn.select2) return;
+    const $select = $(selectEl);
+
+    // Destroy existing instance if any
+    if ($select.hasClass("select2-hidden-accessible")) {
+      $select.select2("destroy");
+    }
+
+    // Get the parent offcanvas for dropdown positioning
+    const dropdownParent = selectEl.closest(".offcanvas") || document.body;
+
+    $select.select2({
+      theme: "bootstrap-5",
+      placeholder: placeholder || "Pasirinkite...",
+      allowClear: false,
+      width: "100%",
+      dropdownParent: $(dropdownParent),
+      language: {
+        noResults: () => "Nerasta rezultatų",
+        searching: () => "Ieškoma...",
+        inputTooShort: (args) => `Įveskite bent ${args.minimum} simbolius`,
+      }
+    });
+  };
+
+  const destroySelect2 = (selectEl) => {
+    if (!selectEl || typeof $ === "undefined" || !$.fn.select2) return;
+    const $select = $(selectEl);
+    if ($select.hasClass("select2-hidden-accessible")) {
+      $select.select2("destroy");
+    }
+  };
+
+  const setSelect2Value = (selectEl, value) => {
+    if (!selectEl || typeof $ === "undefined" || !$.fn.select2) return;
+    const $select = $(selectEl);
+    if ($select.hasClass("select2-hidden-accessible")) {
+      $select.val(value).trigger("change.select2");
+    }
+  };
+
+  const setSelect2Disabled = (selectEl, disabled) => {
+    if (!selectEl || typeof $ === "undefined" || !$.fn.select2) return;
+    const $select = $(selectEl);
+    if ($select.hasClass("select2-hidden-accessible")) {
+      $select.prop("disabled", disabled);
+    }
+  };
 
   let objectsPromise = null;
   const loadObjects = async () => {
@@ -30,6 +85,9 @@
     const select = modalEl.querySelector("#taskDetailObject");
     if (!select) return;
 
+    // Destroy existing Select2 before repopulating
+    destroySelect2(select);
+
     const objects = (await loadObjects())
       // Drop any accidentally created placeholder objects (legacy data)
       .filter((obj) => (obj?.name || "").trim().toLowerCase() !== "- pasirinkite objekta -");
@@ -37,7 +95,7 @@
 
     const placeholder = document.createElement("option");
     placeholder.value = "";
-    placeholder.textContent = "- Pasirinkite objekta -";
+    placeholder.textContent = "";
     select.appendChild(placeholder);
 
     objects.forEach((obj) => {
@@ -67,6 +125,61 @@
       custom.selected = true;
       select.appendChild(custom);
     }
+
+    // Initialize Select2
+    initSelect2(select, "Pasirinkite objektą...");
+  };
+
+  const populateAddressDropdown = async (modalEl, selectedAddress) => {
+    const select = modalEl.querySelector("#taskDetailLocation");
+    if (!select) return;
+
+    // Destroy existing Select2 before repopulating
+    destroySelect2(select);
+
+    const objects = await loadObjects();
+    select.innerHTML = "";
+
+    // Add placeholder
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "";
+    select.appendChild(placeholder);
+
+    // Build address-to-object mapping (first object wins for each address)
+    const addressToObject = new Map();
+    objects.forEach((obj) => {
+      if (obj.address && obj.address.trim()) {
+        const addr = obj.address.trim();
+        if (!addressToObject.has(addr)) {
+          addressToObject.set(addr, obj.id);
+        }
+      }
+    });
+
+    // Add address options with object ID stored
+    addressToObject.forEach((objectId, addr) => {
+      const opt = document.createElement("option");
+      opt.value = addr;
+      opt.textContent = addr;
+      opt.dataset.objectId = objectId;
+      if (selectedAddress && addr === selectedAddress) {
+        opt.selected = true;
+      }
+      select.appendChild(opt);
+    });
+
+    // If selected address not in list, add it
+    if (selectedAddress && !addressToObject.has(selectedAddress)) {
+      const custom = document.createElement("option");
+      custom.value = selectedAddress;
+      custom.textContent = selectedAddress;
+      custom.selected = true;
+      select.appendChild(custom);
+    }
+
+    // Initialize Select2
+    initSelect2(select, "Pasirinkite adresą...");
   };
 
   const clearActiveCards = () => {
@@ -88,15 +201,50 @@
   };
 
   const ensureObjectAddressBinding = (modalEl) => {
-    const select = modalEl.querySelector("#taskDetailObject");
-    if (!select || select.dataset.objectBinding === "1") return;
-    select.dataset.objectBinding = "1";
-    select.addEventListener("change", () => {
-      const selected = select.selectedOptions[0];
+    const objectSelect = modalEl.querySelector("#taskDetailObject");
+    const addressSelect = modalEl.querySelector("#taskDetailLocation");
+
+    // Skip if already bound or elements missing
+    if (!objectSelect || !addressSelect) return;
+    if (objectSelect.dataset.objectAddressBinding === "1") return;
+    objectSelect.dataset.objectAddressBinding = "1";
+
+    // Flag to prevent infinite loops
+    let isUpdating = false;
+
+    // Object → Address: when object changes, update address
+    const updateAddressFromObject = () => {
+      if (isUpdating) return;
+      isUpdating = true;
+      const selected = objectSelect.selectedOptions[0];
       const address = selected?.dataset?.address || "";
-      const locationInput = modalEl.querySelector("#taskDetailLocation");
-      if (locationInput) locationInput.value = address;
-    });
+      setSelect2Value(addressSelect, address);
+      isUpdating = false;
+    };
+
+    // Address → Object: when address changes, update object
+    const updateObjectFromAddress = () => {
+      if (isUpdating) return;
+      isUpdating = true;
+      const selected = addressSelect.selectedOptions[0];
+      const objectId = selected?.dataset?.objectId || "";
+      if (objectId) {
+        setSelect2Value(objectSelect, objectId);
+      }
+      isUpdating = false;
+    };
+
+    // Bind object → address
+    objectSelect.addEventListener("change", updateAddressFromObject);
+    if (typeof $ !== "undefined" && $.fn.select2) {
+      $(objectSelect).on("select2:select select2:clear", updateAddressFromObject);
+    }
+
+    // Bind address → object
+    addressSelect.addEventListener("change", updateObjectFromAddress);
+    if (typeof $ !== "undefined" && $.fn.select2) {
+      $(addressSelect).on("select2:select select2:clear", updateObjectFromAddress);
+    }
   };
 
   const fetchTask = async (taskId) => {
@@ -125,6 +273,9 @@
     const dropdown = modalEl.querySelector("#taskDetailAssignee");
     if (!dropdown) return;
 
+    // Destroy existing Select2 before repopulating
+    destroySelect2(dropdown);
+
     try {
       const resp = await fetch("/api/technicians", {
         headers: { "X-Requested-With": "XMLHttpRequest" }
@@ -140,10 +291,10 @@
       // Clear existing options
       dropdown.innerHTML = "";
 
-      // Add placeholder option
+      // Add placeholder option (empty for Select2)
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      placeholder.textContent = "Pasirinkite darbuotoją...";
+      placeholder.textContent = "";
       dropdown.appendChild(placeholder);
 
       // Add technician options
@@ -156,6 +307,9 @@
         }
         dropdown.appendChild(option);
       });
+
+      // Initialize Select2
+      initSelect2(dropdown, "Pasirinkite darbuotoją...");
     } catch (err) {
       console.error("Error loading technicians:", err);
     }
@@ -173,25 +327,23 @@
   const populateTaskModal = async (modalEl, data, editable) => {
     const setVal = (selector, value) => {
       const el = modalEl.querySelector(selector);
-      if (el) el.value = value || "";
+      if (el) el.value = value ?? "";
     };
 
     setVal("#taskDetailTitle", data.title);
-    setVal("#taskDetailLocation", data.objectAddress || data.location);
     setVal("#taskDetailStart", data.startAt ? data.startAt.substring(0, 16) : "");
     setVal("#taskDetailEnd", data.endAt ? data.endAt.substring(0, 16) : "");
     setVal("#taskDetailPriority", data.priority);
     setVal("#taskDetailStatus", data.status);
     setVal("#taskDetailTechnicianComment", data.technicianComment);
     setVal("#taskDetailSkill", data.skillLevel);
+
+    // Populate dropdowns
     await populateObjectDropdown(modalEl, data.objectId, data.objectName, data.objectAddress);
+    const selectedAddress = data.objectAddress || data.location;
+    await populateAddressDropdown(modalEl, selectedAddress);
     ensureObjectAddressBinding(modalEl);
-    const selectedObj = modalEl.querySelector("#taskDetailObject")?.selectedOptions?.[0];
-    if (selectedObj?.dataset?.address) {
-      setVal("#taskDetailLocation", selectedObj.dataset.address);
-    } else {
-      setVal("#taskDetailLocation", data.objectAddress || data.location);
-    }
+
     syncInstructionFields(modalEl, data.instructions);
 
     // Populate technician dropdown for managers
@@ -243,6 +395,7 @@
     const instructionsReadonly = modalEl.querySelector("#taskDetailInstructionsReadonly");
     const statusField = modalEl.querySelector("#taskDetailStatus");
     const commentField = modalEl.querySelector("#taskDetailTechnicianComment");
+    const deleteBtn = modalEl.querySelector("#taskDetailDelete");
     const isOwnTask =
       currentUserId != null &&
       taskTechnicianId != null &&
@@ -269,6 +422,11 @@
       editable
     });
 
+    // Select2 dropdowns need special handling
+    const assigneeSelect = modalEl.querySelector("#taskDetailAssignee");
+    const objectSelect = modalEl.querySelector("#taskDetailObject");
+    const addressSelect = modalEl.querySelector("#taskDetailLocation");
+
     if (isTechnician) {
       // Hide parameters from technicians
       if (paramsSection) paramsSection.classList.add("d-none");
@@ -287,6 +445,11 @@
         el.setAttribute("disabled", "disabled");
         el.classList.add("bg-light");
       });
+
+      // Disable Select2 dropdowns
+      setSelect2Disabled(assigneeSelect, true);
+      setSelect2Disabled(objectSelect, true);
+      setSelect2Disabled(addressSelect, true);
 
       // Enable technician fields ONLY if it's their task and editable
       const canEdit = isOwnTask && editable;
@@ -316,6 +479,10 @@
         }
       }
 
+      if (deleteBtn) {
+        deleteBtn.classList.add("d-none");
+      }
+
     } else {
       // Manager view: show parameters and editable instructions
       if (paramsSection) paramsSection.classList.remove("d-none");
@@ -339,6 +506,11 @@
         }
       });
 
+      // Handle Select2 dropdowns for manager
+      setSelect2Disabled(assigneeSelect, !editable);
+      setSelect2Disabled(objectSelect, !editable);
+      setSelect2Disabled(addressSelect, !editable);
+
       // Keep technician-specific fields read-only
       if (statusField) {
         statusField.setAttribute("disabled", "disabled");
@@ -348,12 +520,24 @@
         commentField.setAttribute("disabled", "disabled");
         commentField.classList.add("bg-light");
       }
+
+      if (deleteBtn) {
+        const isCreateMode = modalEl.dataset.mode === "create";
+        deleteBtn.classList.toggle("d-none", !editable || isCreateMode);
+      }
     }
   };
 
   const saveTask = async (modalEl) => {
     const mode = modalEl.dataset.mode || "update";
     const taskId = modalEl.dataset.taskId;
+    const tables = document.getElementById("scheduleTables");
+    const viewModel = window.scheduleViewModel || {};
+    const viewModelManagerFlag =
+      typeof viewModel.isManager === "string"
+        ? viewModel.isManager === "true"
+        : !!viewModel.isManager;
+    const isManager = viewModelManagerFlag || tables?.dataset?.isManager === "true";
 
     // Validate mode
     if (mode === "update" && !taskId) {
@@ -366,8 +550,9 @@
     const location = modalEl.querySelector("#taskDetailLocation")?.value || "";
     const startAt = modalEl.querySelector("#taskDetailStart")?.value || "";
     const endAt = modalEl.querySelector("#taskDetailEnd")?.value || "";
-    const priority = modalEl.querySelector("#taskDetailPriority")?.value || "";
+    const priorityRaw = modalEl.querySelector("#taskDetailPriority")?.value || "";
     const status = modalEl.querySelector("#taskDetailStatus")?.value || "";
+    const selectedTechVal = modalEl.querySelector("#taskDetailAssignee")?.value || "";
 
     // Additional fields
     const skillLevel = modalEl.querySelector("#taskDetailSkill")?.value || null;
@@ -380,10 +565,43 @@
     const objectAddress = hasSelectedObject
       ? (selectedObjectOption?.dataset?.address || location || null)
       : null;
+    const technicianId = selectedTechVal
+      ? parseInt(selectedTechVal, 10)
+      : parseInt(modalEl.dataset.technicianId || "0", 10);
+    const priorityVal = parseInt(priorityRaw, 10);
 
     // Validate required fields
+    clearFieldErrors(modalEl);
+    const hasSuspiciousInput = (val) => /<|>|script/i.test(val || "");
     if (!title.trim()) {
-      alert("Pavadinimas yra privalomas.");
+      setFieldError(modalEl, "#taskDetailTitle", "Pavadinimas yra privalomas.");
+    } else if (hasSuspiciousInput(title)) {
+      setFieldError(modalEl, "#taskDetailTitle", "Netinkami simboliai.");
+    }
+    if (hasSuspiciousInput(location)) {
+      setFieldError(modalEl, "#taskDetailLocation", "Netinkami simboliai.");
+    }
+    if (hasSuspiciousInput(instructions || "")) {
+      setFieldError(modalEl, "#taskDetailInstructions", "Netinkami simboliai.");
+    }
+    if (isManager) {
+      if (!technicianId || Number.isNaN(technicianId)) {
+        setFieldError(modalEl, "#taskDetailAssignee", "Priskirtas darbuotojas yra privalomas.");
+      }
+      if (!skillLevel || !String(skillLevel).trim()) {
+        setFieldError(modalEl, "#taskDetailSkill", "Reikalingas kvalifikacijos lygis yra privalomas.");
+      }
+      if (priorityRaw === "" || Number.isNaN(priorityVal)) {
+        setFieldError(modalEl, "#taskDetailPriority", "Prioritetas yra privalomas.");
+      }
+      if (!hasSelectedObject) {
+        setFieldError(modalEl, "#taskDetailObject", "Objektas yra privalomas.");
+      }
+      if (!location.trim()) {
+        setFieldError(modalEl, "#taskDetailLocation", "Adresas / lokacija yra privaloma.");
+      }
+    }
+    if (modalEl.querySelectorAll("[data-field-error]").length > 0) {
       return;
     }
 
@@ -401,7 +619,6 @@
 
     if (mode === "create") {
       // CREATE MODE - call submitCreateTask from selection module
-      const technicianId = parseInt(modalEl.dataset.technicianId);
         const targetDate = modalEl.dataset.targetDate;
         const startMinutes = parseInt(modalEl.dataset.startMinutes);
         const endMinutes = parseInt(modalEl.dataset.endMinutes);
@@ -413,7 +630,7 @@
           endMinutes,
           title,
           location,
-          priority: parseInt(priority) || 1,
+          priority: Number.isNaN(priorityVal) ? 1 : priorityVal,
           status: parseInt(status) || 0,
           skillLevel,
           objectName,
@@ -427,6 +644,39 @@
           // Close modal
           const bsModal = window.bootstrap?.Offcanvas?.getInstance?.(modalEl);
           bsModal?.hide?.();
+        } else if (result?.validationErrors) {
+          // Display validation errors from DTO on form fields
+          const fieldMapping = {
+            Title: "#taskDetailTitle",
+            Location: "#taskDetailLocation",
+            TechnicianId: "#taskDetailAssignee",
+            TargetDate: "#taskDetailStart",
+            StartMinutes: "#taskDetailStart",
+            EndMinutes: "#taskDetailEnd",
+            Priority: "#taskDetailPriority",
+            Status: "#taskDetailStatus",
+            SkillLevel: "#taskDetailSkill",
+            ObjectName: "#taskDetailObject",
+            ObjectAddress: "#taskDetailLocation",
+            Instructions: "#taskDetailInstructions"
+          };
+
+          let hasFieldError = false;
+          for (const [field, messages] of Object.entries(result.validationErrors)) {
+            const selector = fieldMapping[field];
+            const message = Array.isArray(messages) ? messages[0] : messages;
+            if (selector && message) {
+              setFieldError(modalEl, selector, message);
+              hasFieldError = true;
+            }
+          }
+
+          if (!hasFieldError) {
+            const firstError = Object.values(result.validationErrors).flat()[0];
+            alert(firstError || "Patikrinkite įvestus duomenis.");
+          }
+        } else if (result?.error) {
+          alert(result.error);
         }
     } else {
       // UPDATE MODE - Route to correct endpoint based on role
@@ -449,7 +699,7 @@
           location,
           startAt,
           endAt,
-          priority: parseInt(priority) || 1,
+          priority: Number.isNaN(priorityVal) ? 1 : priorityVal,
           status: parseInt(status) || 0,
           version: parseInt(version) || 0,
           timezoneOffsetMinutes: timezoneOffset,
@@ -493,8 +743,52 @@
         if (resp.status === 409 || resp.status === 403) {
           const errorData = await resp.json().catch(() => ({}));
           alert(errorData.message || "Planas pasikeite. Uzduoties redaguoti negalima.");
+        } else if (resp.status === 400 || resp.status === 422) {
+          // Handle validation errors from DTO or custom UnprocessableEntity
+          const errorData = await resp.json().catch(() => ({}));
+
+          // Check if it's a ValidationProblem response (has 'errors' object)
+          if (errorData.errors && typeof errorData.errors === "object") {
+            // Map DTO field names to form field selectors
+            const fieldMapping = {
+              Title: "#taskDetailTitle",
+              Location: "#taskDetailLocation",
+              TechnicianId: "#taskDetailAssignee",
+              StartAt: "#taskDetailStart",
+              EndAt: "#taskDetailEnd",
+              Priority: "#taskDetailPriority",
+              Status: "#taskDetailStatus",
+              SkillLevel: "#taskDetailSkill",
+              ObjectName: "#taskDetailObject",
+              ObjectAddress: "#taskDetailLocation",
+              Instructions: "#taskDetailInstructions",
+              TechnicianComment: "#taskDetailTechnicianComment",
+              Version: null // No specific field for version errors
+            };
+
+            let hasFieldError = false;
+            for (const [field, messages] of Object.entries(errorData.errors)) {
+              const selector = fieldMapping[field];
+              const message = Array.isArray(messages) ? messages[0] : messages;
+              if (selector && message) {
+                setFieldError(modalEl, selector, message);
+                hasFieldError = true;
+              }
+            }
+
+            // If no specific field errors were mapped, show generic alert
+            if (!hasFieldError) {
+              const firstError = Object.values(errorData.errors).flat()[0];
+              alert(firstError || "Patikrinkite įvestus duomenis.");
+            }
+          } else if (errorData.message) {
+            // Custom error message from UnprocessableEntity
+            alert(errorData.message);
+          } else {
+            alert("Patikrinkite įvestus duomenis.");
+          }
         } else if (!resp.ok) {
-          throw new Error("Nepavyko issaugoti uzduoties");
+          alert("Įvyko klaida išsaugant užduotį.");
         } else {
           // Response is TaskCreatedOrUpdatedResponseDto with id and version
           const responseData = await resp.json().catch(() => null);
@@ -522,7 +816,12 @@
     if (document.documentElement.dataset.scheduleTaskClickInit === "1") return;
     document.documentElement.dataset.scheduleTaskClickInit = "1";
 
+    wireDeleteModal();
+    wireDetailDeleteButton();
+
+
     document.addEventListener("click", async (evt) => {
+      if (evt.target?.closest?.(".task-card-action")) return;
       if (evt.target?.closest?.(".task-drag-handle")) return;
       const card = evt.target?.closest?.(".task-card");
       if (!card) return;
@@ -606,19 +905,19 @@
 
       const setVal = (selector, value) => {
         const el = detailPanel.querySelector(selector);
-        if (el) el.value = value || "";
+        if (el) el.value = value ?? "";
       };
 
       setVal("#taskDetailTitle", "");
-      setVal("#taskDetailLocation", "");
       setVal("#taskDetailStart", "");
       setVal("#taskDetailEnd", "");
-      setVal("#taskDetailPriority", "1");
-      setVal("#taskDetailStatus", "0");
+      setVal("#taskDetailPriority", "");
+      setVal("#taskDetailStatus", "");
       setVal("#taskDetailSkill", "");
-      setVal("#taskDetailObject", "");
       syncInstructionFields(detailPanel, "");
       await populateObjectDropdown(detailPanel, null, null, null);
+      await populateAddressDropdown(detailPanel, null);
+      await populateTechnicianDropdown(detailPanel, technicianId);
       ensureObjectAddressBinding(detailPanel);
 
       detailPanel.querySelector("#taskDetailLabel").textContent = "Nauja užduotis";
@@ -662,6 +961,455 @@
         startMinutes,
         endMinutes,
       });
+    }
+  };
+
+  const getDeleteModal = () => document.getElementById("taskDeleteModal");
+
+  const formatMinutes = (minutes) => {
+    if (!Number.isFinite(minutes)) return "";
+    const h = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const m = String(minutes % 60).padStart(2, "0");
+    return `${h}:${m}`;
+  };
+
+  const setDeleteModalDetails = ({ taskId, sourceEl }) => {
+    const modalEl = getDeleteModal();
+    if (!modalEl) return;
+
+    const setRowText = (rowKey, spanSelector, value) => {
+      const row = modalEl.querySelector(`[data-task-delete-row="${rowKey}"]`);
+      const span = modalEl.querySelector(spanSelector);
+      const text = value ? String(value).trim() : "";
+      if (span) span.textContent = text;
+      if (row) row.classList.toggle("d-none", !text);
+    };
+
+    setRowText("code", "[data-task-delete-code]", taskId ? `#${taskId}` : "");
+
+    let title = "";
+    let location = "";
+    let timeRange = "";
+
+    if (sourceEl?.classList?.contains?.("task-card")) {
+      title = sourceEl.querySelector(".task-title")?.textContent || "";
+      location = sourceEl.querySelector(".task-location")?.textContent || "";
+      const startMinutes = parseInt(sourceEl.getAttribute("data-start-minutes") || "", 10);
+      const durationMinutes = parseInt(sourceEl.getAttribute("data-duration-minutes") || "", 10);
+      if (Number.isFinite(startMinutes) && Number.isFinite(durationMinutes)) {
+        const endMinutes = startMinutes + durationMinutes;
+        timeRange = `${formatMinutes(startMinutes)} - ${formatMinutes(endMinutes)}`;
+      }
+    } else if (sourceEl?.id === "taskDetailModal") {
+      title = sourceEl.querySelector("#taskDetailTitle")?.value || "";
+      const locationEl = sourceEl.querySelector("#taskDetailLocation");
+      location = locationEl?.value || "";
+      const startAt = sourceEl.querySelector("#taskDetailStart")?.value || "";
+      const endAt = sourceEl.querySelector("#taskDetailEnd")?.value || "";
+      const startTime = startAt.length >= 16 ? startAt.substring(11, 16) : "";
+      const endTime = endAt.length >= 16 ? endAt.substring(11, 16) : "";
+      if (startTime && endTime) {
+        timeRange = `${startTime} - ${endTime}`;
+      }
+    }
+
+    setRowText("title", "[data-task-delete-title]", title);
+    setRowText("time", "[data-task-delete-time]", timeRange);
+    setRowText("location", "[data-task-delete-location]", location);
+  };
+
+  const openDeleteModal = ({ taskId, version, sourceEl }) => {
+    if (!taskId) return;
+    const modalEl = getDeleteModal();
+    if (!modalEl) return;
+    modalEl.dataset.taskId = String(taskId);
+    if (version != null && !Number.isNaN(version)) {
+      modalEl.dataset.version = String(version);
+    }
+    setDeleteModalDetails({ taskId, sourceEl });
+    const modal = window.bootstrap?.Modal?.getOrCreateInstance?.(modalEl);
+    modal?.show?.();
+  };
+
+  const updateTaskVersion = (taskId, nextVersion) => {
+    if (nextVersion == null) return;
+    const detailPanel = document.getElementById("taskDetailModal");
+    if (detailPanel && String(detailPanel.dataset.taskId || "") == String(taskId)) {
+      detailPanel.dataset.version = String(nextVersion);
+    }
+    const card = document.querySelector(`.task-card[data-task-id="${CSS.escape(String(taskId))}"]`);
+    if (card) card.setAttribute("data-task-version", String(nextVersion));
+  };
+
+  const deleteTaskAndRefresh = async ({ taskId, version }) => {
+    const timezoneOffset = -new Date().getTimezoneOffset();
+    const resp = await fetch(`/api/tasks/${taskId}`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest"
+      },
+      body: JSON.stringify({
+        version: Number.isFinite(version) ? version : 0,
+        timezoneOffsetMinutes: timezoneOffset
+      })
+    });
+
+    if (resp.status === 409) {
+      const body = await resp.json().catch(() => ({}));
+      updateTaskVersion(taskId, body?.version);
+      alert(body.message || "Uzduotis pasikeite (stale). Atnaujinkite lentele.");
+      return false;
+    }
+
+    if (resp.status === 403) {
+      const body = await resp.json().catch(() => ({}));
+      alert(body.message || "Neturite teisiu istrinti sios uzduoties.");
+      return false;
+    }
+
+    if (resp.status === 404) {
+      const body = await resp.json().catch(() => ({}));
+      alert(body.message || "Uzduotis nerasta.");
+      return false;
+    }
+
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      alert(body.message || "Nepavyko istrinti uzduoties.");
+      return false;
+    }
+
+    await resp.json().catch(() => null);
+
+    const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
+    await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
+    panel?.hide?.();
+    clearActiveCards();
+    return true;
+  };
+
+  const wireDeleteModal = () => {
+    const modalEl = getDeleteModal();
+    if (!modalEl || modalEl.dataset.bound === "1") return;
+    modalEl.dataset.bound = "1";
+    const confirmBtn = modalEl.querySelector("#taskDeleteConfirm");
+    if (!confirmBtn) return;
+
+    confirmBtn.addEventListener("click", async () => {
+      const taskId = modalEl.dataset.taskId;
+      const version = parseInt(modalEl.dataset.version || "0", 10);
+      if (!taskId) {
+        alert("Nepavyko nustatyti uzduoties.");
+        return;
+      }
+
+      confirmBtn.disabled = true;
+      confirmBtn.setAttribute("aria-busy", "true");
+
+      try {
+        logEvent("ui.task.delete.requested", { taskId, version });
+        const ok = await deleteTaskAndRefresh({ taskId, version });
+        if (ok) {
+          logEvent("ui.task.delete.succeeded", { taskId });
+          const modal = window.bootstrap?.Modal?.getInstance?.(modalEl);
+          modal?.hide?.();
+        } else {
+          logEvent("ui.task.delete.rejected", { taskId });
+        }
+      } catch (err) {
+        logEvent("ui.task.delete.error", { taskId, error: err?.message }, "error");
+        alert("Nepavyko istrinti uzduoties.");
+      } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.removeAttribute("aria-busy");
+      }
+    });
+  };
+
+  const wireDetailDeleteButton = () => {
+    const detailPanel = document.getElementById("taskDetailModal");
+    if (!detailPanel) return;
+    const deleteBtn = detailPanel.querySelector("#taskDetailDelete");
+    if (!deleteBtn || deleteBtn.dataset.bound === "1") return;
+    deleteBtn.dataset.bound = "1";
+    deleteBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      const taskId = detailPanel.dataset.taskId;
+      const version = parseInt(detailPanel.dataset.version || "0", 10);
+      openDeleteModal({ taskId, version, sourceEl: detailPanel });
+    });
+  };
+
+  document.addEventListener("click", (evt) => {
+    const action = evt.target?.closest?.(".task-card-action");
+    if (!action) return;
+    evt.stopPropagation();
+    evt.preventDefault();
+
+    const card = action.closest(".task-card");
+    if (!card || card.dataset.editable !== "true") return;
+
+    const taskId = card.getAttribute("data-task-id");
+    const version = parseInt(card.getAttribute("data-task-version") || "0", 10);
+    const date = card.getAttribute("data-date");
+    const startMinutes = parseInt(card.getAttribute("data-start-minutes") || "0", 10);
+    const durationMinutes = parseInt(card.getAttribute("data-duration-minutes") || "0", 10);
+    if (!taskId) return;
+
+    if (action.classList.contains("task-card-action-delete")) {
+      openDeleteModal({ taskId, version, sourceEl: card });
+      return;
+    }
+
+    if (action.classList.contains("task-card-action-edit")) {
+      startInlineResize(card, {
+        taskId,
+        version,
+        date,
+        startMinutes,
+        durationMinutes
+      });
+    }
+  });
+
+  const startInlineResize = (card, { taskId, version, date, startMinutes, durationMinutes }) => {
+    const tables = document.getElementById("scheduleTables");
+    if (!tables) return;
+    const slotSize = parseInt(tables.dataset.slotSizeMinutes || "30", 10);
+    const dayStart = parseInt(tables.dataset.dayStartMinutes || "480", 10);
+    const dayEnd = parseInt(tables.dataset.dayEndMinutes || "1200", 10);
+
+    // Calculate minimum start time based on current local time
+    const now = new Date();
+    const taskDate = new Date(date + "T00:00:00");
+    const isToday = now.toDateString() === taskDate.toDateString();
+    const currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
+    // Round up to next slot boundary
+    const minStartMinutes = isToday ? Math.ceil(currentTimeMinutes / slotSize) * slotSize : dayStart;
+
+    let currentStart = startMinutes;
+    let currentEnd = startMinutes + durationMinutes;
+
+    const parentCell = card.closest("td");
+    if (!parentCell) return;
+    if (getComputedStyle(parentCell).position === "static") {
+      parentCell.style.position = "relative";
+    }
+    parentCell.style.overflow = "hidden";
+
+    const cardRect = card.getBoundingClientRect();
+    const durationSlots = Math.max(1, Math.round(durationMinutes / slotSize));
+    const slotWidth = cardRect.width / durationSlots;
+
+    const overlay = document.createElement("div");
+    overlay.className = "slot-selection-bar task-resize-bar";
+    overlay.innerHTML = `
+      <button type="button" class="slot-selection-hit" data-slot-hit aria-label="Keisti laiką"></button>
+      <button type="button" class="slot-selection-handle" data-slot-handle="left" aria-label="Anksčiau">
+        <span class="slot-selection-handle-pill" aria-hidden="true">⟨</span>
+      </button>
+      <button type="button" class="slot-selection-handle" data-slot-handle="right" aria-label="Vėliau">
+        <span class="slot-selection-handle-pill" aria-hidden="true">⟩</span>
+      </button>
+    `;
+    overlay.style.position = "absolute";
+    const cellRect = parentCell.getBoundingClientRect();
+    overlay.style.left = `${Math.max(0, cardRect.left - cellRect.left)}px`;
+    overlay.style.top = `${Math.max(0, cardRect.top - cellRect.top)}px`;
+    overlay.style.height = `${cardRect.height}px`;
+    overlay.style.zIndex = "8";
+    
+    // Apply card styling to overlay
+    const cardClasses = card.className;
+    const taskCardClassMatch = cardClasses.match(/task-(normal|load|conflict|travel)/);
+    if (taskCardClassMatch) {
+      overlay.classList.add(taskCardClassMatch[1] === "normal" ? "task-normal" : 
+                           taskCardClassMatch[1] === "load" ? "task-load" : 
+                           taskCardClassMatch[1] === "conflict" ? "task-conflict" : "task-travel");
+    }
+
+    const teardown = () => {
+      overlay.remove();
+      document.removeEventListener("pointerdown", onOutsidePointerDown, true);
+    };
+
+    const onOutsidePointerDown = (evt) => {
+      if (overlay.contains(evt.target) || card.contains(evt.target)) return;
+      teardown();
+    };
+    document.addEventListener("pointerdown", onOutsidePointerDown, true);
+
+    const applyTimeUpdate = async (newStart, newEnd) => {
+      const timezoneOffset = -new Date().getTimezoneOffset();
+      const resp = await fetch(`/api/tasks/${taskId}/time`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        body: JSON.stringify({
+          targetDate: date,
+          targetSlotStartMinutes: newStart,
+          targetSlotEndMinutes: newEnd,
+          version,
+          timezoneOffsetMinutes: timezoneOffset
+        })
+      });
+
+      if (resp.status === 409) {
+        const body = await resp.json().catch(() => ({}));
+        alert(body.message || "Užduotis pasikeitė. Atnaujinkite lentelę.");
+        teardown();
+        return false;
+      } else if (resp.status === 403) {
+        const body = await resp.json().catch(() => ({}));
+        alert(body.message || "Neturite teisių keisti laiko.");
+        teardown();
+        return false;
+      } else if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        alert(body.message || "Nepavyko pakeisti laiko.");
+        return false;
+      }
+
+      const data = await resp.json().catch(() => null);
+      if (data?.version) {
+        version = data.version;
+        card.setAttribute("data-task-version", String(version));
+      }
+
+      const detailPanel = document.getElementById("taskDetailModal");
+      if (detailPanel?.classList?.contains("show") && String(detailPanel.dataset.taskId || "") === String(taskId)) {
+        const startInput = detailPanel.querySelector("#taskDetailStart");
+        const endInput = detailPanel.querySelector("#taskDetailEnd");
+        if (startInput && data?.startAt) startInput.value = String(data.startAt).substring(0, 16);
+        if (endInput && data?.endAt) endInput.value = String(data.endAt).substring(0, 16);
+      }
+
+      const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
+      await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
+      return true;
+    };
+
+    const updateOverlay = () => {
+      // Update the task-time element on the card to show current time range
+      const taskTimeEl = card.querySelector(".task-time");
+      if (taskTimeEl) {
+        // Get the drag handle if it exists
+        const dragHandle = taskTimeEl.querySelector(".task-drag-handle");
+        const handleHtml = dragHandle ? dragHandle.outerHTML : "";
+        taskTimeEl.innerHTML = `${handleHtml}${formatRange(currentStart, currentEnd)}`;
+      }
+
+      const currentRect = card.getBoundingClientRect();
+      if (overlay.classList.contains("is-dragging")) {
+        const totalSlots = (currentEnd - currentStart) / slotSize;
+        const offsetSlots = (currentStart - startMinutes) / slotSize;
+        overlay.style.width = `${Math.max(totalSlots * slotWidth, slotWidth)}px`;
+        overlay.style.transform = `translateX(${offsetSlots * slotWidth}px)`;
+      } else {
+        overlay.style.width = `${currentRect.width}px`;
+        overlay.style.transform = "none";
+      }
+    };
+
+    const onDrag = (dir, startX, startStart, startEnd, moveEvt) => {
+      const dx = moveEvt.clientX - startX;
+      const slotsDelta = Math.round(dx / (slotWidth || 1));
+      let nextStart = startStart;
+      let nextEnd = startEnd;
+
+      if (dir === "left") {
+        nextStart = startStart + slotsDelta * slotSize;
+        nextEnd = startEnd;
+      } else {
+        nextEnd = startEnd + slotsDelta * slotSize;
+        nextStart = startStart;
+      }
+
+      nextStart = Math.max(dayStart, Math.max(minStartMinutes, nextStart));
+      nextEnd = Math.min(dayEnd, nextEnd);
+      if (nextEnd - nextStart < slotSize) {
+        if (dir === "left") nextStart = nextEnd - slotSize;
+        else nextEnd = nextStart + slotSize;
+      }
+      // Ensure start time doesn't go before minimum allowed time
+      if (nextStart < minStartMinutes) {
+        nextStart = minStartMinutes;
+      }
+
+      currentStart = nextStart;
+      currentEnd = nextEnd;
+      updateOverlay();
+    };
+
+    const attachDrag = (handle, dir) => {
+      if (!handle) return;
+      handle.style.cursor = "ew-resize";
+      handle.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handle.setPointerCapture(e.pointerId);
+        overlay.classList.add("is-dragging");
+        parentCell.style.overflow = "visible";
+
+        const startX = e.clientX;
+        const baseStart = currentStart;
+        const baseEnd = currentEnd;
+
+        const move = (ev) => onDrag(dir, startX, baseStart, baseEnd, ev);
+
+        const up = async (ev) => {
+          handle.releasePointerCapture(ev.pointerId);
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", up);
+          handle.removeEventListener("pointercancel", up);
+          onDrag(dir, startX, baseStart, baseEnd, ev);
+          const changed = currentStart !== baseStart || currentEnd !== baseEnd;
+          if (changed) await applyTimeUpdate(currentStart, currentEnd);
+          overlay.classList.remove("is-dragging");
+          parentCell.style.overflow = "hidden";
+          updateOverlay();
+        };
+
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+        handle.addEventListener("pointercancel", up);
+      });
+    };
+
+    attachDrag(overlay.querySelector('[data-slot-handle="left"]'), "left");
+    attachDrag(overlay.querySelector('[data-slot-handle="right"]'), "right");
+    overlay.querySelector("[data-slot-hit]")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      teardown();
+    });
+
+    updateOverlay();
+    parentCell.appendChild(overlay);
+  };
+
+  const clearFieldErrors = (modalEl) => {
+    modalEl.querySelectorAll("[data-field-error]").forEach((el) => el.remove());
+    modalEl.querySelectorAll(".is-invalid").forEach((el) => el.classList.remove("is-invalid"));
+  };
+
+  const setFieldError = (modalEl, selector, message) => {
+    const field = modalEl.querySelector(selector);
+    if (!field) return;
+    field.classList.add("is-invalid");
+    const helper = document.createElement("div");
+    helper.className = "form-text text-danger";
+    helper.setAttribute("data-field-error", selector);
+    helper.textContent = message;
+    // Append error to parent container so it appears below the field (including Select2 widgets)
+    const parent = field.closest(".col-md-6, .col-12, .col");
+    if (parent) {
+      parent.appendChild(helper);
+    } else {
+      field.insertAdjacentElement("afterend", helper);
     }
   };
 
