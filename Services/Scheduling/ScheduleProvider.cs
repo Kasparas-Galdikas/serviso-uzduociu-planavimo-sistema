@@ -71,12 +71,12 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 .Include(t => t.Plan)
                 .Include(t => t.Evaluation)
                 .Include(t => t.Object)
-                .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc)
+                .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc && t.Status != ScheduleTaskStatus.Canceled)
                 .ToListAsync();
 
             var taskVersions = await _db.Tasks
                 .AsNoTracking()
-                .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc)
+                .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc && t.Status != ScheduleTaskStatus.Canceled)
                 .Select(t => new { t.Id, Version = EF.Property<uint>(t, "xmin") })
                 .ToDictionaryAsync(x => x.Id, x => x.Version);
 

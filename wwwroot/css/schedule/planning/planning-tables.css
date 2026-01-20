@@ -412,8 +412,8 @@ td.is-drag-origin .task-card.is-dragging {
   background: rgba(255, 255, 255, 0.9);
   color: var(--neutral-700);
   border-radius: 6px;
-  width: 26px;
-  height: 26px;
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -421,6 +421,7 @@ td.is-drag-origin .task-card.is-dragging {
   line-height: 1;
   box-shadow: var(--shadow-sm);
   transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  font-size: 0.7em;
 }
 
 .task-card-action:hover {
@@ -509,7 +510,7 @@ td.is-drag-origin .task-card.is-dragging {
    Task content
    ========================================================= */
 
-.task-time { 
+.task-time {
   font-weight: 600;
   font-size: 0.85rem;
   color: var(--neutral-700);

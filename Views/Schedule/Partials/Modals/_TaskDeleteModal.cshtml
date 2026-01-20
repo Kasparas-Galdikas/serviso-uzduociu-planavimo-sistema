@@ -1,0 +1,56 @@
+<div class="modal fade"
+     id="taskDeleteModal"
+     tabindex="-1"
+     aria-labelledby="taskDeleteModalLabel"
+     aria-hidden="true">
+
+  <div class="modal-dialog modal-dialog-centered modal-md">
+    <div class="modal-content">
+
+      <!-- HEADER -->
+      <div class="modal-header">
+        <h6 class="modal-title" id="taskDeleteModalLabel">
+          <i class="bi bi-trash me-1"></i>
+          Ištrinti užduotį
+        </h6>
+        <button type="button"
+                class="btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Uždaryti">
+        </button>
+      </div>
+
+      <!-- BODY -->
+      <div class="modal-body">
+
+        <div class="mb-2">
+          <div><strong>Kodas:</strong> <span data-task-delete-code></span></div>
+          <div><strong>Pavadinimas:</strong> <span data-task-delete-title></span></div>
+          <div><strong>Laikas:</strong> <span data-task-delete-time></span></div>
+          <div><strong>Adresas:</strong> <span data-task-delete-location></span></div>
+        </div>
+
+        <p class="mt-3 mb-0">
+          Ar tikrai norite ištrinti šią užduotį?
+        </p>
+
+      </div>
+
+      <!-- FOOTER -->
+      <div class="modal-footer d-flex justify-content-between">
+        <button type="button"
+                class="btn btn-secondary"
+                data-bs-dismiss="modal">
+          Atšaukti
+        </button>
+
+        <button type="button"
+                class="btn btn-danger"
+                id="taskDeleteConfirm">
+          Ištrinti
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>

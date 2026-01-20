@@ -83,6 +83,9 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
         <button type=""button"" class=""task-card-action task-card-action-edit"" title=""Koreguoti laika"" aria-label=""Koreguoti laika"">
             <i class=""bi bi-pencil"" aria-hidden=""true""></i>
         </button>
+        <button type=""button"" class=""task-card-action task-card-action-delete"" title=""Istrinti uzduoti"" aria-label=""Istrinti uzduoti"">
+            <i class=""bi bi-x-lg"" aria-hidden=""true""></i>
+        </button>
     </div>"
                                 : string.Empty;
                             return $@"

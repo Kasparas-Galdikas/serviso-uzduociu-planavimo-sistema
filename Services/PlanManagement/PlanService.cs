@@ -164,6 +164,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return (PlacementError.NotEditable, "Neturite teisiu atlikti sio veiksmo.", default, default, null);
             }
 
+            // Prevent placing tasks with start time in the past
+            if (!_timeService.IsTaskStillEditable(startAt))
+            {
+                return (PlacementError.InvalidWindow, "Negalima nustatyti pradžios laiko praeityje.", default, default, null);
+            }
+
             var hasOverlap = await _db.Tasks
                 .AsNoTracking()
                 .Where(t => ignoreTaskId == null || t.Id != ignoreTaskId.Value)
@@ -675,7 +681,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskDeleteResult(TaskDeleteError.NotEditable, "Neturite teisiu istrinti sios uzduoties.");
             }
 
-            task.Status = ScheduleTaskStatus.Canceled;
+            var planId = task.PlanId;
+            var plan = task.Plan;
+
+            _db.Tasks.Remove(task);
 
             try
             {
@@ -687,15 +696,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskDeleteResult(TaskDeleteError.Stale, "Uzduotis pasikeite (stale).", CurrentVersion: currentVersion);
             }
 
-            if (task.PlanId.HasValue)
+            if (planId.HasValue && plan != null)
             {
-                await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
-                await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
+                await AdjustPlanSpanAsync(plan, cancellationToken);
+                await _evaluationEngine.RecalculatePlanAsync(planId.Value, cancellationToken);
             }
 
-            var newVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
-            _logger.LogInformation("svc.task.delete.ok taskId={TaskId} version={Version}", taskId, newVersion);
-            return new TaskDeleteResult(TaskDeleteError.None, Task: task, CurrentVersion: newVersion);
+            _logger.LogInformation("svc.task.delete.ok taskId={TaskId}", taskId);
+            return new TaskDeleteResult(TaskDeleteError.None, Task: task, CurrentVersion: 0);
         }
 
         public async Task PublishDraftAsync(CancellationToken cancellationToken = default)

@@ -53,7 +53,10 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
+            TimezoneOffsetMinutes = 0,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         // Assert
@@ -82,7 +85,10 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
+            TimezoneOffsetMinutes = 0,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         // Assert
@@ -111,7 +117,10 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
+            TimezoneOffsetMinutes = 0,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         // Assert
@@ -140,7 +149,10 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
+            TimezoneOffsetMinutes = 0,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         // Assert
@@ -169,7 +181,10 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
+            TimezoneOffsetMinutes = 0,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         // Assert
@@ -198,7 +213,10 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
+            TimezoneOffsetMinutes = 0,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         // Assert
@@ -228,7 +246,10 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
+            TimezoneOffsetMinutes = 0,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         // Assert
@@ -258,7 +279,10 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
+            TimezoneOffsetMinutes = 0,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         // Assert
@@ -604,7 +628,10 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
             Location = "HQ",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.Planned,
-            TimezoneOffsetMinutes = 0
+            TimezoneOffsetMinutes = 0,
+            SkillLevel = "Junior",
+            ObjectName = "Test Object",
+            ObjectAddress = "Test Address 1"
         });
 
         response.EnsureSuccessStatusCode();

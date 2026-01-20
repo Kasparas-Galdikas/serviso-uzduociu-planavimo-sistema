@@ -1,17 +1,17 @@
 ﻿<div class="offcanvas offcanvas-end task-detail-panel" tabindex="-1" id="taskDetailModal"
-    aria-labelledby="taskDetailLabel" data-bs-scroll="true" data-bs-backdrop="false">
+     aria-labelledby="taskDetailLabel" data-bs-scroll="true" data-bs-backdrop="false">
 
-    <div class="task-detail-resize-handle" data-panel-resize aria-label="Keisti skydelio ploti"></div>
+    <div class="task-detail-resize-handle" data-panel-resize aria-label="Keisti skydelio plotį"></div>
 
     <button type="button" class="btn btn-light task-detail-collapse" data-panel-toggle
-        aria-label="Suskleisti / iÅ¡skleisti skydelÄ¯" aria-pressed="false">
+            aria-label="Suskleisti / išskleisti skydelį" aria-pressed="false">
         <span data-panel-toggle-icon>&gt;</span>
     </button>
 
     <div class="offcanvas-header border-bottom">
         <div>
             <h5 class="offcanvas-title" id="taskDetailLabel">Užduoties informacija</h5>
-            <small class="text-muted" id="taskDetailCode">Kodas: </small>
+            <small class="text-muted" id="taskDetailCode">Kodas:</small>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Uždaryti"></button>
     </div>
@@ -20,15 +20,21 @@
 
         <!-- PLANAVIMAS -->
         <section class="mb-4 task-section">
-            <div class="task-section-header" role="button" tabindex="0" data-bs-toggle="collapse"
-                data-bs-target="#taskSecPlanning" aria-expanded="true" aria-controls="taskSecPlanning">
+            <div class="task-section-header" role="button" tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecPlanning"
+                 aria-expanded="true"
+                 aria-controls="taskSecPlanning">
 
-                <h6 class="text-uppercase small mb-0 task-section-title" data-task-section-title="true">
+                <h6 class="text-uppercase small mb-0 task-section-title">
                     Planavimas
                 </h6>
 
-                <button type="button" class="btn btn-sm btn-ghost task-section-toggle" data-bs-toggle="collapse"
-                    data-bs-target="#taskSecPlanning" aria-expanded="true" aria-controls="taskSecPlanning">
+                <button type="button" class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecPlanning"
+                        aria-expanded="true"
+                        aria-controls="taskSecPlanning">
                     <i class="bi bi-chevron-down"></i>
                 </button>
             </div>
@@ -43,7 +49,8 @@
 
                     <div class="col-md-6">
                         <label class="form-label small">Priskirtas darbuotojas</label>
-                        <select class="form-select" id="taskDetailAssignee" data-select2-dropdown="technician"></select>
+                        <select class="form-select" id="taskDetailAssignee"
+                                data-select2-dropdown="technician"></select>
                     </div>
 
                     <div class="col-md-6">
@@ -61,17 +68,23 @@
             <hr>
         </section>
 
-        <!-- UžDUOTIES PARAMETRAI -->
+        <!-- UŽDUOTIES PARAMETRAI -->
         <section class="mb-4 task-section">
-            <div class="task-section-header" role="button" tabindex="0" data-bs-toggle="collapse"
-                data-bs-target="#taskSecParams" aria-expanded="true" aria-controls="taskSecParams">
+            <div class="task-section-header" role="button" tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecParams"
+                 aria-expanded="true"
+                 aria-controls="taskSecParams">
 
-                <h6 class="text-uppercase small mb-0 task-section-title" data-task-section-title="true">
+                <h6 class="text-uppercase small mb-0 task-section-title">
                     Užduoties parametrai
                 </h6>
 
-                <button type="button" class="btn btn-sm btn-ghost task-section-toggle" data-bs-toggle="collapse"
-                    data-bs-target="#taskSecParams" aria-expanded="true" aria-controls="taskSecParams">
+                <button type="button" class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecParams"
+                        aria-expanded="true"
+                        aria-controls="taskSecParams">
                     <i class="bi bi-chevron-down"></i>
                 </button>
             </div>
@@ -80,18 +93,18 @@
                 <div class="row g-3 mt-1">
                     <div class="col-md-6">
                         <label class="form-label small">Reikalingas kvalifikacijos lygis</label>
-                                                <select class="form-select" id="taskDetailSkill">
-                            <option value="">- Pasirinkite kvalifikaciją -</option>
+                        <select class="form-select" id="taskDetailSkill">
+                            <option value="">– Pasirinkite kvalifikaciją –</option>
                             <option value="Basic">Bazinis</option>
-                            <option value="Advanced">Paženges</option>
+                            <option value="Advanced">Pažengęs</option>
                             <option value="Certified">Sertifikuotas</option>
                         </select>
                     </div>
 
                     <div class="col-md-6">
                         <label class="form-label small">Prioritetas</label>
-                                                <select class="form-select" id="taskDetailPriority">
-                            <option value="">- Pasirinkite prioritetą -</option>
+                        <select class="form-select" id="taskDetailPriority">
+                            <option value="">– Pasirinkite prioritetą –</option>
                             <option value="0">Žemas</option>
                             <option value="1">Vidutinis</option>
                             <option value="2">Aukštas</option>
@@ -104,15 +117,17 @@
 
         <!-- SAUGOMAS OBJEKTAS -->
         <section class="mb-4 task-section">
-            <div class="task-section-header" role="button" tabindex="0" data-bs-toggle="collapse"
-                data-bs-target="#taskSecAsset">
+            <div class="task-section-header" role="button" tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecAsset">
 
-                <h6 class="text-uppercase small mb-0 task-section-title" data-task-section-title="true">
+                <h6 class="text-uppercase small mb-0 task-section-title">
                     Saugomas objektas
                 </h6>
 
-                <button type="button" class="btn btn-sm btn-ghost task-section-toggle" data-bs-toggle="collapse"
-                    data-bs-target="#taskSecAsset">
+                <button type="button" class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecAsset">
                     <i class="bi bi-chevron-down"></i>
                 </button>
             </div>
@@ -120,16 +135,16 @@
             <div class="collapse show" id="taskSecAsset">
                 <div class="row g-3 mt-1">
 
-                    <!-- Object dropdown -->
                     <div class="col-md-6">
                         <label class="form-label small">Objektas</label>
-                        <select class="form-select" id="taskDetailObject" data-select2-dropdown="object"></select>
+                        <select class="form-select" id="taskDetailObject"
+                                data-select2-dropdown="object"></select>
                     </div>
 
-                    <!-- Address dropdown -->
                     <div class="col-md-6">
                         <label class="form-label small">Adresas</label>
-                        <select class="form-select" id="taskDetailLocation" data-select2-dropdown="address"></select>
+                        <select class="form-select" id="taskDetailLocation"
+                                data-select2-dropdown="address"></select>
                     </div>
 
                 </div>
@@ -139,44 +154,48 @@
 
         <!-- INSTRUKCIJOS IR SAUGA -->
         <section class="mb-4 task-section" id="managerSection">
-            <div class="task-section-header" role="button" tabindex="0" data-bs-toggle="collapse"
-                data-bs-target="#taskSecSafety">
+            <div class="task-section-header" role="button" tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecSafety">
 
-                <h6 class="text-uppercase small mb-0 task-section-title" data-task-section-title="true">
+                <h6 class="text-uppercase small mb-0 task-section-title">
                     Instrukcijos ir sauga
                 </h6>
 
-                <button type="button" class="btn btn-sm btn-ghost task-section-toggle" data-bs-toggle="collapse"
-                    data-bs-target="#taskSecSafety">
+                <button type="button" class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecSafety">
                     <i class="bi bi-chevron-down"></i>
                 </button>
             </div>
 
             <div class="collapse" id="taskSecSafety">
                 <div class="row g-3 mt-1">
-
                     <div class="col-12">
                         <label class="form-label small">Instrukcijos darbuotojui</label>
                         <textarea class="form-control" rows="3" id="taskDetailInstructions"></textarea>
-                        <div id="taskDetailInstructionsReadonly" class="form-control-plaintext border rounded p-2 d-none"
-                            style="white-space: pre-line;"></div>
+                        <div id="taskDetailInstructionsReadonly"
+                             class="form-control-plaintext border rounded p-2 d-none"
+                             style="white-space: pre-line;"></div>
                     </div>
                 </div>
             </div>
             <hr>
         </section>
 
-        <!-- DARBUOTOJO PASTABOS (TECHNICIAN SECTION) -->
+        <!-- DARBUOTOJO PASTABOS -->
         <section class="mb-4 task-section" id="technicianSection">
-            <div class="task-section-header" role="button" tabindex="0" data-bs-toggle="collapse"
-                data-bs-target="#taskSecTechnician">
+            <div class="task-section-header" role="button" tabindex="0"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#taskSecTechnician">
 
-                <h6 class="text-uppercase small mb-0 task-section-title" data-task-section-title="true">
+                <h6 class="text-uppercase small mb-0 task-section-title">
                     Darbuotojo pastabos
                 </h6>
 
-                <button type="button" class="btn btn-sm btn-ghost task-section-toggle" data-bs-toggle="collapse"
-                    data-bs-target="#taskSecTechnician">
+                <button type="button" class="btn btn-sm btn-ghost task-section-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#taskSecTechnician">
                     <i class="bi bi-chevron-down"></i>
                 </button>
             </div>
@@ -193,9 +212,12 @@
                     </div>
                     <div class="col-12">
                         <label class="form-label small">Komentaras</label>
-                        <textarea class="form-control" rows="3" id="taskDetailTechnicianComment"
-                            placeholder="Darbuotojo pastabos apie uÅ¾duoties vykdymÄ…..."></textarea>
-                        <small class="form-text text-muted">Čia darbuotojai gali palikti darbo komentarą</small>
+                        <textarea class="form-control" rows="3"
+                                  id="taskDetailTechnicianComment"
+                                  placeholder="Darbuotojo pastabos apie užduoties vykdymą..."></textarea>
+                        <small class="form-text text-muted">
+                            Čia darbuotojai gali palikti darbo komentarą
+                        </small>
                     </div>
                 </div>
             </div>
@@ -207,26 +229,24 @@
             <button type="button" class="btn btn-secondary" data-bs-dismiss="offcanvas">
                 Uždaryti
             </button>
-            <button type="button" class="btn btn-primary" id="taskDetailSave">
-                Išsaugoti
-            </button>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-primary" id="taskDetailSave">
+                    Išsaugoti
+                </button>
+            </div>
         </div>
 
     </div>
-
 </div>
 
 <script>
-    document.addEventListener('schedule:table:updated', () => {
-        const tables = document.getElementById('scheduleTables');
-        if (!tables) return;
+document.addEventListener('schedule:table:updated', () => {
+    const tables = document.getElementById('scheduleTables');
+    if (!tables) return;
 
-        tables.setAttribute(
-            'data-is-manager',
-            tables.dataset.isManager || ''
-        );
-    });
+    tables.setAttribute(
+        'data-is-manager',
+        tables.dataset.isManager || ''
+    );
+});
 </script>
-
-
-

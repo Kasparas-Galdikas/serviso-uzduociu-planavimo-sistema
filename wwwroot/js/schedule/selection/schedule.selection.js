@@ -595,6 +595,12 @@
       if (!selection.active) return;
       if (evt.target?.closest?.("#scheduleTables")) return;
       if (evt.target?.closest?.(".slot-selection-bar")) return;
+      // Don't clear selection when interacting with the task detail panel (offcanvas)
+      if (evt.target?.closest?.("#taskDetailModal")) return;
+      if (evt.target?.closest?.(".offcanvas")) return;
+      // Don't clear selection when interacting with Select2 dropdowns
+      if (evt.target?.closest?.(".select2-container")) return;
+      if (evt.target?.closest?.(".select2-dropdown")) return;
       clearSelection("outside.click");
     });
 
