@@ -260,6 +260,101 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             return Ok(response);
         }
 
+        [HttpDelete("{id:long}")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> DeleteTask(long id, [FromBody] DeleteTaskRequestDto dto, CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("api.task.delete.requested id={Id} version={Version}", id, dto.Version);
+
+            if (!ModelState.IsValid)
+            {
+                _logger.LogWarning("api.task.delete.validation-failed id={Id}", id);
+                return ValidationProblem(ModelState);
+            }
+
+            var user = _userContextResolver.GetCurrentUser();
+            var result = await _planService.DeleteTaskAsync(id, dto.Version, user, dto.TimezoneOffsetMinutes, cancellationToken);
+
+            if (result.Ok && result.Task != null)
+            {
+                var response = new TaskDeletedResponseDto
+                {
+                    DeletedTaskId = result.Task.Id,
+                    Version = result.CurrentVersion ?? dto.Version,
+                    Load = await BuildLoadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                };
+                _logger.LogInformation("api.task.delete.succeeded id={Id}", id);
+                return Ok(response);
+            }
+
+            _logger.LogWarning("api.task.delete.rejected id={Id} reason={Reason}", id, result.Error);
+
+            return result.Error switch
+            {
+                TaskDeleteError.NotFound => NotFound(new { message = result.Message }),
+                TaskDeleteError.NotEditable => StatusCode(403, new { message = result.Message }),
+                TaskDeleteError.Stale => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                _ => StatusCode(500, new { message = "Nepavyko istrinti uzduoties." })
+            };
+        }
+
+        [HttpPatch("{id:long}/time")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> UpdateTaskTime(long id, [FromBody] UpdateTaskTimeRequestDto dto, CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("api.task.time.requested id={Id} start={Start} end={End} version={Version}", id, dto.TargetSlotStartMinutes, dto.TargetSlotEndMinutes, dto.Version);
+
+            if (!ModelState.IsValid)
+            {
+                _logger.LogWarning("api.task.time.validation-failed id={Id}", id);
+                return ValidationProblem(ModelState);
+            }
+
+            if (!TryParseDate(dto.TargetDate, out var targetDate))
+            {
+                return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
+            }
+
+            var user = _userContextResolver.GetCurrentUser();
+            var result = await _planService.UpdateTaskTimeAsync(
+                id,
+                targetDate,
+                dto.TargetSlotStartMinutes,
+                dto.TargetSlotEndMinutes,
+                dto.Version,
+                user,
+                dto.TimezoneOffsetMinutes,
+                cancellationToken);
+
+            if (result.Ok && result.Task != null)
+            {
+                var localStart = _timeService.ConvertUtcToLocal(result.Task.StartAt, dto.TimezoneOffsetMinutes);
+                var localEnd = _timeService.ConvertUtcToLocal(result.Task.EndAt, dto.TimezoneOffsetMinutes);
+                var response = new TaskMovedResponseDto
+                {
+                    Id = result.Task.Id,
+                    Version = result.CurrentVersion ?? dto.Version,
+                    TechnicianId = result.Task.TechnicianId,
+                    StartAt = localStart,
+                    EndAt = localEnd,
+                    Load = await BuildLoadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                };
+                _logger.LogInformation("api.task.time.succeeded id={Id}", id);
+                return Ok(response);
+            }
+
+            _logger.LogWarning("api.task.time.rejected id={Id} reason={Reason}", id, result.Error);
+
+            return result.Error switch
+            {
+                TaskTimeUpdateError.NotFound => NotFound(new { message = result.Message }),
+                TaskTimeUpdateError.NotEditable => StatusCode(403, new { message = result.Message }),
+                TaskTimeUpdateError.Stale => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                TaskTimeUpdateError.Overlap => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                _ => UnprocessableEntity(new { message = result.Message ?? "Netinkamas laiko langas." })
+            };
+        }
+
         [HttpPost("preview/drag")]
         [Authorize(Policy = "CanEditTask")]
         public async Task<IActionResult> PreviewDrag([FromBody] DragPreviewRequestDto dto, CancellationToken cancellationToken)

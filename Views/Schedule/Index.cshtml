@@ -11,17 +11,9 @@
     </div>
     <div class="ms-auto d-flex align-items-center gap-2">
         <span class="badge bg-secondary">Role: @(Model.IsManager ? "Vadovas" : "Technikas")</span>
-        @if (Model.CurrentPlanId.HasValue)
-        {
-            <span class="badge bg-light text-dark border">Planas #@Model.CurrentPlanId (@Model.CurrentPlanStatus)</span>
-        }
         @if (Model.HasDraft)
         {
             <span class="badge bg-warning text-dark">Juodrastis aktyvus</span>
-        }
-        @if (Model.IsManager)
-        {
-            <span class="badge bg-primary-subtle text-dark">Redagavimo rezimas ijungtas </span>
         }
     </div>
 </div>

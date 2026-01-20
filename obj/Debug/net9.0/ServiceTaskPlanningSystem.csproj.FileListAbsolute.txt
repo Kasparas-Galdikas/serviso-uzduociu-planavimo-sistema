@@ -41,7 +41,6 @@ C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\vtbvp0gqgj-9aho6azdo9.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\birbnqzcg8-8cq3ne5sye.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\dvi6cdeowx-958c5jsv79.gz
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\4s2dy8ui6k-gsk2h3g5mi.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\wc8qfvw3cy-q8xvcp0rcj.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\we7wwwuon7-6xdxpcnch3.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\9ohonzqz3s-mbpe71e0bp.gz
@@ -132,5 +131,6 @@ C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\ref\ServiceTaskPlanningSystem.dll
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\4cmh4r4pcx-prdm4c6wjc.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\ts9dj7efm3-1t4mzyxt8f.gz
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\qj10olxub8-75650k4nm4.gz
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\u4e5f8f19y-4uilh3smyy.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\qj10olxub8-1g8atr1kk2.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\4s2dy8ui6k-jstjnh6iyq.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\u4e5f8f19y-2017l7yolp.gz

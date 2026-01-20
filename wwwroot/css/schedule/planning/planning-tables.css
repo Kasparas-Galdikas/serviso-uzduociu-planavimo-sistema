@@ -187,11 +187,11 @@
 }
 
 .slot-selection-handle[data-slot-handle="left"] {
-  left: -6px;
+  left: 0;
 }
 
 .slot-selection-handle[data-slot-handle="right"] {
-  right: -6px;
+  right: 0;
 }
 
 .slot-selection-handle-pill {
@@ -396,6 +396,95 @@ td.is-drag-origin .task-card.is-dragging {
 .task-card.preview-conflict::before {
   background: var(--danger-500) !important;
   width: 6px !important;
+}
+
+.task-card-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  gap: 4px;
+  z-index: 2;
+}
+
+.task-card-action {
+  border: 1px solid var(--neutral-200);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--neutral-700);
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  box-shadow: var(--shadow-sm);
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.task-card-action:hover {
+  background: var(--neutral-100);
+  border-color: var(--neutral-300);
+  color: var(--accent-700);
+}
+
+.task-card-action:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-shadow);
+}
+
+.task-resize-bar {
+  pointer-events: auto;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  position: relative;
+}
+
+.task-resize-bar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.task-resize-bar.task-normal::before {
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.12), rgba(34, 197, 94, 0.18));
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.task-resize-bar.task-load::before {
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.18));
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.task-resize-bar.task-conflict::before {
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.18));
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.task-resize-bar.task-travel::before {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.12), rgba(59, 130, 246, 0.18));
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.task-resize-bar .slot-selection-hit {
+  cursor: default;
+}
+.task-resize-bar .slot-selection-handle {
+  cursor: ew-resize;
+}
+.task-resize-bar .slot-selection-handle[data-slot-handle="left"] {
+  left: 6px;
+}
+.task-resize-bar .slot-selection-handle[data-slot-handle="right"] {
+  right: 6px;
 }
 
 /* Editable affordance */

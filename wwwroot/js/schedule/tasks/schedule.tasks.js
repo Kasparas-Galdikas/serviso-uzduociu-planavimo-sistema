@@ -11,6 +11,10 @@
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
+  const formatRange = (startMinutes, endMinutes) => {
+    const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    return `${fmt(startMinutes)}–${fmt(endMinutes)}`;
+  };
 
   // Select2 initialization helper
   const initSelect2 = (selectEl, placeholder) => {
@@ -803,6 +807,7 @@
     document.documentElement.dataset.scheduleTaskClickInit = "1";
 
     document.addEventListener("click", async (evt) => {
+      if (evt.target?.closest?.(".task-card-action")) return;
       if (evt.target?.closest?.(".task-drag-handle")) return;
       const card = evt.target?.closest?.(".task-card");
       if (!card) return;
@@ -943,6 +948,239 @@
         endMinutes,
       });
     }
+  };
+
+  document.addEventListener("click", (evt) => {
+    const action = evt.target?.closest?.(".task-card-action");
+    if (!action) return;
+    evt.stopPropagation();
+    evt.preventDefault();
+
+    const card = action.closest(".task-card");
+    if (!card || card.dataset.editable !== "true") return;
+
+    const taskId = card.getAttribute("data-task-id");
+    const version = parseInt(card.getAttribute("data-task-version") || "0", 10);
+    const date = card.getAttribute("data-date");
+    const startMinutes = parseInt(card.getAttribute("data-start-minutes") || "0", 10);
+    const durationMinutes = parseInt(card.getAttribute("data-duration-minutes") || "0", 10);
+    if (!taskId) return;
+
+    if (action.classList.contains("task-card-action-edit")) {
+      startInlineResize(card, {
+        taskId,
+        version,
+        date,
+        startMinutes,
+        durationMinutes
+      });
+    }
+  });
+
+  const startInlineResize = (card, { taskId, version, date, startMinutes, durationMinutes }) => {
+    const tables = document.getElementById("scheduleTables");
+    if (!tables) return;
+    const slotSize = parseInt(tables.dataset.slotSizeMinutes || "30", 10);
+    const dayStart = parseInt(tables.dataset.dayStartMinutes || "480", 10);
+    const dayEnd = parseInt(tables.dataset.dayEndMinutes || "1200", 10);
+
+    let currentStart = startMinutes;
+    let currentEnd = startMinutes + durationMinutes;
+
+    const parentCell = card.closest("td");
+    if (!parentCell) return;
+    if (getComputedStyle(parentCell).position === "static") {
+      parentCell.style.position = "relative";
+    }
+    parentCell.style.overflow = "hidden";
+
+    const cardRect = card.getBoundingClientRect();
+    const durationSlots = Math.max(1, Math.round(durationMinutes / slotSize));
+    const slotWidth = cardRect.width / durationSlots;
+
+    const overlay = document.createElement("div");
+    overlay.className = "slot-selection-bar task-resize-bar";
+    overlay.innerHTML = `
+      <button type="button" class="slot-selection-hit" data-slot-hit aria-label="Keisti laiką"></button>
+      <button type="button" class="slot-selection-handle" data-slot-handle="left" aria-label="Anksčiau">
+        <span class="slot-selection-handle-pill" aria-hidden="true">⟨</span>
+      </button>
+      <button type="button" class="slot-selection-handle" data-slot-handle="right" aria-label="Vėliau">
+        <span class="slot-selection-handle-pill" aria-hidden="true">⟩</span>
+      </button>
+    `;
+    overlay.style.position = "absolute";
+    const cellRect = parentCell.getBoundingClientRect();
+    overlay.style.left = `${Math.max(0, cardRect.left - cellRect.left)}px`;
+    overlay.style.top = `${Math.max(0, cardRect.top - cellRect.top)}px`;
+    overlay.style.height = `${cardRect.height}px`;
+    overlay.style.zIndex = "8";
+    
+    // Apply card styling to overlay
+    const cardClasses = card.className;
+    const taskCardClassMatch = cardClasses.match(/task-(normal|load|conflict|travel)/);
+    if (taskCardClassMatch) {
+      overlay.classList.add(taskCardClassMatch[1] === "normal" ? "task-normal" : 
+                           taskCardClassMatch[1] === "load" ? "task-load" : 
+                           taskCardClassMatch[1] === "conflict" ? "task-conflict" : "task-travel");
+    }
+
+    const teardown = () => {
+      overlay.remove();
+      document.removeEventListener("pointerdown", onOutsidePointerDown, true);
+    };
+
+    const onOutsidePointerDown = (evt) => {
+      if (overlay.contains(evt.target) || card.contains(evt.target)) return;
+      teardown();
+    };
+    document.addEventListener("pointerdown", onOutsidePointerDown, true);
+
+    const applyTimeUpdate = async (newStart, newEnd) => {
+      const timezoneOffset = -new Date().getTimezoneOffset();
+      const resp = await fetch(`/api/tasks/${taskId}/time`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        body: JSON.stringify({
+          targetDate: date,
+          targetSlotStartMinutes: newStart,
+          targetSlotEndMinutes: newEnd,
+          version,
+          timezoneOffsetMinutes: timezoneOffset
+        })
+      });
+
+      if (resp.status === 409) {
+        const body = await resp.json().catch(() => ({}));
+        alert(body.message || "Užduotis pasikeitė. Atnaujinkite lentelę.");
+        teardown();
+        return false;
+      } else if (resp.status === 403) {
+        const body = await resp.json().catch(() => ({}));
+        alert(body.message || "Neturite teisių keisti laiko.");
+        teardown();
+        return false;
+      } else if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        alert(body.message || "Nepavyko pakeisti laiko.");
+        return false;
+      }
+
+      const data = await resp.json().catch(() => null);
+      if (data?.version) {
+        version = data.version;
+        card.setAttribute("data-task-version", String(version));
+      }
+
+      const detailPanel = document.getElementById("taskDetailModal");
+      if (detailPanel?.classList?.contains("show") && String(detailPanel.dataset.taskId || "") === String(taskId)) {
+        const startInput = detailPanel.querySelector("#taskDetailStart");
+        const endInput = detailPanel.querySelector("#taskDetailEnd");
+        if (startInput && data?.startAt) startInput.value = String(data.startAt).substring(0, 16);
+        if (endInput && data?.endAt) endInput.value = String(data.endAt).substring(0, 16);
+      }
+
+      const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
+      await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
+      return true;
+    };
+
+    const updateOverlay = () => {
+      // Update the task-time element on the card to show current time range
+      const taskTimeEl = card.querySelector(".task-time");
+      if (taskTimeEl) {
+        // Get the drag handle if it exists
+        const dragHandle = taskTimeEl.querySelector(".task-drag-handle");
+        const handleHtml = dragHandle ? dragHandle.outerHTML : "";
+        taskTimeEl.innerHTML = `${handleHtml}${formatRange(currentStart, currentEnd)}`;
+      }
+
+      const currentRect = card.getBoundingClientRect();
+      if (overlay.classList.contains("is-dragging")) {
+        const totalSlots = (currentEnd - currentStart) / slotSize;
+        const offsetSlots = (currentStart - startMinutes) / slotSize;
+        overlay.style.width = `${Math.max(totalSlots * slotWidth, slotWidth)}px`;
+        overlay.style.transform = `translateX(${offsetSlots * slotWidth}px)`;
+      } else {
+        overlay.style.width = `${currentRect.width}px`;
+        overlay.style.transform = "none";
+      }
+    };
+
+    const onDrag = (dir, startX, startStart, startEnd, moveEvt) => {
+      const dx = moveEvt.clientX - startX;
+      const slotsDelta = Math.round(dx / (slotWidth || 1));
+      let nextStart = startStart;
+      let nextEnd = startEnd;
+
+      if (dir === "left") {
+        nextStart = startStart + slotsDelta * slotSize;
+        nextEnd = startEnd;
+      } else {
+        nextEnd = startEnd + slotsDelta * slotSize;
+        nextStart = startStart;
+      }
+
+      nextStart = Math.max(dayStart, nextStart);
+      nextEnd = Math.min(dayEnd, nextEnd);
+      if (nextEnd - nextStart < slotSize) {
+        if (dir === "left") nextStart = nextEnd - slotSize;
+        else nextEnd = nextStart + slotSize;
+      }
+
+      currentStart = nextStart;
+      currentEnd = nextEnd;
+      updateOverlay();
+    };
+
+    const attachDrag = (handle, dir) => {
+      if (!handle) return;
+      handle.style.cursor = "ew-resize";
+      handle.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handle.setPointerCapture(e.pointerId);
+        overlay.classList.add("is-dragging");
+        parentCell.style.overflow = "visible";
+
+        const startX = e.clientX;
+        const baseStart = currentStart;
+        const baseEnd = currentEnd;
+
+        const move = (ev) => onDrag(dir, startX, baseStart, baseEnd, ev);
+
+        const up = async (ev) => {
+          handle.releasePointerCapture(ev.pointerId);
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", up);
+          handle.removeEventListener("pointercancel", up);
+          onDrag(dir, startX, baseStart, baseEnd, ev);
+          const changed = currentStart !== baseStart || currentEnd !== baseEnd;
+          if (changed) await applyTimeUpdate(currentStart, currentEnd);
+          overlay.classList.remove("is-dragging");
+          parentCell.style.overflow = "hidden";
+          updateOverlay();
+        };
+
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+        handle.addEventListener("pointercancel", up);
+      });
+    };
+
+    attachDrag(overlay.querySelector('[data-slot-handle="left"]'), "left");
+    attachDrag(overlay.querySelector('[data-slot-handle="right"]'), "right");
+    overlay.querySelector("[data-slot-hit]")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      teardown();
+    });
+
+    updateOverlay();
+    parentCell.appendChild(overlay);
   };
 
   const clearFieldErrors = (modalEl) => {
