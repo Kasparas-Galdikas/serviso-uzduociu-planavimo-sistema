@@ -12,6 +12,57 @@
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
 
+  // Select2 initialization helper
+  const initSelect2 = (selectEl, placeholder) => {
+    if (!selectEl || typeof $ === "undefined" || !$.fn.select2) return;
+    const $select = $(selectEl);
+
+    // Destroy existing instance if any
+    if ($select.hasClass("select2-hidden-accessible")) {
+      $select.select2("destroy");
+    }
+
+    // Get the parent offcanvas for dropdown positioning
+    const dropdownParent = selectEl.closest(".offcanvas") || document.body;
+
+    $select.select2({
+      theme: "bootstrap-5",
+      placeholder: placeholder || "Pasirinkite...",
+      allowClear: false,
+      width: "100%",
+      dropdownParent: $(dropdownParent),
+      language: {
+        noResults: () => "Nerasta rezultatų",
+        searching: () => "Ieškoma...",
+        inputTooShort: (args) => `Įveskite bent ${args.minimum} simbolius`,
+      }
+    });
+  };
+
+  const destroySelect2 = (selectEl) => {
+    if (!selectEl || typeof $ === "undefined" || !$.fn.select2) return;
+    const $select = $(selectEl);
+    if ($select.hasClass("select2-hidden-accessible")) {
+      $select.select2("destroy");
+    }
+  };
+
+  const setSelect2Value = (selectEl, value) => {
+    if (!selectEl || typeof $ === "undefined" || !$.fn.select2) return;
+    const $select = $(selectEl);
+    if ($select.hasClass("select2-hidden-accessible")) {
+      $select.val(value).trigger("change.select2");
+    }
+  };
+
+  const setSelect2Disabled = (selectEl, disabled) => {
+    if (!selectEl || typeof $ === "undefined" || !$.fn.select2) return;
+    const $select = $(selectEl);
+    if ($select.hasClass("select2-hidden-accessible")) {
+      $select.prop("disabled", disabled);
+    }
+  };
+
   let objectsPromise = null;
   const loadObjects = async () => {
     if (objectsPromise) return objectsPromise;
@@ -30,6 +81,9 @@
     const select = modalEl.querySelector("#taskDetailObject");
     if (!select) return;
 
+    // Destroy existing Select2 before repopulating
+    destroySelect2(select);
+
     const objects = (await loadObjects())
       // Drop any accidentally created placeholder objects (legacy data)
       .filter((obj) => (obj?.name || "").trim().toLowerCase() !== "- pasirinkite objekta -");
@@ -37,7 +91,7 @@
 
     const placeholder = document.createElement("option");
     placeholder.value = "";
-    placeholder.textContent = "- Pasirinkite objekta -";
+    placeholder.textContent = "";
     select.appendChild(placeholder);
 
     objects.forEach((obj) => {
@@ -67,6 +121,61 @@
       custom.selected = true;
       select.appendChild(custom);
     }
+
+    // Initialize Select2
+    initSelect2(select, "Pasirinkite objektą...");
+  };
+
+  const populateAddressDropdown = async (modalEl, selectedAddress) => {
+    const select = modalEl.querySelector("#taskDetailLocation");
+    if (!select) return;
+
+    // Destroy existing Select2 before repopulating
+    destroySelect2(select);
+
+    const objects = await loadObjects();
+    select.innerHTML = "";
+
+    // Add placeholder
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "";
+    select.appendChild(placeholder);
+
+    // Build address-to-object mapping (first object wins for each address)
+    const addressToObject = new Map();
+    objects.forEach((obj) => {
+      if (obj.address && obj.address.trim()) {
+        const addr = obj.address.trim();
+        if (!addressToObject.has(addr)) {
+          addressToObject.set(addr, obj.id);
+        }
+      }
+    });
+
+    // Add address options with object ID stored
+    addressToObject.forEach((objectId, addr) => {
+      const opt = document.createElement("option");
+      opt.value = addr;
+      opt.textContent = addr;
+      opt.dataset.objectId = objectId;
+      if (selectedAddress && addr === selectedAddress) {
+        opt.selected = true;
+      }
+      select.appendChild(opt);
+    });
+
+    // If selected address not in list, add it
+    if (selectedAddress && !addressToObject.has(selectedAddress)) {
+      const custom = document.createElement("option");
+      custom.value = selectedAddress;
+      custom.textContent = selectedAddress;
+      custom.selected = true;
+      select.appendChild(custom);
+    }
+
+    // Initialize Select2
+    initSelect2(select, "Pasirinkite adresą...");
   };
 
   const clearActiveCards = () => {
@@ -88,15 +197,50 @@
   };
 
   const ensureObjectAddressBinding = (modalEl) => {
-    const select = modalEl.querySelector("#taskDetailObject");
-    if (!select || select.dataset.objectBinding === "1") return;
-    select.dataset.objectBinding = "1";
-    select.addEventListener("change", () => {
-      const selected = select.selectedOptions[0];
+    const objectSelect = modalEl.querySelector("#taskDetailObject");
+    const addressSelect = modalEl.querySelector("#taskDetailLocation");
+
+    // Skip if already bound or elements missing
+    if (!objectSelect || !addressSelect) return;
+    if (objectSelect.dataset.objectAddressBinding === "1") return;
+    objectSelect.dataset.objectAddressBinding = "1";
+
+    // Flag to prevent infinite loops
+    let isUpdating = false;
+
+    // Object → Address: when object changes, update address
+    const updateAddressFromObject = () => {
+      if (isUpdating) return;
+      isUpdating = true;
+      const selected = objectSelect.selectedOptions[0];
       const address = selected?.dataset?.address || "";
-      const locationInput = modalEl.querySelector("#taskDetailLocation");
-      if (locationInput) locationInput.value = address;
-    });
+      setSelect2Value(addressSelect, address);
+      isUpdating = false;
+    };
+
+    // Address → Object: when address changes, update object
+    const updateObjectFromAddress = () => {
+      if (isUpdating) return;
+      isUpdating = true;
+      const selected = addressSelect.selectedOptions[0];
+      const objectId = selected?.dataset?.objectId || "";
+      if (objectId) {
+        setSelect2Value(objectSelect, objectId);
+      }
+      isUpdating = false;
+    };
+
+    // Bind object → address
+    objectSelect.addEventListener("change", updateAddressFromObject);
+    if (typeof $ !== "undefined" && $.fn.select2) {
+      $(objectSelect).on("select2:select select2:clear", updateAddressFromObject);
+    }
+
+    // Bind address → object
+    addressSelect.addEventListener("change", updateObjectFromAddress);
+    if (typeof $ !== "undefined" && $.fn.select2) {
+      $(addressSelect).on("select2:select select2:clear", updateObjectFromAddress);
+    }
   };
 
   const fetchTask = async (taskId) => {
@@ -125,6 +269,9 @@
     const dropdown = modalEl.querySelector("#taskDetailAssignee");
     if (!dropdown) return;
 
+    // Destroy existing Select2 before repopulating
+    destroySelect2(dropdown);
+
     try {
       const resp = await fetch("/api/technicians", {
         headers: { "X-Requested-With": "XMLHttpRequest" }
@@ -140,10 +287,10 @@
       // Clear existing options
       dropdown.innerHTML = "";
 
-      // Add placeholder option
+      // Add placeholder option (empty for Select2)
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      placeholder.textContent = "Pasirinkite darbuotoją...";
+      placeholder.textContent = "";
       dropdown.appendChild(placeholder);
 
       // Add technician options
@@ -156,6 +303,9 @@
         }
         dropdown.appendChild(option);
       });
+
+      // Initialize Select2
+      initSelect2(dropdown, "Pasirinkite darbuotoją...");
     } catch (err) {
       console.error("Error loading technicians:", err);
     }
@@ -173,25 +323,23 @@
   const populateTaskModal = async (modalEl, data, editable) => {
     const setVal = (selector, value) => {
       const el = modalEl.querySelector(selector);
-      if (el) el.value = value || "";
+      if (el) el.value = value ?? "";
     };
 
     setVal("#taskDetailTitle", data.title);
-    setVal("#taskDetailLocation", data.objectAddress || data.location);
     setVal("#taskDetailStart", data.startAt ? data.startAt.substring(0, 16) : "");
     setVal("#taskDetailEnd", data.endAt ? data.endAt.substring(0, 16) : "");
     setVal("#taskDetailPriority", data.priority);
     setVal("#taskDetailStatus", data.status);
     setVal("#taskDetailTechnicianComment", data.technicianComment);
     setVal("#taskDetailSkill", data.skillLevel);
+
+    // Populate dropdowns
     await populateObjectDropdown(modalEl, data.objectId, data.objectName, data.objectAddress);
+    const selectedAddress = data.objectAddress || data.location;
+    await populateAddressDropdown(modalEl, selectedAddress);
     ensureObjectAddressBinding(modalEl);
-    const selectedObj = modalEl.querySelector("#taskDetailObject")?.selectedOptions?.[0];
-    if (selectedObj?.dataset?.address) {
-      setVal("#taskDetailLocation", selectedObj.dataset.address);
-    } else {
-      setVal("#taskDetailLocation", data.objectAddress || data.location);
-    }
+
     syncInstructionFields(modalEl, data.instructions);
 
     // Populate technician dropdown for managers
@@ -269,6 +417,11 @@
       editable
     });
 
+    // Select2 dropdowns need special handling
+    const assigneeSelect = modalEl.querySelector("#taskDetailAssignee");
+    const objectSelect = modalEl.querySelector("#taskDetailObject");
+    const addressSelect = modalEl.querySelector("#taskDetailLocation");
+
     if (isTechnician) {
       // Hide parameters from technicians
       if (paramsSection) paramsSection.classList.add("d-none");
@@ -287,6 +440,11 @@
         el.setAttribute("disabled", "disabled");
         el.classList.add("bg-light");
       });
+
+      // Disable Select2 dropdowns
+      setSelect2Disabled(assigneeSelect, true);
+      setSelect2Disabled(objectSelect, true);
+      setSelect2Disabled(addressSelect, true);
 
       // Enable technician fields ONLY if it's their task and editable
       const canEdit = isOwnTask && editable;
@@ -339,6 +497,11 @@
         }
       });
 
+      // Handle Select2 dropdowns for manager
+      setSelect2Disabled(assigneeSelect, !editable);
+      setSelect2Disabled(objectSelect, !editable);
+      setSelect2Disabled(addressSelect, !editable);
+
       // Keep technician-specific fields read-only
       if (statusField) {
         statusField.setAttribute("disabled", "disabled");
@@ -354,6 +517,13 @@
   const saveTask = async (modalEl) => {
     const mode = modalEl.dataset.mode || "update";
     const taskId = modalEl.dataset.taskId;
+    const tables = document.getElementById("scheduleTables");
+    const viewModel = window.scheduleViewModel || {};
+    const viewModelManagerFlag =
+      typeof viewModel.isManager === "string"
+        ? viewModel.isManager === "true"
+        : !!viewModel.isManager;
+    const isManager = viewModelManagerFlag || tables?.dataset?.isManager === "true";
 
     // Validate mode
     if (mode === "update" && !taskId) {
@@ -366,8 +536,9 @@
     const location = modalEl.querySelector("#taskDetailLocation")?.value || "";
     const startAt = modalEl.querySelector("#taskDetailStart")?.value || "";
     const endAt = modalEl.querySelector("#taskDetailEnd")?.value || "";
-    const priority = modalEl.querySelector("#taskDetailPriority")?.value || "";
+    const priorityRaw = modalEl.querySelector("#taskDetailPriority")?.value || "";
     const status = modalEl.querySelector("#taskDetailStatus")?.value || "";
+    const selectedTechVal = modalEl.querySelector("#taskDetailAssignee")?.value || "";
 
     // Additional fields
     const skillLevel = modalEl.querySelector("#taskDetailSkill")?.value || null;
@@ -380,10 +551,43 @@
     const objectAddress = hasSelectedObject
       ? (selectedObjectOption?.dataset?.address || location || null)
       : null;
+    const technicianId = selectedTechVal
+      ? parseInt(selectedTechVal, 10)
+      : parseInt(modalEl.dataset.technicianId || "0", 10);
+    const priorityVal = parseInt(priorityRaw, 10);
 
     // Validate required fields
+    clearFieldErrors(modalEl);
+    const hasSuspiciousInput = (val) => /<|>|script/i.test(val || "");
     if (!title.trim()) {
-      alert("Pavadinimas yra privalomas.");
+      setFieldError(modalEl, "#taskDetailTitle", "Pavadinimas yra privalomas.");
+    } else if (hasSuspiciousInput(title)) {
+      setFieldError(modalEl, "#taskDetailTitle", "Netinkami simboliai.");
+    }
+    if (hasSuspiciousInput(location)) {
+      setFieldError(modalEl, "#taskDetailLocation", "Netinkami simboliai.");
+    }
+    if (hasSuspiciousInput(instructions || "")) {
+      setFieldError(modalEl, "#taskDetailInstructions", "Netinkami simboliai.");
+    }
+    if (isManager) {
+      if (!technicianId || Number.isNaN(technicianId)) {
+        setFieldError(modalEl, "#taskDetailAssignee", "Priskirtas darbuotojas yra privalomas.");
+      }
+      if (!skillLevel || !String(skillLevel).trim()) {
+        setFieldError(modalEl, "#taskDetailSkill", "Reikalingas kvalifikacijos lygis yra privalomas.");
+      }
+      if (priorityRaw === "" || Number.isNaN(priorityVal)) {
+        setFieldError(modalEl, "#taskDetailPriority", "Prioritetas yra privalomas.");
+      }
+      if (!hasSelectedObject) {
+        setFieldError(modalEl, "#taskDetailObject", "Objektas yra privalomas.");
+      }
+      if (!location.trim()) {
+        setFieldError(modalEl, "#taskDetailLocation", "Adresas / lokacija yra privaloma.");
+      }
+    }
+    if (modalEl.querySelectorAll("[data-field-error]").length > 0) {
       return;
     }
 
@@ -401,7 +605,6 @@
 
     if (mode === "create") {
       // CREATE MODE - call submitCreateTask from selection module
-      const technicianId = parseInt(modalEl.dataset.technicianId);
         const targetDate = modalEl.dataset.targetDate;
         const startMinutes = parseInt(modalEl.dataset.startMinutes);
         const endMinutes = parseInt(modalEl.dataset.endMinutes);
@@ -413,7 +616,7 @@
           endMinutes,
           title,
           location,
-          priority: parseInt(priority) || 1,
+          priority: Number.isNaN(priorityVal) ? 1 : priorityVal,
           status: parseInt(status) || 0,
           skillLevel,
           objectName,
@@ -427,6 +630,39 @@
           // Close modal
           const bsModal = window.bootstrap?.Offcanvas?.getInstance?.(modalEl);
           bsModal?.hide?.();
+        } else if (result?.validationErrors) {
+          // Display validation errors from DTO on form fields
+          const fieldMapping = {
+            Title: "#taskDetailTitle",
+            Location: "#taskDetailLocation",
+            TechnicianId: "#taskDetailAssignee",
+            TargetDate: "#taskDetailStart",
+            StartMinutes: "#taskDetailStart",
+            EndMinutes: "#taskDetailEnd",
+            Priority: "#taskDetailPriority",
+            Status: "#taskDetailStatus",
+            SkillLevel: "#taskDetailSkill",
+            ObjectName: "#taskDetailObject",
+            ObjectAddress: "#taskDetailLocation",
+            Instructions: "#taskDetailInstructions"
+          };
+
+          let hasFieldError = false;
+          for (const [field, messages] of Object.entries(result.validationErrors)) {
+            const selector = fieldMapping[field];
+            const message = Array.isArray(messages) ? messages[0] : messages;
+            if (selector && message) {
+              setFieldError(modalEl, selector, message);
+              hasFieldError = true;
+            }
+          }
+
+          if (!hasFieldError) {
+            const firstError = Object.values(result.validationErrors).flat()[0];
+            alert(firstError || "Patikrinkite įvestus duomenis.");
+          }
+        } else if (result?.error) {
+          alert(result.error);
         }
     } else {
       // UPDATE MODE - Route to correct endpoint based on role
@@ -449,7 +685,7 @@
           location,
           startAt,
           endAt,
-          priority: parseInt(priority) || 1,
+          priority: Number.isNaN(priorityVal) ? 1 : priorityVal,
           status: parseInt(status) || 0,
           version: parseInt(version) || 0,
           timezoneOffsetMinutes: timezoneOffset,
@@ -493,8 +729,52 @@
         if (resp.status === 409 || resp.status === 403) {
           const errorData = await resp.json().catch(() => ({}));
           alert(errorData.message || "Planas pasikeite. Uzduoties redaguoti negalima.");
+        } else if (resp.status === 400 || resp.status === 422) {
+          // Handle validation errors from DTO or custom UnprocessableEntity
+          const errorData = await resp.json().catch(() => ({}));
+
+          // Check if it's a ValidationProblem response (has 'errors' object)
+          if (errorData.errors && typeof errorData.errors === "object") {
+            // Map DTO field names to form field selectors
+            const fieldMapping = {
+              Title: "#taskDetailTitle",
+              Location: "#taskDetailLocation",
+              TechnicianId: "#taskDetailAssignee",
+              StartAt: "#taskDetailStart",
+              EndAt: "#taskDetailEnd",
+              Priority: "#taskDetailPriority",
+              Status: "#taskDetailStatus",
+              SkillLevel: "#taskDetailSkill",
+              ObjectName: "#taskDetailObject",
+              ObjectAddress: "#taskDetailLocation",
+              Instructions: "#taskDetailInstructions",
+              TechnicianComment: "#taskDetailTechnicianComment",
+              Version: null // No specific field for version errors
+            };
+
+            let hasFieldError = false;
+            for (const [field, messages] of Object.entries(errorData.errors)) {
+              const selector = fieldMapping[field];
+              const message = Array.isArray(messages) ? messages[0] : messages;
+              if (selector && message) {
+                setFieldError(modalEl, selector, message);
+                hasFieldError = true;
+              }
+            }
+
+            // If no specific field errors were mapped, show generic alert
+            if (!hasFieldError) {
+              const firstError = Object.values(errorData.errors).flat()[0];
+              alert(firstError || "Patikrinkite įvestus duomenis.");
+            }
+          } else if (errorData.message) {
+            // Custom error message from UnprocessableEntity
+            alert(errorData.message);
+          } else {
+            alert("Patikrinkite įvestus duomenis.");
+          }
         } else if (!resp.ok) {
-          throw new Error("Nepavyko issaugoti uzduoties");
+          alert("Įvyko klaida išsaugant užduotį.");
         } else {
           // Response is TaskCreatedOrUpdatedResponseDto with id and version
           const responseData = await resp.json().catch(() => null);
@@ -606,19 +886,19 @@
 
       const setVal = (selector, value) => {
         const el = detailPanel.querySelector(selector);
-        if (el) el.value = value || "";
+        if (el) el.value = value ?? "";
       };
 
       setVal("#taskDetailTitle", "");
-      setVal("#taskDetailLocation", "");
       setVal("#taskDetailStart", "");
       setVal("#taskDetailEnd", "");
-      setVal("#taskDetailPriority", "1");
-      setVal("#taskDetailStatus", "0");
+      setVal("#taskDetailPriority", "");
+      setVal("#taskDetailStatus", "");
       setVal("#taskDetailSkill", "");
-      setVal("#taskDetailObject", "");
       syncInstructionFields(detailPanel, "");
       await populateObjectDropdown(detailPanel, null, null, null);
+      await populateAddressDropdown(detailPanel, null);
+      await populateTechnicianDropdown(detailPanel, technicianId);
       ensureObjectAddressBinding(detailPanel);
 
       detailPanel.querySelector("#taskDetailLabel").textContent = "Nauja užduotis";
@@ -663,6 +943,22 @@
         endMinutes,
       });
     }
+  };
+
+  const clearFieldErrors = (modalEl) => {
+    modalEl.querySelectorAll("[data-field-error]").forEach((el) => el.remove());
+    modalEl.querySelectorAll(".is-invalid").forEach((el) => el.classList.remove("is-invalid"));
+  };
+
+  const setFieldError = (modalEl, selector, message) => {
+    const field = modalEl.querySelector(selector);
+    if (!field) return;
+    field.classList.add("is-invalid");
+    const helper = document.createElement("div");
+    helper.className = "form-text text-muted";
+    helper.setAttribute("data-field-error", selector);
+    helper.textContent = message;
+    field.insertAdjacentElement("afterend", helper);
   };
 
   schedule.tasks = { initOnce, refreshOpenTask, setActiveCardByTaskId, openTaskPanel };

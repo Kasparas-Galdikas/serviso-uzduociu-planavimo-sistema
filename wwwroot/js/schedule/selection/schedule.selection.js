@@ -408,7 +408,7 @@
     modal.querySelector("#taskDetailLocation").value = "";
     modal.querySelector("#taskDetailStart").value = startDateTime;
     modal.querySelector("#taskDetailEnd").value = endDateTime;
-    modal.querySelector("#taskDetailPriority").value = "1"; // Medium
+    modal.querySelector("#taskDetailPriority").value = ""; // force user to choose
     modal.querySelector("#taskDetailStatus").value = "0"; // Planned
 
     // Set title
@@ -459,6 +459,7 @@
       taskType: formData.taskType,
       skillLevel: formData.skillLevel,
       objectName: formData.objectName,
+      objectAddress: formData.objectAddress,
       objectType: formData.objectType,
       instructions: formData.instructions,
       safetyRequirements: formData.safetyRequirements,
@@ -479,21 +480,32 @@
 
       if (resp.status === 409) {
         const msg = (await resp.json().catch(() => null))?.message || "Laiko langas uzimtas.";
-        throw new Error(msg);
+        return { success: false, error: msg, errorType: "conflict" };
+      }
+
+      if (resp.status === 400) {
+        // ValidationProblem response - parse errors object
+        const errorData = await resp.json().catch(() => ({}));
+        if (errorData.errors && typeof errorData.errors === "object") {
+          // Return validation errors for form to display
+          return { success: false, validationErrors: errorData.errors, errorType: "validation" };
+        }
+        const msg = errorData.message || "Patikrinkite įvestus duomenis.";
+        return { success: false, error: msg, errorType: "validation" };
       }
 
       if (resp.status === 422) {
         const msg = (await resp.json().catch(() => null))?.message || "Netinkamas laiko langas.";
-        throw new Error(msg);
+        return { success: false, error: msg, errorType: "unprocessable" };
       }
 
       if (resp.status === 403) {
         const msg = (await resp.json().catch(() => null))?.message || "Neturite teisiu kurti uzduoties.";
-        throw new Error(msg);
+        return { success: false, error: msg, errorType: "forbidden" };
       }
 
       if (!resp.ok) {
-        throw new Error("Nepavyko sukurti uzduoties.");
+        return { success: false, error: "Įvyko klaida kuriant užduotį.", errorType: "unknown" };
       }
 
       // Response includes TaskCreatedOrUpdatedResponseDto with id and version
@@ -514,8 +526,7 @@
       return { success: true, id };
     } catch (err) {
       logEvent("ui.task.create.error", { error: err?.message }, "error");
-      alert(err?.message || "Nepavyko sukurti uzduoties.");
-      return { success: false, error: err?.message };
+      return { success: false, error: err?.message || "Įvyko nenumatyta klaida.", errorType: "exception" };
     }
   };
 

@@ -141,6 +141,24 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
             }
 
+            if (dto.TechnicianId <= 0)
+            {
+                return UnprocessableEntity(new { message = "Priskirtas darbuotojas yra privalomas." });
+            }
+
+            if (string.IsNullOrWhiteSpace(dto.SkillLevel) ||
+                string.IsNullOrWhiteSpace(dto.ObjectName) ||
+                string.IsNullOrWhiteSpace(dto.ObjectAddress) ||
+                string.IsNullOrWhiteSpace(dto.Location))
+            {
+                return UnprocessableEntity(new { message = "Privalomi laukai (kvalifikacija, objektas ir adresas) turi buti uzpildyti." });
+            }
+
+            var normalizedSkillLevel = dto.SkillLevel.Trim();
+            var normalizedObjectName = dto.ObjectName.Trim();
+            var normalizedObjectAddress = dto.ObjectAddress.Trim();
+            var normalizedLocation = dto.Location.Trim();
+
             var user = _userContextResolver.GetCurrentUser();
             var result = await _planService.CreateTaskAsync(
                 dto.TechnicianId,
@@ -148,12 +166,12 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 dto.StartMinutes,
                 dto.EndMinutes,
                 dto.Title,
-                dto.Location,
+                normalizedLocation,
                 dto.Priority,
                 dto.Status,
-                dto.SkillLevel ?? string.Empty,
-                dto.ObjectName ?? string.Empty,
-                dto.ObjectAddress ?? string.Empty,
+                normalizedSkillLevel,
+                normalizedObjectName,
+                normalizedObjectAddress,
                 dto.Instructions ?? string.Empty,
                 user,
                 dto.TimezoneOffsetMinutes,
@@ -210,7 +228,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var timezoneOffset = GetBrowserTimezoneOffset();
             var user = _userContextResolver.GetCurrentUser();
             var isEditable = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffset);
-            
+
             // Convert UTC times from database to local time for frontend
             var localStartAt = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffset);
             var localEndAt = _timeService.ConvertUtcToLocal(task.EndAt, timezoneOffset);
@@ -395,6 +413,20 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return UnprocessableEntity(new { message = "Pabaigos laikas turi b?ti v?lesnis u? prad?i?." });
             }
 
+            if (string.IsNullOrWhiteSpace(dto.SkillLevel) ||
+                string.IsNullOrWhiteSpace(dto.ObjectName) ||
+                string.IsNullOrWhiteSpace(dto.ObjectAddress) ||
+                string.IsNullOrWhiteSpace(dto.Location))
+            {
+                return UnprocessableEntity(new { message = "Privalomi laukai (kvalifikacija, objektas ir adresas) turi buti uzpildyti." });
+            }
+
+            var normalizedSkillLevel = dto.SkillLevel.Trim();
+            var normalizedObjectName = dto.ObjectName.Trim();
+            var normalizedObjectAddress = dto.ObjectAddress.Trim();
+            var normalizedLocation = dto.Location.Trim();
+            var normalizedInstructions = (dto.Instructions ?? string.Empty).Trim();
+
             // Convert local times from frontend to UTC for storage
             var utcStartAt = _timeService.ConvertLocalToUtc(dto.StartAt, dto.TimezoneOffsetMinutes);
             var utcEndAt = _timeService.ConvertLocalToUtc(dto.EndAt, dto.TimezoneOffsetMinutes);
@@ -480,18 +512,18 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var updated = await _planService.UpdateTaskAsync(id, task =>
             {
                 task.Title = dto.Title;
-                task.Location = dto.Location;
+                task.Location = normalizedLocation;
                 task.StartAt = utcStartAt;
                 task.EndAt = utcEndAt;
                 task.Priority = dto.Priority;
                 task.Status = dto.Status;
-                task.SkillLevel = dto.SkillLevel ?? string.Empty;
-                task.Instructions = dto.Instructions ?? string.Empty;
+                task.SkillLevel = normalizedSkillLevel;
+                task.Instructions = normalizedInstructions;
                 if (dto.TechnicianComment != null)
                 {
                     task.TechnicianComment = dto.TechnicianComment;
                 }
-            }, dto.TechnicianId, user, dto.TimezoneOffsetMinutes, dto.ObjectName, dto.ObjectAddress, cancellationToken);
+            }, dto.TechnicianId, user, dto.TimezoneOffsetMinutes, normalizedObjectName, normalizedObjectAddress, cancellationToken);
 
             var version = await _db.Tasks
                 .AsNoTracking()
@@ -510,7 +542,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             return Ok(response);
         }
 
-[HttpPatch("{id:long}/move")]
+        [HttpPatch("{id:long}/move")]
         [Authorize(Policy = "CanEditTask")]
         public async Task<IActionResult> MoveTask(long id, [FromBody] MoveTaskRequestDto dto, CancellationToken cancellationToken)
         {

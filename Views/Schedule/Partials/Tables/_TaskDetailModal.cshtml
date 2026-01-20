@@ -1,27 +1,22 @@
-<div class="offcanvas offcanvas-end task-detail-panel" tabindex="-1" id="taskDetailModal"
+﻿<div class="offcanvas offcanvas-end task-detail-panel" tabindex="-1" id="taskDetailModal"
     aria-labelledby="taskDetailLabel" data-bs-scroll="true" data-bs-backdrop="false">
 
     <div class="task-detail-resize-handle" data-panel-resize aria-label="Keisti skydelio ploti"></div>
 
     <button type="button" class="btn btn-light task-detail-collapse" data-panel-toggle
-        aria-label="Suskleisti / išskleisti skydelį" aria-pressed="false">
+        aria-label="Suskleisti / iÅ¡skleisti skydelÄ¯" aria-pressed="false">
         <span data-panel-toggle-icon>&gt;</span>
     </button>
 
     <div class="offcanvas-header border-bottom">
         <div>
             <h5 class="offcanvas-title" id="taskDetailLabel">Užduoties informacija</h5>
-            <small class="text-muted" id="taskDetailCode">Kodas: —</small>
+            <small class="text-muted" id="taskDetailCode">Kodas: </small>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Uždaryti"></button>
     </div>
 
     <div class="offcanvas-body">
-
-        <div class="alert alert-info d-none mb-3" id="taskDetailReadonlyNote">
-            Aktyvaus plano užduotys yra tik peržiūrai.
-            Redaguoti galima tik juodraščio plano užduotis.
-        </div>
 
         <!-- PLANAVIMAS -->
         <section class="mb-4 task-section">
@@ -48,7 +43,7 @@
 
                     <div class="col-md-6">
                         <label class="form-label small">Priskirtas darbuotojas</label>
-                        <select class="form-select" id="taskDetailAssignee"></select>
+                        <select class="form-select" id="taskDetailAssignee" data-select2-dropdown="technician"></select>
                     </div>
 
                     <div class="col-md-6">
@@ -66,7 +61,7 @@
             <hr>
         </section>
 
-        <!-- UŽDUOTIES PARAMETRAI -->
+        <!-- UžDUOTIES PARAMETRAI -->
         <section class="mb-4 task-section">
             <div class="task-section-header" role="button" tabindex="0" data-bs-toggle="collapse"
                 data-bs-target="#taskSecParams" aria-expanded="true" aria-controls="taskSecParams">
@@ -85,19 +80,21 @@
                 <div class="row g-3 mt-1">
                     <div class="col-md-6">
                         <label class="form-label small">Reikalingas kvalifikacijos lygis</label>
-                        <select class="form-select" id="taskDetailSkill">
+                                                <select class="form-select" id="taskDetailSkill">
+                            <option value="">- Pasirinkite kvalifikaciją -</option>
                             <option value="Basic">Bazinis</option>
-                            <option value="Advanced">Pažengęs</option>
+                            <option value="Advanced">Paženges</option>
                             <option value="Certified">Sertifikuotas</option>
                         </select>
                     </div>
 
                     <div class="col-md-6">
                         <label class="form-label small">Prioritetas</label>
-                        <select class="form-select" id="taskDetailPriority">
-                            <option value="Low">Žemas</option>
-                            <option value="Medium">Vidutinis</option>
-                            <option value="High">Aukštas</option>
+                                                <select class="form-select" id="taskDetailPriority">
+                            <option value="">- Pasirinkite prioritetą -</option>
+                            <option value="0">Žemas</option>
+                            <option value="1">Vidutinis</option>
+                            <option value="2">Aukštas</option>
                         </select>
                     </div>
                 </div>
@@ -126,16 +123,13 @@
                     <!-- Object dropdown -->
                     <div class="col-md-6">
                         <label class="form-label small">Objektas</label>
-                        <select class="form-select" id="taskDetailObject">
-                          
-                        </select>
+                        <select class="form-select" id="taskDetailObject" data-select2-dropdown="object"></select>
                     </div>
 
-                    <!-- Auto-filled address -->
+                    <!-- Address dropdown -->
                     <div class="col-md-6">
-                        <label class="form-label small">Adresas / Lokacija</label>
-                        <input type="text" class="form-control" id="taskDetailLocation" readonly
-                            placeholder="Pasirinkus objektą adresas bus užpildytas automatiškai">
+                        <label class="form-label small">Adresas</label>
+                        <select class="form-select" id="taskDetailLocation" data-select2-dropdown="address"></select>
                     </div>
 
                 </div>
@@ -192,16 +186,16 @@
                     <div class="col-md-6">
                         <label class="form-label small">Statusas</label>
                         <select class="form-select" id="taskDetailStatus">
-                            <option value="" disabled selected>— Pakeiskite būseną —</option>
+                            <option value="" disabled selected>Pakeiskite būseną</option>
                             <option value="Completed">Baigta</option>
-                            <option value="Canceled">Atšaukta</option>
+                            <option value="Canceled">Atnaujinta</option>
                         </select>
                     </div>
                     <div class="col-12">
                         <label class="form-label small">Komentaras</label>
                         <textarea class="form-control" rows="3" id="taskDetailTechnicianComment"
-                            placeholder="Darbuotojo pastabos apie užduoties vykdymą..."></textarea>
-                        <small class="form-text text-muted">Darbuotojai gali palikti darbo komentara</small>
+                            placeholder="Darbuotojo pastabos apie uÅ¾duoties vykdymÄ…..."></textarea>
+                        <small class="form-text text-muted">Čia darbuotojai gali palikti darbo komentarą</small>
                     </div>
                 </div>
             </div>
@@ -233,4 +227,6 @@
         );
     });
 </script>
+
+
 
