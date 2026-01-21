@@ -25,7 +25,7 @@ public class TaskCreateViewModel
     public TaskPriority Priority { get; set; } = TaskPriority.Medium;
 
     [Display(Name = "Statusas")]
-    public ScheduleTaskStatus Status { get; set; } = ScheduleTaskStatus.Planned;
+    public ScheduleTaskStatus Status { get; set; } = ScheduleTaskStatus.InProgress;
 
     [Display(Name = "Objektas")]
     public string? ObjectName { get; set; }

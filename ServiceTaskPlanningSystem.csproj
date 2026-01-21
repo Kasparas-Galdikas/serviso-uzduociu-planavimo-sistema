@@ -14,6 +14,7 @@
 
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.1">
       <PrivateAssets>all</PrivateAssets>
+      <!-- Doing migrations and DB update localy needs to comment out this exclution  <ExcludeAssets>runtime</ExcludeAssets>-->
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
 

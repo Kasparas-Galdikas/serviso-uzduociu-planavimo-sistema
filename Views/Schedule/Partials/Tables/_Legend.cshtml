@@ -1,18 +1,34 @@
 @{
     var compactLegend = (ViewData["CompactLegend"] as bool?) ?? false;
+    var informationType = (ViewData["InformationType"] as string) ?? "apkrova";
+    var isStatusMode = string.Equals(informationType, "darbo-statusas", StringComparison.OrdinalIgnoreCase);
 }
 
 <div class="legend">
-    @if (!compactLegend)
+    @if (!compactLegend && !isStatusMode)
     {
         <div class="legend-item"><span class="legend-dot bg-base"></span> Teigiama zona (normali uzduotis)</div>
         <div class="legend-item"><span class="legend-dot bg-load"></span> Apkrova (ne kritine)</div>
         <div class="legend-item"><span class="legend-dot bg-conflict"></span> Perkrova (kritine)</div>
     }
-    else
+    else if (compactLegend && !isStatusMode)
     {
         <div class="legend-item"><span class="legend-dot bg-base" title="Normali" aria-label="Normali"></span></div>
         <div class="legend-item"><span class="legend-dot bg-load" title="Apkrova" aria-label="Apkrova"></span></div>
         <div class="legend-item"><span class="legend-dot bg-conflict" title="Perkrova" aria-label="Perkrova"></span></div>
+    }
+    else if (!compactLegend)
+    {
+        <div class="legend-item"><span class="legend-dot bg-status-inprogress"></span> Vykdoma</div>
+        <div class="legend-item"><span class="legend-dot bg-status-completed"></span> Atlikta</div>
+        <div class="legend-item"><span class="legend-dot bg-status-conflict"></span> Problema</div>
+        <div class="legend-item"><span class="legend-dot bg-status-canceled"></span> Atsaukta</div>
+    }
+    else
+    {
+        <div class="legend-item"><span class="legend-dot bg-status-inprogress" title="Vykdoma" aria-label="Vykdoma"></span></div>
+        <div class="legend-item"><span class="legend-dot bg-status-completed" title="Atlikta" aria-label="Atlikta"></span></div>
+        <div class="legend-item"><span class="legend-dot bg-status-conflict" title="Problema" aria-label="Problema"></span></div>
+        <div class="legend-item"><span class="legend-dot bg-status-canceled" title="Atsaukta" aria-label="Atsaukta"></span></div>
     }
 </div>

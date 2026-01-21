@@ -51,7 +51,7 @@ public class PlanServiceAuthorizationTests
 
         var service = CreateService(db);
         var result = await service.CreateTaskAsync(1, DateTime.Today.AddDays(1), 480, 540, "t", "loc",
-            TaskPriority.Medium, ScheduleTaskStatus.Planned, string.Empty, string.Empty, string.Empty, string.Empty,
+            TaskPriority.Medium, ScheduleTaskStatus.InProgress, string.Empty, string.Empty, string.Empty, string.Empty,
             Manager(), 0, CancellationToken.None);
 
         result.Error.Should().Be(TaskCreateError.NotEditable);
@@ -69,7 +69,7 @@ public class PlanServiceAuthorizationTests
 
         var service = CreateService(db);
         var result = await service.CreateTaskAsync(999, DateTime.Today.AddDays(1), 480, 540, "t", "loc",
-            TaskPriority.Medium, ScheduleTaskStatus.Planned, string.Empty, string.Empty, string.Empty, string.Empty,
+            TaskPriority.Medium, ScheduleTaskStatus.InProgress, string.Empty, string.Empty, string.Empty, string.Empty,
             Manager(), 0, CancellationToken.None);
 
         result.Error.Should().Be(TaskCreateError.TechnicianNotFound);
@@ -118,7 +118,7 @@ public class PlanServiceAuthorizationTests
 
         var service = CreateService(db);
         var result = await service.CreateTaskAsync(1, DateTime.Today.AddDays(-1), 480, 540, "t", "loc",
-            TaskPriority.Medium, ScheduleTaskStatus.Planned, string.Empty, string.Empty, string.Empty, string.Empty,
+            TaskPriority.Medium, ScheduleTaskStatus.InProgress, string.Empty, string.Empty, string.Empty, string.Empty,
             Manager(), 0, CancellationToken.None);
 
         result.Error.Should().Be(TaskCreateError.InvalidWindow);
@@ -181,7 +181,7 @@ public class PlanServiceAuthorizationTests
             Title = "t",
             Location = "loc",
             Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
+            Status = ScheduleTaskStatus.InProgress,
             CreatedAt = DateTime.UtcNow
         };
         db.Tasks.Add(task);

@@ -89,6 +89,7 @@ builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Inte
 builder.Services.AddTransient<DatabaseSeeder>();
 builder.Services.AddSingleton<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 builder.Services.AddHostedService<EvaluationRepairService>();
+builder.Services.AddHostedService<TaskAutoExpirationService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>

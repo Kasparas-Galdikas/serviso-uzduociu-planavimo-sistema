@@ -5,6 +5,9 @@
   window.schedule = window.schedule || {};
   const schedule = window.schedule;
 
+  // Import from shared modules
+  const dom = schedule.ui?.dom;
+
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
 
@@ -23,6 +26,7 @@
    * @returns {HTMLElement|null}
    */
   const findTaskCard = (taskId) => {
+    if (dom?.findTaskCard) return dom.findTaskCard(taskId);
     if (!taskId) return null;
     return document.querySelector(`.task-card[data-task-id="${CSS.escape(String(taskId))}"]`);
   };
@@ -33,6 +37,7 @@
    * @returns {HTMLElement|null}
    */
   const findTaskCell = (taskId) => {
+    if (dom?.findTaskCell) return dom.findTaskCell(taskId);
     const card = findTaskCard(taskId);
     return card?.closest("td") || null;
   };
@@ -45,7 +50,8 @@
    * @returns {HTMLElement|null}
    */
   const findSlotCell = (technicianId, date, slotStartMinutes) => {
-    // Data attributes are on the .schedule-slot div, not the td
+    if (dom?.findSlotCell) return dom.findSlotCell(technicianId, date, slotStartMinutes);
+    // Fallback: Data attributes are on the .schedule-slot div, not the td
     const slotSelector = `.schedule-slot[data-tech-id="${technicianId}"][data-date="${date}"][data-slot-start-minutes="${slotStartMinutes}"]`;
     const slot = document.querySelector(slotSelector);
     const cell = slot?.closest("td") || null;

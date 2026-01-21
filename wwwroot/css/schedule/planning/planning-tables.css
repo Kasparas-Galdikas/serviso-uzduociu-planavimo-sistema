@@ -542,11 +542,17 @@ td.is-drag-origin .task-card.is-dragging {
   font-weight: 700;
   font-size: 0.95rem;
   color: var(--neutral-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .task-location {
   font-size: 0.8rem;
   color: var(--neutral-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 
@@ -571,6 +577,111 @@ td.is-drag-origin .task-card.is-dragging {
   border-color: var(--neutral-300);
   box-shadow: inset 0 0 0 1px var(--neutral-300);
   --task-accent: var(--neutral-300);
+}
+
+/* =========================================================
+   Task Execution Status Styles
+   ========================================================= */
+
+/* Status mode: force a consistent InProgress color */
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-inprogress {
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.12), rgba(34, 197, 94, 0.18)) !important;
+  border-color: rgba(34, 197, 94, 0.3) !important;
+}
+
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-inprogress::before {
+  background: var(--success-500) !important;
+}
+
+/* Completed: Green checkmark indicator, slightly faded */
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-completed {
+  opacity: 0.7;
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.22)) !important;
+  border-color: rgba(34, 197, 94, 0.4) !important;
+}
+
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-completed::before {
+  background: var(--success-600) !important;
+}
+
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-completed::after {
+  content: "✓";
+  position: absolute;
+  top: 4px;
+  right: 28px;
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--success-600);
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Conflict (task issue reported): Orange/amber with warning indicator */
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-conflict {
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.18), rgba(245, 158, 11, 0.28)) !important;
+  border-color: rgba(245, 158, 11, 0.5) !important;
+}
+
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-conflict::before {
+  background: var(--warning-600) !important;
+}
+
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-conflict::after {
+  content: "!";
+  position: absolute;
+  top: 4px;
+  right: 28px;
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--warning-700);
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Canceled: Gray, strikethrough effect, very faded */
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-canceled {
+  opacity: 0.5;
+  background: linear-gradient(180deg, rgba(107, 114, 128, 0.12), rgba(107, 114, 128, 0.18)) !important;
+  border-color: rgba(107, 114, 128, 0.35) !important;
+}
+
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-canceled::before {
+  background: var(--neutral-400) !important;
+}
+
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-canceled .task-title {
+  text-decoration: line-through;
+  color: var(--neutral-500);
+}
+
+#scheduleTables[data-information-type="darbo-statusas"] .task-card.task-status-canceled::after {
+  content: "✕";
+  position: absolute;
+  top: 4px;
+  right: 28px;
+  font-size: 10px;
+  font-weight: bold;
+  color: var(--neutral-500);
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .task-card.is-active {

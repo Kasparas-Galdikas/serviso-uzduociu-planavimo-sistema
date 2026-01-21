@@ -247,7 +247,7 @@ namespace ServiceTaskPlanningSystem.Data
                 .IsRequired();
             entity.Property(e => e.Status)
                 .HasColumnType("task_status")
-                .HasDefaultValueSql("'planned'::task_status")
+                .HasDefaultValueSql("'in_progress'::task_status")
                 .HasSentinel((ScheduleTaskStatus)(-1))
                 .IsRequired();
             entity.Property(e => e.StartAt)

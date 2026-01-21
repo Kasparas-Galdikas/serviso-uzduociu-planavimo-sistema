@@ -7,37 +7,43 @@
   const state = schedule.state;
   const table = schedule.table;
 
+  // Import from shared modules
+  const grid = schedule.grid;
+  const dom = schedule.ui?.dom;
+  const slotOverlay = window.schedule.ui?.slotOverlay;
+  const taskApi = schedule.tasks?.api;
+
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
 
   const isDayView = () => (state?.getView?.() || "day") === "day";
 
-  const parseIntSafe = (val) => {
-    const n = Number.parseInt(String(val || ""), 10);
-    return Number.isFinite(n) ? n : null;
+  // Use shared grid utilities (with fallbacks for load order)
+  const getGrid = () => grid?.getConfig?.() || {
+    slotSizeMinutes: 30,
+    dayStartMinutes: 8 * 60,
+    dayEndMinutes: 20 * 60,
   };
-
-  const getGrid = () => {
-    const slotSizeMinutes = parseIntSafe(tables.dataset.slotSizeMinutes) || 30;
-    const dayStartMinutes = parseIntSafe(tables.dataset.dayStartMinutes) || 8 * 60;
-    const dayEndMinutes = parseIntSafe(tables.dataset.dayEndMinutes) || 20 * 60;
-    return { slotSizeMinutes, dayStartMinutes, dayEndMinutes };
-  };
-
-  const minutesToTime = (m) => {
+  const minutesToTime = (m) => grid?.minutesToTime?.(m) || (() => {
     const mm = Math.max(0, m | 0);
     const h = String(Math.floor(mm / 60)).padStart(2, "0");
     const min = String(mm % 60).padStart(2, "0");
     return `${h}:${min}`;
-  };
-  const formatRange = (start, end) => `${minutesToTime(start)}–${minutesToTime(end)}`;
+  })();
+  const formatRange = (start, end) => grid?.formatRange?.(start, end) || `${minutesToTime(start)}–${minutesToTime(end)}`;
 
-  const isEmptySlotCell = (td) => td?.classList?.contains("empty-slot") && !!td.querySelector?.(".schedule-slot");
-
-  const getColSpan = (td) => {
-    const span = parseIntSafe(td?.getAttribute?.("colspan"));
+  // Use shared DOM utilities (with fallbacks for load order)
+  const isEmptySlotCell = (td) => dom?.isEmptySlotCell?.(td) ??
+    (td?.classList?.contains("empty-slot") && !!td.querySelector?.(".schedule-slot"));
+  const getColSpan = (td) => dom?.getColSpan?.(td) ?? (() => {
+    const span = parseInt(td?.getAttribute?.("colspan") || "1", 10);
     return span && span > 0 ? span : 1;
-  };
+  })();
+
+  // Use shared slot overlay utilities (stable load order guaranteed)
+  const getTdIndexInRow = slotOverlay.getTdIndexInRow;
+  const getTdAtIndexInRow = slotOverlay.getTdAtIndexInRow;
+  const getLastTdInRange = slotOverlay.getLastTdInRange;
 
   const selection = {
     active: false,
@@ -62,26 +68,22 @@
 
   const clearSelection = (reason) => {
     clearChooser();
-    selection.barEl?.remove?.();
-    selection.barEl = null;
-    selection.barContainerEl = null;
-    selection.active = false;
-    selection.techId = null;
-    selection.date = null;
-    selection.startMinutes = null;
-    selection.endMinutes = null;
-    selection.durationSlots = 1;
-    selection.startTd = null;
+    slotOverlay.destroy(selection.barEl, () => {
+      selection.barEl = null;
+      selection.barContainerEl = null;
+      selection.active = false;
+      selection.techId = null;
+      selection.date = null;
+      selection.startMinutes = null;
+      selection.endMinutes = null;
+      selection.durationSlots = 1;
+      selection.startTd = null;
+    });
     if (reason) logEvent("ui.slot.selection.clear", { reason });
   };
 
-  const readSlotData = (slotEl) => {
-    const techId = parseIntSafe(slotEl?.dataset?.techId);
-    const startMinutes = parseIntSafe(slotEl?.dataset?.slotStartMinutes);
-    const date = slotEl?.dataset?.date || null;
-    if (!techId || startMinutes == null || !date) return null;
-    return { techId, startMinutes, date };
-  };
+  // Use shared DOM utility for reading slot data (stable load order guaranteed)
+  const readSlotData = dom.readSlotData;
 
   const applySelectionRange = (startTd, durationSlots) => {
     const { slotSizeMinutes } = getGrid();
@@ -142,17 +144,6 @@
     return remaining <= 0;
   };
 
-  const getLastTdInRange = (startTd, durationSlots) => {
-    let remaining = durationSlots || 1;
-    let td = startTd;
-    while (td && remaining > 0) {
-      remaining -= getColSpan(td);
-      if (remaining <= 0) return td;
-      td = td.nextElementSibling;
-    }
-    return null;
-  };
-
   const syncHandleDisabled = () => {
     if (!selection.active || !selection.startTd) return;
     const { slotSizeMinutes, dayStartMinutes, dayEndMinutes } = getGrid();
@@ -193,18 +184,15 @@
     if (!container) return;
     selection.barContainerEl = container;
 
-    const bar = document.createElement("div");
-    bar.className = "slot-selection-bar";
-    bar.innerHTML = `
-      <button type="button" class="slot-selection-hit" data-slot-hit aria-label="Veiksmai: kurti uzduoti arba priskirti"></button>
-      <button type="button" class="slot-selection-handle" data-slot-handle="left" aria-label="Keisti pradzios laika" title="Keisti pradzios laika">
-        <span class="slot-selection-handle-pill" aria-hidden="true">⟨</span>
-      </button>
-      <div class="slot-selection-range" data-slot-range aria-hidden="true"></div>
-      <button type="button" class="slot-selection-handle" data-slot-handle="right" aria-label="Keisti pabaigos laika" title="Keisti pabaigos laika">
-        <span class="slot-selection-handle-pill" aria-hidden="true">⟩</span>
-      </button>
-    `;
+    // Use shared slotOverlay.create() (stable load order)
+    const bar = slotOverlay.create({
+      className: "",
+      showRange: true,
+      hitLabel: "Veiksmai: kurti uzduoti arba priskirti",
+      leftLabel: "Keisti pradzios laika",
+      rightLabel: "Keisti pabaigos laika",
+    });
+
     container.appendChild(bar);
     selection.barEl = bar;
   };
@@ -217,28 +205,11 @@
     const startTd = selection.startTd;
     const endTd = getLastTdInRange(startTd, selection.durationSlots || 1) || startTd;
 
-    const container = selection.barContainerEl;
-    const containerRect = container.getBoundingClientRect();
-    const startRect = startTd.getBoundingClientRect();
-    const endRect = endTd.getBoundingClientRect();
+    // Use shared slotOverlay.positionFromTds (stable load order)
+    slotOverlay.positionFromTds(selection.barEl, selection.barContainerEl, startTd, endTd);
 
-    // Nudge by 1px so the bar aligns with table borders (prevents right handle drifting outside the last cell).
-    const left = startRect.left - containerRect.left + container.scrollLeft + 1;
-    const top = startRect.top - containerRect.top + container.scrollTop;
-    const width = Math.max(1, endRect.right - startRect.left - 2);
-    const height = Math.max(1, startRect.height);
-
-    selection.barEl.style.left = `${left}px`;
-    selection.barEl.style.top = `${top}px`;
-    selection.barEl.style.width = `${width}px`;
-    selection.barEl.style.height = `${height}px`;
-
-    const label = selection.barEl.querySelector("[data-slot-range]");
-    if (label) {
-      label.textContent = `${minutesToTime(selection.startMinutes ?? 0)}–${minutesToTime(
-        selection.endMinutes ?? 0,
-      )}`;
-    }
+    // Update range label via slotOverlay (stable load order)
+    slotOverlay.updateRangeLabel(selection.barEl, selection.startMinutes ?? 0, selection.endMinutes ?? 0);
   };
 
   const stepExtend = (dir) => {
@@ -262,21 +233,6 @@
       if (!d || d.techId !== selection.techId || d.date !== selection.date) return;
       applySelectionRange(startTd, nextDuration);
     }
-  };
-
-  const getTdIndexInRow = (td) => {
-    const row = td?.parentElement;
-    if (!row) return null;
-    const tds = Array.from(row.querySelectorAll("td"));
-    const idx = tds.indexOf(td);
-    return idx >= 0 ? idx : null;
-  };
-
-  const getTdAtIndexInRow = (row, index) => {
-    if (!row || index == null) return null;
-    const tds = Array.from(row.querySelectorAll("td"));
-    if (index < 0 || index >= tds.length) return null;
-    return tds[index];
   };
 
   const startResize = (dir, pointerEvent) => {
@@ -443,6 +399,40 @@
 
   // Export the createTask function so tasks.js can call the API
   const submitCreateTask = async (formData) => {
+    // Use task.api module if available
+    if (taskApi?.createTask) {
+      const result = await taskApi.createTask({
+        technicianId: formData.technicianId,
+        targetDate: formData.targetDate,
+        startMinutes: formData.startMinutes,
+        endMinutes: formData.endMinutes,
+        title: formData.title,
+        location: formData.location || "",
+        priority: formData.priority,
+        status: formData.status,
+        skillLevel: formData.skillLevel,
+        objectName: formData.objectName,
+        objectAddress: formData.objectAddress,
+        instructions: formData.instructions,
+      });
+
+      if (result.success) {
+        const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
+        if (!query.has("view")) query.set("view", "day");
+        clearSelection("create.ok");
+        await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
+
+        if (result.id) {
+          const card = document.querySelector(`.task-card[data-task-id="${CSS.escape(String(result.id))}"]`);
+          card?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+          card?.click?.();
+        }
+      }
+
+      return result;
+    }
+
+    // Fallback: direct fetch
     const timezoneOffset = -new Date().getTimezoneOffset();
 
     const body = JSON.stringify({
@@ -455,15 +445,10 @@
       priority: formData.priority,
       status: formData.status,
       timezoneOffsetMinutes: timezoneOffset,
-      // Additional fields
-      shift: formData.shift,
-      taskType: formData.taskType,
       skillLevel: formData.skillLevel,
       objectName: formData.objectName,
       objectAddress: formData.objectAddress,
-      objectType: formData.objectType,
       instructions: formData.instructions,
-      safetyRequirements: formData.safetyRequirements,
     });
 
     try {
@@ -485,10 +470,8 @@
       }
 
       if (resp.status === 400) {
-        // ValidationProblem response - parse errors object
         const errorData = await resp.json().catch(() => ({}));
         if (errorData.errors && typeof errorData.errors === "object") {
-          // Return validation errors for form to display
           return { success: false, validationErrors: errorData.errors, errorType: "validation" };
         }
         const msg = errorData.message || "Patikrinkite įvestus duomenis.";
@@ -509,7 +492,6 @@
         return { success: false, error: "Įvyko klaida kuriant užduotį.", errorType: "unknown" };
       }
 
-      // Response includes TaskCreatedOrUpdatedResponseDto with id and version
       const responseData = await resp.json().catch(() => null);
       const id = responseData?.id;
 
@@ -657,7 +639,7 @@
 
   const card = evt.target?.closest?.(".task-card");
   if (card) {
-    // ✅ OPEN PANEL IN EDIT MODE
+    // OPEN PANEL IN EDIT MODE
     const taskId = card.getAttribute("data-task-id");
     if (taskId) {
       schedule.tasks?.openTaskPanel?.({ taskId });
@@ -730,161 +712,9 @@
     logEvent("ui.slot.selection.init");
   };
 
-  // === Inline resize for existing task cards (reuses slot-selection visuals) ===
-  const startTaskResize = ({ anchorEl, taskId, version, techId, date, startMinutes, endMinutes, onApply }) => {
-    if (!anchorEl || !taskId || !date) return;
-    const { slotSizeMinutes, dayStartMinutes, dayEndMinutes } = getGrid();
-    let currentStart = startMinutes ?? 0;
-    let currentEnd = endMinutes ?? currentStart + slotSizeMinutes;
-
-    const parentCell = anchorEl.closest("td") || anchorEl.parentElement;
-    if (!parentCell) return;
-    const container = parentCell;
-    if (getComputedStyle(container).position === "static") {
-      container.style.position = "relative";
-    }
-
-    const bar = document.createElement("div");
-    bar.className = "slot-selection-bar task-resize-bar";
-    bar.innerHTML = `
-      <button type="button" class="slot-selection-hit" data-slot-hit aria-label="Keisti laiką"></button>
-      <button type="button" class="slot-selection-handle" data-slot-handle="left" aria-label="Anksčiau">
-        <span class="slot-selection-handle-pill" aria-hidden="true">⟨</span>
-      </button>
-      <div class="slot-selection-range" data-slot-range aria-hidden="true">${formatRange(currentStart, currentEnd)}</div>
-      <button type="button" class="slot-selection-handle" data-slot-handle="right" aria-label="Vėliau">
-        <span class="slot-selection-handle-pill" aria-hidden="true">⟩</span>
-      </button>
-    `;
-
-    bar.style.position = "absolute";
-    bar.style.left = "6px";
-    bar.style.right = "6px";
-    bar.style.top = "6px";
-    bar.style.height = "42px";
-    bar.style.zIndex = "8";
-
-    const teardown = () => {
-      bar.remove();
-    };
-
-    const applyUpdate = async (nextStart, nextEnd) => {
-      if (typeof onApply !== "function") return false;
-      const ok = await onApply({
-        taskId,
-        version,
-        techId,
-        date,
-        startMinutes: nextStart,
-        endMinutes: nextEnd
-      });
-      if (ok) {
-        currentStart = nextStart;
-        currentEnd = nextEnd;
-        const label = bar.querySelector("[data-slot-range]");
-        if (label) label.textContent = formatRange(currentStart, currentEnd);
-      }
-      return ok;
-    };
-
-    const adjust = async (dir, shrink = false) => {
-      let nextStart = currentStart;
-      let nextEnd = currentEnd;
-      if (dir === "left" && !shrink) {
-        if (currentStart - slotSizeMinutes < dayStartMinutes) return;
-        nextStart = currentStart - slotSizeMinutes;
-      } else if (dir === "left" && shrink) {
-        if (currentEnd - slotSizeMinutes <= currentStart + slotSizeMinutes) return;
-        nextStart = currentStart + slotSizeMinutes;
-      } else if (dir === "right" && !shrink) {
-        if (currentEnd + slotSizeMinutes > dayEndMinutes) return;
-        nextEnd = currentEnd + slotSizeMinutes;
-      } else if (dir === "right" && shrink) {
-        if (currentEnd - slotSizeMinutes <= currentStart + slotSizeMinutes) return;
-        nextEnd = currentEnd - slotSizeMinutes;
-      }
-
-      const ok = await applyUpdate(nextStart, nextEnd);
-      if (ok) {
-        version = (version || 0) + 1; // optimistic; caller should update actual version
-      }
-    };
-
-    const attachDrag = (handle, dir) => {
-      if (!handle) return;
-      handle.style.cursor = "ew-resize";
-      handle.addEventListener("pointerdown", (e) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        e.stopPropagation();
-        handle.setPointerCapture(e.pointerId);
-
-        const startX = e.clientX;
-        const baseStart = currentStart;
-        const baseEnd = currentEnd;
-
-        const move = (ev) => {
-          const dx = ev.clientX - startX;
-          const slotsDelta = Math.round(dx / (slotSizeMinutes * 2)); // rough scale safeguard
-          let nextStart = baseStart;
-          let nextEnd = baseEnd;
-          if (dir === "left") {
-            nextStart = baseStart + slotsDelta * slotSizeMinutes;
-            nextStart = Math.min(nextStart, nextEnd - slotSizeMinutes);
-          } else {
-            nextEnd = baseEnd + slotsDelta * slotSizeMinutes;
-            nextEnd = Math.max(nextEnd, nextStart + slotSizeMinutes);
-          }
-          nextStart = Math.max(dayStartMinutes, nextStart);
-          nextEnd = Math.min(dayEndMinutes, nextEnd);
-          currentStart = nextStart;
-          currentEnd = nextEnd;
-          const label = bar.querySelector("[data-slot-range]");
-          if (label) label.textContent = formatRange(currentStart, currentEnd);
-        };
-
-        const up = async (ev) => {
-          handle.releasePointerCapture(ev.pointerId);
-          handle.removeEventListener("pointermove", move);
-          handle.removeEventListener("pointerup", up);
-          handle.removeEventListener("pointercancel", up);
-          const changed = currentStart !== baseStart || currentEnd !== baseEnd;
-          if (changed) {
-            await applyUpdate(currentStart, currentEnd);
-          }
-        };
-
-        handle.addEventListener("pointermove", move);
-        handle.addEventListener("pointerup", up);
-        handle.addEventListener("pointercancel", up);
-      });
-    };
-
-    attachDrag(bar.querySelector('[data-slot-handle="left"]'), "left");
-    attachDrag(bar.querySelector('[data-slot-handle="right"]'), "right");
-
-    // Click to step by one slot (kept for keyboard/mouse users)
-    bar.querySelector('[data-slot-handle="left"]')?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      adjust("left", e.shiftKey || e.altKey);
-    });
-    bar.querySelector('[data-slot-handle="right"]')?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      adjust("right", e.shiftKey || e.altKey);
-    });
-
-    bar.querySelector("[data-slot-hit]")?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      teardown();
-    });
-
-    container.appendChild(bar);
-  };
-
   schedule.selection = {
     initOnce,
     clearSelection,
     submitCreateTask,
-    startTaskResize
   };
 })();

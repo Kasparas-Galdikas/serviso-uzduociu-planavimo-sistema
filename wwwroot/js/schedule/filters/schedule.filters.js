@@ -12,6 +12,8 @@
 
   const parseDate = (val) => (val ? new Date(`${val}T00:00:00`) : null);
   const formatDate = (date) => (date ? date.toISOString().slice(0, 10) : "");
+  const normalizeInfoType = (val) =>
+    (val || "").toLowerCase() === "darbo-statusas" ? "darbo-statusas" : "apkrova";
 
   const switchViewUI = (root, view) => {
     const normalized = state?.normalizeView?.(view) || "day";
@@ -28,6 +30,30 @@
       btn.classList.toggle("btn-outline-secondary", !isActive);
       btn.classList.toggle("active", isActive);
     });
+  };
+
+  const switchInfoTypeUI = (root, infoType) => {
+    const normalized = normalizeInfoType(infoType);
+    const infoButtons = root.querySelectorAll("[data-information-type]");
+    infoButtons.forEach((btn) => {
+      const isActive = (btn.dataset.informationType || "") === normalized;
+      btn.classList.toggle("btn-primary", isActive);
+      btn.classList.toggle("btn-outline-secondary", !isActive);
+      btn.classList.toggle("active", isActive);
+    });
+
+    const statusInput = root.querySelector('[data-filter="status"]');
+    const workloadInput = root.querySelector('[data-filter="workload"]');
+    const statusEnabled = normalized === "darbo-statusas";
+
+    if (statusInput) {
+      statusInput.disabled = !statusEnabled;
+      statusInput.classList.toggle("bg-light", !statusEnabled);
+    }
+    if (workloadInput) {
+      workloadInput.disabled = statusEnabled;
+      workloadInput.classList.toggle("bg-light", statusEnabled);
+    }
   };
 
   const clampDates = (root) => {
@@ -58,6 +84,10 @@
     root.dataset.pendingView = view;
     switchViewUI(root, view);
 
+    const infoType = normalizeInfoType(query.get("info") || root.dataset.pendingInfoType || "apkrova");
+    root.dataset.pendingInfoType = infoType;
+    switchInfoTypeUI(root, infoType);
+
     const dateParam = query.get("date") || "";
     if (dateParam) {
       const dayDateInput = root.querySelector('[data-filter="dayDate"]');
@@ -79,6 +109,11 @@
       const workloadParam = query.get("workload");
       workloadInput.value = workloadParam || "Visos";
     }
+
+    const statusInput = root.querySelector('[data-filter="status"]');
+    if (statusInput) {
+      statusInput.value = query.get("status") || "";
+    }
   };
 
   const syncAllFromQuery = () => {
@@ -90,28 +125,44 @@
 
   const readFiltersFromUI = (root) => {
     const pendingView = state?.normalizeView?.(root.dataset.pendingView || "day") || "day";
+    const infoType = normalizeInfoType(root.dataset.pendingInfoType || "apkrova");
     const dayDateInput = root.querySelector('[data-filter="dayDate"]');
     const weekDateInput = root.querySelector('[data-filter="weekDate"]');
     const locationInput = root.querySelector('[data-filter="location"]');
     const workloadInput = root.querySelector('[data-filter="workload"]');
+    const statusInput = root.querySelector('[data-filter="status"]');
 
     const dateVal = pendingView === "week" ? weekDateInput?.value || "" : dayDateInput?.value || "";
     const locVal = locationInput?.value || "";
     const workloadVal = workloadInput?.value || "";
+    const statusVal = statusInput?.value || "";
 
-    return { view: pendingView, date: dateVal, location: locVal, workload: workloadVal };
+    return {
+      view: pendingView,
+      date: dateVal,
+      location: locVal,
+      workload: workloadVal,
+      status: statusVal,
+      infoType
+    };
   };
 
   const applyFromRoot = async (root, { button } = {}) => {
     const baseQuery = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
     const technicianId = baseQuery.get("technicianId") || "";
 
-    const { view, date, location, workload } = readFiltersFromUI(root);
+    const { view, date, location, workload, status, infoType } = readFiltersFromUI(root);
     const query = new URLSearchParams();
     query.set("view", view);
     if (date) query.set("date", date);
     if (location) query.set("location", location);
     if (workload) query.set("workload", workload);
+    if (infoType) query.set("info", infoType);
+    if (infoType === "darbo-statusas" && status) {
+      query.set("status", status);
+    } else {
+      query.delete("status");
+    }
     if (technicianId) query.set("technicianId", technicianId);
 
     logEvent("ui.filter.apply", {
@@ -119,6 +170,8 @@
       date: date || "none",
       location: location || "all",
       workload: workload || "all",
+      info: infoType || "apkrova",
+      status: status || "all",
       technicianId: technicianId || "all",
     });
 
@@ -156,6 +209,15 @@
       });
     });
 
+    const infoTypeButtons = root.querySelectorAll("[data-information-type]");
+    infoTypeButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const nextInfoType = normalizeInfoType(btn.dataset.informationType);
+        root.dataset.pendingInfoType = nextInfoType;
+        switchInfoTypeUI(root, nextInfoType);
+      });
+    });
+
     const applyBtn = root.querySelector("[data-filter-apply]");
     if (applyBtn) {
       applyBtn.addEventListener("click", (e) => {
@@ -187,4 +249,3 @@
   schedule.filters.initOnce = initOnce;
   schedule.filters.syncAllFromQuery = syncAllFromQuery;
 })();
-

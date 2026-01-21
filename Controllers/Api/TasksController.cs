@@ -18,15 +18,17 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
     {
         private readonly ScheduleDbContext _db;
         private readonly IPlanService _planService;
+        private readonly IEvaluationEngine _evaluationEngine;
         private readonly ILogger<TasksController> _logger;
         private readonly ITaskPermissionService _taskPermissionService;
         private readonly IScheduleTimeService _timeService;
         private readonly IUserContextResolver _userContextResolver;
 
-        public TasksController(ScheduleDbContext db, IPlanService planService, ITaskPermissionService taskPermissionService, IScheduleTimeService timeService, IUserContextResolver userContextResolver, ILogger<TasksController> logger)
+        public TasksController(ScheduleDbContext db, IPlanService planService, IEvaluationEngine evaluationEngine, ITaskPermissionService taskPermissionService, IScheduleTimeService timeService, IUserContextResolver userContextResolver, ILogger<TasksController> logger)
         {
             _db = db;
             _planService = planService;
+            _evaluationEngine = evaluationEngine;
             _taskPermissionService = taskPermissionService;
             _timeService = timeService;
             _userContextResolver = userContextResolver;
@@ -136,6 +138,12 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return ValidationProblem(ModelState);
             }
 
+            // System constraint: New tasks must always start with InProgress status
+            if (dto.Status != ScheduleTaskStatus.InProgress)
+            {
+                return UnprocessableEntity(new { message = "Naujos užduotys turi prasidėti su 'Vykdoma' statusu. Sistema nustato statusą automatiškai." });
+            }
+
             if (!TryParseDate(dto.TargetDate, out var targetDate))
             {
                 return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
@@ -228,6 +236,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var timezoneOffset = GetBrowserTimezoneOffset();
             var user = _userContextResolver.GetCurrentUser();
             var isEditable = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffset);
+            var isDeletable = await _taskPermissionService.CanDeleteTaskAsync(task, user, timezoneOffset);
 
             // Convert UTC times from database to local time for frontend
             var localStartAt = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffset);
@@ -253,6 +262,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 Instructions = task.Instructions,
                 PlanStatus = task.Plan?.Status.ToString() ?? string.Empty,
                 IsEditable = isEditable,
+                IsDeletable = isDeletable,
                 TimezoneOffsetMinutes = timezoneOffset
             };
 
@@ -604,6 +614,9 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return Conflict(new { message = "Laiko langas u?imtas (persidengia u?duotys).", version = currentVersion });
             }
 
+            // Preserve existing status - managers cannot change it, system manages status automatically
+            var preservedStatus = existing.Status;
+
             var updated = await _planService.UpdateTaskAsync(id, task =>
             {
                 task.Title = dto.Title;
@@ -611,7 +624,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 task.StartAt = utcStartAt;
                 task.EndAt = utcEndAt;
                 task.Priority = dto.Priority;
-                task.Status = dto.Status;
+                task.Status = preservedStatus; // Ignore any status change from manager request
                 task.SkillLevel = normalizedSkillLevel;
                 task.Instructions = normalizedInstructions;
                 if (dto.TechnicianComment != null)
@@ -658,7 +671,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var user = _userContextResolver.GetCurrentUser();
             var result = await _planService.MoveTaskAsync(
                 id,
-                (int)dto.TargetTechnicianId,
+                dto.TargetTechnicianId,
                 targetDate,
                 dto.TargetSlotStartMinutes,
                 dto.Version,
@@ -720,6 +733,13 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return StatusCode(403, new { message = "Managers must use the main edit endpoint." });
             }
 
+            // Validate that technician can only set status to Completed (1) or Conflict (2)
+            // InProgress (0) and Canceled (3) are system-managed only
+            if (dto.Status != ScheduleTaskStatus.Completed && dto.Status != ScheduleTaskStatus.Conflict)
+            {
+                return UnprocessableEntity(new { message = "Galite nustatyti tik 'Atlikta' arba 'Problema' statusus." });
+            }
+
             var task = await _db.Tasks
                 .Include(t => t.Plan)
                 .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
@@ -775,6 +795,12 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             try
             {
                 await _db.SaveChangesAsync(cancellationToken);
+
+                // Trigger evaluation recalculation when status changes (affects workload for Completed/Canceled tasks)
+                if (task.PlanId.HasValue)
+                {
+                    await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
+                }
 
                 var newVersion = await _db.Tasks
                     .AsNoTracking()

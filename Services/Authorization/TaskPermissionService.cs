@@ -45,6 +45,19 @@ namespace ServiceTaskPlanningSystem.Services.Authorization
             return Task.FromResult(canEdit);
         }
 
+        public Task<bool> CanDeleteTaskAsync(TaskEntity task, UserContext user, int timezoneOffsetMinutes)
+        {
+            var (canDelete, reason) = EvaluateDeletePermission(task, user, timezoneOffsetMinutes);
+
+            _logger.LogInformation(
+                "Authorization decision: User={UserId} Tech={TechnicianId} Role={Role} Task={TaskId} " +
+                "PlanStatus={PlanStatus} Decision={Decision} Reason={Reason} Action=Delete",
+                user.UserId, user.TechnicianId, user.Role, task.Id, task.Plan?.Status,
+                canDelete, reason);
+
+            return Task.FromResult(canDelete);
+        }
+
         private (bool CanEdit, string Reason) EvaluatePermission(TaskEntity task, UserContext user, int timezoneOffsetMinutes)
         {
             // 1. UTC-based time validation (SECURITY: prevent clock manipulation)
@@ -52,6 +65,12 @@ namespace ServiceTaskPlanningSystem.Services.Authorization
             if (!_timeService.IsTaskStillEditable(task.EndAt))
             {
                 return (false, "Task has already ended (UTC reality check)");
+            }
+
+            // 1.5. Status-based lockdown: once technician changes status from InProgress, task is locked
+            if (task.Status != ScheduleTaskStatus.InProgress)
+            {
+                return (false, "Task status has been changed and is now locked");
             }
 
             // 2. Defensive guard for unexpected roles (only managers/technicians are supported)
@@ -88,6 +107,23 @@ namespace ServiceTaskPlanningSystem.Services.Authorization
             }
 
             return (true, $"Approved by {policy.GetType().Name}");
+        }
+
+        private (bool CanDelete, string Reason) EvaluateDeletePermission(TaskEntity task, UserContext user, int timezoneOffsetMinutes)
+        {
+            // Only managers can delete tasks.
+            if (!user.IsManager)
+            {
+                return (false, "Only managers can delete tasks");
+            }
+
+            // Keep time-based guard consistent with UI (no deletes after task end).
+            if (!_timeService.IsTaskStillEditable(task.EndAt))
+            {
+                return (false, "Task has already ended (UTC reality check)");
+            }
+
+            return (true, "Approved for manager delete");
         }
     }
 }

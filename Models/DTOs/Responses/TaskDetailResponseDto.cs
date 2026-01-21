@@ -60,6 +60,11 @@ public class TaskDetailResponseDto
     public bool IsEditable { get; set; }
 
     /// <summary>
+    /// Whether the current user can delete this task.
+    /// </summary>
+    public bool IsDeletable { get; set; }
+
+    /// <summary>
     /// Browser timezone offset in minutes (from Date.getTimezoneOffset()).
     /// Return to frontend for consistency and transparency.
     /// Frontend can use this to verify time conversions.

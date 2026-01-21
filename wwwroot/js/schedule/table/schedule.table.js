@@ -59,6 +59,8 @@
       tables.innerHTML = html;
       if (query?.get) {
         tables.dataset.currentView = query.get("view") || tables.dataset.currentView || "day";
+        const infoType = query.get("info") || tables.dataset.informationType || "apkrova";
+        tables.dataset.informationType = infoType;
       }
       logEvent("ui.table.fetch.ok", { url, status: response.status, length: html.length });
 
@@ -115,6 +117,12 @@
       const workload = navBtn.dataset.workload ?? baseQuery.get("workload") ?? "";
       if (workload) query.set("workload", workload);
 
+      const info = navBtn.dataset.info ?? baseQuery.get("info") ?? "";
+      if (info) query.set("info", info);
+
+      const status = navBtn.dataset.status ?? baseQuery.get("status") ?? "";
+      if (status) query.set("status", status);
+
       const technicianId = navBtn.dataset.technicianId || baseQuery.get("technicianId") || "";
       if (technicianId) query.set("technicianId", technicianId);
 
@@ -123,6 +131,8 @@
         date: targetDate || "none",
         location: loc || "all",
         workload: workload || "all",
+        info: info || "apkrova",
+        status: status || "all",
         technicianId: technicianId || "all",
       });
 

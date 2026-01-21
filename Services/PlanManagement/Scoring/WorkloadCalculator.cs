@@ -8,11 +8,24 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
     /// <summary>
     /// Centralized workload metric calculator used by evaluation, previews, and generators.
     /// Produces a LoadScoreContext plus conflict/switch metadata from a technician snapshot.
+    ///
+    /// Workload calculation rules:
+    /// - InProgress tasks: Counted in workload (scheduled and pending)
+    /// - Conflict tasks: Counted in workload (technician reported issue but task still occupies time)
+    /// - Completed tasks: Counted in workload (work was done, time was occupied)
+    /// - Canceled tasks: EXCLUDED from workload (task didn't happen, time is freed)
     /// </summary>
     public static class WorkloadCalculator
     {
         private const double DefaultDailyLimit = 8d;
         private const double DefaultWeeklyLimit = 40d;
+
+        /// <summary>
+        /// Determines if a task should count towards workload calculation.
+        /// Only Canceled tasks are excluded - all other statuses count towards workload.
+        /// </summary>
+        public static bool CountsTowardsWorkload(ScheduleTaskStatus status) =>
+            status != ScheduleTaskStatus.Canceled;
 
         public static WorkloadSnapshot Evaluate(
             TechnicianEntity technician,
@@ -23,17 +36,23 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             dayTasks = dayTasks.OrderBy(t => t.StartAt).ToList();
             weekTasks = weekTasks.OrderBy(t => t.StartAt).ToList();
 
+            // Filter tasks that count towards workload (exclude only Canceled)
+            var activeDayTasks = dayTasks.Where(t => CountsTowardsWorkload(t.Status)).ToList();
+            var activeWeekTasks = weekTasks.Where(t => CountsTowardsWorkload(t.Status)).ToList();
+
             var dailyLimit = technician.DailyLimit > 0 ? (double)technician.DailyLimit : DefaultDailyLimit;
             var weeklyLimit = technician.WeeklyLimit > 0 ? (double)technician.WeeklyLimit : DefaultWeeklyLimit;
             var switchLimit = technician.TravelSwitchLimit < 0 ? 0 : technician.TravelSwitchLimit;
 
-            var dailyHours = dayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
-            var weeklyHours = weekTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+            // Calculate hours only from active tasks (not Canceled)
+            var dailyHours = activeDayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+            var weeklyHours = activeWeekTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
             var dailyOver = Math.Max(0d, dailyHours - dailyLimit);
             var weeklyOver = Math.Max(0d, weeklyHours - weeklyLimit);
 
-            var switchCount = CalculateSwitchCount(dayTasks);
-            var conflicts = DetectConflicts(dayTasks);
+            // Switch count and conflicts only from active tasks
+            var switchCount = CalculateSwitchCount(activeDayTasks);
+            var conflicts = DetectConflicts(activeDayTasks);
 
             var context = new LoadScoreContext
             {

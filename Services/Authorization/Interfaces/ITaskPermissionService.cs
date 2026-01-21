@@ -7,5 +7,6 @@ namespace ServiceTaskPlanningSystem.Services.Authorization
     public interface ITaskPermissionService
     {
         Task<bool> CanEditTaskAsync(TaskEntity task, UserContext user, int timezoneOffsetMinutes);
+        Task<bool> CanDeleteTaskAsync(TaskEntity task, UserContext user, int timezoneOffsetMinutes);
     }
 }

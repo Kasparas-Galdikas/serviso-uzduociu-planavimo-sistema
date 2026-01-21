@@ -58,6 +58,7 @@
 }
 <div id="scheduleTables"
      data-current-view="@Model.ViewMode"
+     data-information-type="@Model.InformationType"
      data-plan-status="@Model.CurrentPlanStatus"
      data-plan-id="@Model.CurrentPlanId"
      data-is-manager="@(Model.IsManager.ToString().ToLowerInvariant())"
@@ -102,10 +103,24 @@
     {
         <script src="~/js/schedule/infra/schedule.logger.js" asp-append-version="true"></script>
     }
+    <!-- Core utilities (must load before other modules) -->
+    <script src="~/js/schedule/core/schedule.grid.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/ui/ui.select2.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/ui/ui.dom.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/ui/ui.slot-overlay.js" asp-append-version="true"></script>
+    <!-- Infrastructure (API layer) -->
+    <script src="~/js/schedule/infra/schedule.api.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/tasks/api/task.api.js" asp-append-version="true"></script>
+    <!-- Application modules -->
     <script src="~/js/schedule/filters/planning-dates.js" asp-append-version="true"></script>
     <script src="~/js/schedule/state/schedule.state.js" asp-append-version="true"></script>
     <script src="~/js/schedule/panel/schedule.panel.js" asp-append-version="true"></script>
     <script src="~/js/schedule/table/schedule.table.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/refresh/schedule.refresh.js" asp-append-version="true"></script>
+    <!-- Task module (split into sub-modules) -->
+    <script src="~/js/schedule/tasks/task.modal.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/tasks/task.resize.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/tasks/task.delete.js" asp-append-version="true"></script>
     <script src="~/js/schedule/tasks/schedule.tasks.js" asp-append-version="true"></script>
     <script src="~/js/schedule/dragdrop/schedule.dragdrop.js" asp-append-version="true"></script>
     <script src="~/js/schedule/selection/schedule.selection.js" asp-append-version="true"></script>

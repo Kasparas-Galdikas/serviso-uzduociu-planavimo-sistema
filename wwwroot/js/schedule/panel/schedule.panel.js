@@ -62,6 +62,11 @@
       detailPanel.addEventListener("show.bs.offcanvas", () => selection?.clearSelection?.("panel.open"));
       detailPanel.addEventListener("show.bs.offcanvas", hideTrigger);
       detailPanel.addEventListener("hidden.bs.offcanvas", showTrigger);
+      // Clear modal field cache when panel closes
+      detailPanel.addEventListener("hidden.bs.offcanvas", () => {
+        const modal = schedule.tasks?.modal;
+        if (modal?.clearFieldCache) modal.clearFieldCache();
+      });
     }
 
     if (detailPanel) {
