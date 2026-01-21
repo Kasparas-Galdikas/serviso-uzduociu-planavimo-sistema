@@ -141,6 +141,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 var task = MapTask(t, technicians, planStatus, version, timezoneOffsetMinutes);
                 task.Source = source;
                 task.IsEditable = await _taskPermissionService.CanEditTaskAsync(t, user, timezoneOffsetMinutes);
+                task.CanDelete = await _taskPermissionService.CanDeleteTaskAsync(t, user, timezoneOffsetMinutes);
+                task.IsTimeExpired = !_timeService.IsTaskStillEditable(t.EndAt);
                 tasks.Add(task);
             }
 

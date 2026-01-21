@@ -324,7 +324,7 @@
     if (instructionsReadonly) instructionsReadonly.textContent = instructions || "-";
   };
 
-  const populateTaskModal = async (modalEl, data, editable) => {
+  const populateTaskModal = async (modalEl, data, editable, deletable) => {
     const setVal = (selector, value) => {
       const el = modalEl.querySelector(selector);
       if (el) el.value = value ?? "";
@@ -353,6 +353,7 @@
     modalEl.dataset.mode = "update";
     modalEl.dataset.taskId = data.id;
     modalEl.dataset.editable = editable ? "true" : "false";
+    modalEl.dataset.deletable = deletable ? "true" : "false";
     modalEl.dataset.technicianId = data.technicianId;
     // Store version from response for optimistic concurrency control
     if (data.version != null) modalEl.dataset.version = String(data.version);
@@ -366,7 +367,7 @@
     modalEl.querySelector("#taskDetailCode").textContent = `Kodas: #${data.id}`;
 
     // Apply role-based field restrictions
-    applyFieldRestrictions(modalEl, data.technicianId, editable);
+    applyFieldRestrictions(modalEl, data.technicianId, editable, deletable);
 
     const saveBtn = modalEl.querySelector("#taskDetailSave");
     if (saveBtn) {
@@ -378,7 +379,7 @@
     }
   };
 
-  const applyFieldRestrictions = (modalEl, taskTechnicianId, editable) => {
+  const applyFieldRestrictions = (modalEl, taskTechnicianId, editable, deletable) => {
     const tables = document.getElementById("scheduleTables");
     const viewModel = window.scheduleViewModel || {};
     const viewModelManagerFlag =
@@ -462,6 +463,11 @@
           commentField.removeAttribute("disabled");
           commentField.classList.remove("bg-light");
         }
+        // Hide readonly status display when editable
+        const statusReadonly = modalEl.querySelector("#taskDetailStatusReadonly");
+        if (statusReadonly) {
+          statusReadonly.classList.add("d-none");
+        }
       }
 
       // Update save button state
@@ -476,6 +482,25 @@
         } else {
           saveBtn.removeAttribute("disabled");
           saveBtn.title = "";
+        }
+      }
+
+      // If technician cannot edit, show readonly status display
+      if (!canEdit) {
+        if (statusField) {
+          statusField.classList.add("d-none");
+        }
+        const statusReadonly = modalEl.querySelector("#taskDetailStatusReadonly");
+        if (statusReadonly) {
+          const statusMap = {
+            "0": "Vykdoma",
+            "1": "Atlikta",
+            "2": "Problema",
+            "3": "Atšaukta"
+          };
+          const currentStatus = statusField?.value || "0";
+          statusReadonly.textContent = statusMap[currentStatus] || "Nežinomas";
+          statusReadonly.classList.remove("d-none");
         }
       }
 
@@ -511,11 +536,32 @@
       setSelect2Disabled(objectSelect, !editable);
       setSelect2Disabled(addressSelect, !editable);
 
-      // Keep technician-specific fields read-only
+      // Status field: Show as read-only for managers (system manages status)
+      const statusContainer = modalEl.querySelector("#taskDetailStatusContainer");
+      if (statusContainer) {
+        statusContainer.classList.remove("d-none");
+      }
       if (statusField) {
         statusField.setAttribute("disabled", "disabled");
         statusField.classList.add("bg-light");
+        statusField.classList.add("d-none"); // Hide the select for managers
       }
+      
+      // Show a read-only status display for managers
+      const statusReadonly = modalEl.querySelector("#taskDetailStatusReadonly");
+      if (statusReadonly) {
+        const statusMap = {
+          "0": "Vykdoma",
+          "1": "Atlikta",
+          "2": "Problema",
+          "3": "Atšaukta"
+        };
+        const currentStatus = statusField?.value || "0";
+        statusReadonly.textContent = statusMap[currentStatus] || "Nežinomas";
+        statusReadonly.classList.remove("d-none");
+      }
+      
+      // Keep comment read-only for managers
       if (commentField) {
         commentField.setAttribute("disabled", "disabled");
         commentField.classList.add("bg-light");
@@ -523,7 +569,7 @@
 
       if (deleteBtn) {
         const isCreateMode = modalEl.dataset.mode === "create";
-        deleteBtn.classList.toggle("d-none", !editable || isCreateMode);
+        deleteBtn.classList.toggle("d-none", !deletable || isCreateMode);
       }
     }
   };
@@ -631,7 +677,7 @@
           title,
           location,
           priority: Number.isNaN(priorityVal) ? 1 : priorityVal,
-          status: parseInt(status) || 0,
+          status: 0, // System always sets new tasks to InProgress (0)
           skillLevel,
           objectName,
           objectAddress,
@@ -692,7 +738,7 @@
         let endpoint, requestBody;
 
       if (isManager) {
-        // Manager: Use full update endpoint with all fields
+        // Manager: Use full update endpoint with all fields (but NOT status - system manages it)
         endpoint = `/api/tasks/${taskId}`;
         requestBody = JSON.stringify({
           title,
@@ -700,7 +746,6 @@
           startAt,
           endAt,
           priority: Number.isNaN(priorityVal) ? 1 : priorityVal,
-          status: parseInt(status) || 0,
           version: parseInt(version) || 0,
           timezoneOffsetMinutes: timezoneOffset,
           technicianId: technicianId || 0,
@@ -861,7 +906,7 @@
 
     try {
       const data = await fetchTask(taskId);
-      await populateTaskModal(detailPanel, data, data.isEditable);
+      await populateTaskModal(detailPanel, data, data.isEditable, data.isDeletable);
       setActiveCardByTaskId(taskId);
       logEvent("ui.task.refresh.ok", { taskId });
       return true;
@@ -885,7 +930,7 @@
       // === EDIT MODE ===
       try {
         const data = await fetchTask(taskId);
-        await populateTaskModal(detailPanel, data, data.isEditable);
+        await populateTaskModal(detailPanel, data, data.isEditable, data.isDeletable);
         setActiveCardByTaskId(taskId);
         logEvent("ui.task.panel.open", { mode: "edit", taskId });
         panel?.show?.();
@@ -1148,7 +1193,7 @@
     evt.preventDefault();
 
     const card = action.closest(".task-card");
-    if (!card || card.dataset.editable !== "true") return;
+    if (!card) return;
 
     const taskId = card.getAttribute("data-task-id");
     const version = parseInt(card.getAttribute("data-task-version") || "0", 10);
@@ -1161,6 +1206,9 @@
       openDeleteModal({ taskId, version, sourceEl: card });
       return;
     }
+
+    // Edit and drag only work when task is editable
+    if (card.dataset.editable !== "true") return;
 
     if (action.classList.contains("task-card-action-edit")) {
       startInlineResize(card, {

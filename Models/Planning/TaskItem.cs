@@ -22,6 +22,8 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public bool IsNewPlan { get; set; }
         public TaskPlanSource Source { get; set; } = TaskPlanSource.Active;
         public bool IsEditable { get; set; }
+        public bool CanDelete { get; set; }
+        public bool IsTimeExpired { get; set; }
         public string? Risk { get; set; }
         public decimal OverloadHours { get; set; }
         public int SwitchCount { get; set; }

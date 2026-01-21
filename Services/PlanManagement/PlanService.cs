@@ -669,8 +669,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskDeleteResult(TaskDeleteError.Stale, "Uzduotis pasikeite (stale). Atnaujinkite lentele ir bandykite dar karta.", CurrentVersion: currentVersion);
             }
 
-            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffsetMinutes);
-            if (!canEdit || !_timeService.IsTaskStillEditable(task.EndAt))
+            var canDelete = await _taskPermissionService.CanDeleteTaskAsync(task, user, timezoneOffsetMinutes);
+            if (!canDelete)
             {
                 _logger.LogWarning("svc.task.delete.not-editable taskId={TaskId}", taskId);
                 return new TaskDeleteResult(TaskDeleteError.NotEditable, "Neturite teisiu istrinti sios uzduoties.");

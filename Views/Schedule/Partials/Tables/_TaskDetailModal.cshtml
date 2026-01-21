@@ -202,14 +202,15 @@
 
             <div class="collapse show" id="taskSecTechnician">
                 <div class="row g-3 mt-1">
-                    <div class="col-md-6">
+                    <div class="col-md-6" id="taskDetailStatusContainer">
                         <label class="form-label small">Statusas</label>
                         <select class="form-select" id="taskDetailStatus">
-                            <option value="0">Vykdoma</option>
-                            <option value="1">Baigta</option>
-                            <option value="2">Konfliktas</option>
-                            <option value="3">Atšaukta</option>
+                            <option value="1">Atlikta</option>
+                            <option value="2">Problema</option>
                         </select>
+                        <div id="taskDetailStatusReadonly"
+                             class="form-select d-none"
+                             style="display: flex; align-items: center; cursor: default; background-color: #e9ecef; color: #495057;"></div>
                     </div>
                     <div class="col-12">
                         <label class="form-label small">Komentaras</label>
