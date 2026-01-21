@@ -324,7 +324,7 @@
     if (instructionsReadonly) instructionsReadonly.textContent = instructions || "-";
   };
 
-  const populateTaskModal = async (modalEl, data, editable, deletable) => {
+  const populateTaskModal = async (modalEl, data, editable) => {
     const setVal = (selector, value) => {
       const el = modalEl.querySelector(selector);
       if (el) el.value = value ?? "";
@@ -353,7 +353,6 @@
     modalEl.dataset.mode = "update";
     modalEl.dataset.taskId = data.id;
     modalEl.dataset.editable = editable ? "true" : "false";
-    modalEl.dataset.deletable = deletable ? "true" : "false";
     modalEl.dataset.technicianId = data.technicianId;
     // Store version from response for optimistic concurrency control
     if (data.version != null) modalEl.dataset.version = String(data.version);
@@ -367,7 +366,7 @@
     modalEl.querySelector("#taskDetailCode").textContent = `Kodas: #${data.id}`;
 
     // Apply role-based field restrictions
-    applyFieldRestrictions(modalEl, data.technicianId, editable, deletable);
+    applyFieldRestrictions(modalEl, data.technicianId, editable);
 
     const saveBtn = modalEl.querySelector("#taskDetailSave");
     if (saveBtn) {
@@ -379,7 +378,7 @@
     }
   };
 
-  const applyFieldRestrictions = (modalEl, taskTechnicianId, editable, deletable) => {
+  const applyFieldRestrictions = (modalEl, taskTechnicianId, editable) => {
     const tables = document.getElementById("scheduleTables");
     const viewModel = window.scheduleViewModel || {};
     const viewModelManagerFlag =
@@ -463,11 +462,6 @@
           commentField.removeAttribute("disabled");
           commentField.classList.remove("bg-light");
         }
-        // Hide readonly status display when editable
-        const statusReadonly = modalEl.querySelector("#taskDetailStatusReadonly");
-        if (statusReadonly) {
-          statusReadonly.classList.add("d-none");
-        }
       }
 
       // Update save button state
@@ -482,25 +476,6 @@
         } else {
           saveBtn.removeAttribute("disabled");
           saveBtn.title = "";
-        }
-      }
-
-      // If technician cannot edit, show readonly status display
-      if (!canEdit) {
-        if (statusField) {
-          statusField.classList.add("d-none");
-        }
-        const statusReadonly = modalEl.querySelector("#taskDetailStatusReadonly");
-        if (statusReadonly) {
-          const statusMap = {
-            "0": "Vykdoma",
-            "1": "Atlikta",
-            "2": "Problema",
-            "3": "Atšaukta"
-          };
-          const currentStatus = statusField?.value || "0";
-          statusReadonly.textContent = statusMap[currentStatus] || "Nežinomas";
-          statusReadonly.classList.remove("d-none");
         }
       }
 
@@ -536,32 +511,11 @@
       setSelect2Disabled(objectSelect, !editable);
       setSelect2Disabled(addressSelect, !editable);
 
-      // Status field: Show as read-only for managers (system manages status)
-      const statusContainer = modalEl.querySelector("#taskDetailStatusContainer");
-      if (statusContainer) {
-        statusContainer.classList.remove("d-none");
-      }
+      // Keep technician-specific fields read-only
       if (statusField) {
         statusField.setAttribute("disabled", "disabled");
         statusField.classList.add("bg-light");
-        statusField.classList.add("d-none"); // Hide the select for managers
       }
-      
-      // Show a read-only status display for managers
-      const statusReadonly = modalEl.querySelector("#taskDetailStatusReadonly");
-      if (statusReadonly) {
-        const statusMap = {
-          "0": "Vykdoma",
-          "1": "Atlikta",
-          "2": "Problema",
-          "3": "Atšaukta"
-        };
-        const currentStatus = statusField?.value || "0";
-        statusReadonly.textContent = statusMap[currentStatus] || "Nežinomas";
-        statusReadonly.classList.remove("d-none");
-      }
-      
-      // Keep comment read-only for managers
       if (commentField) {
         commentField.setAttribute("disabled", "disabled");
         commentField.classList.add("bg-light");
@@ -569,7 +523,7 @@
 
       if (deleteBtn) {
         const isCreateMode = modalEl.dataset.mode === "create";
-        deleteBtn.classList.toggle("d-none", !deletable || isCreateMode);
+        deleteBtn.classList.toggle("d-none", !editable || isCreateMode);
       }
     }
   };
@@ -677,7 +631,7 @@
           title,
           location,
           priority: Number.isNaN(priorityVal) ? 1 : priorityVal,
-          status: 0, // System always sets new tasks to InProgress (0)
+          status: parseInt(status) || 0,
           skillLevel,
           objectName,
           objectAddress,
@@ -738,7 +692,7 @@
         let endpoint, requestBody;
 
       if (isManager) {
-        // Manager: Use full update endpoint with all fields (but NOT status - system manages it)
+        // Manager: Use full update endpoint with all fields
         endpoint = `/api/tasks/${taskId}`;
         requestBody = JSON.stringify({
           title,
@@ -746,6 +700,7 @@
           startAt,
           endAt,
           priority: Number.isNaN(priorityVal) ? 1 : priorityVal,
+          status: parseInt(status) || 0,
           version: parseInt(version) || 0,
           timezoneOffsetMinutes: timezoneOffset,
           technicianId: technicianId || 0,
@@ -906,7 +861,7 @@
 
     try {
       const data = await fetchTask(taskId);
-      await populateTaskModal(detailPanel, data, data.isEditable, data.isDeletable);
+      await populateTaskModal(detailPanel, data, data.isEditable);
       setActiveCardByTaskId(taskId);
       logEvent("ui.task.refresh.ok", { taskId });
       return true;
@@ -930,7 +885,7 @@
       // === EDIT MODE ===
       try {
         const data = await fetchTask(taskId);
-        await populateTaskModal(detailPanel, data, data.isEditable, data.isDeletable);
+        await populateTaskModal(detailPanel, data, data.isEditable);
         setActiveCardByTaskId(taskId);
         logEvent("ui.task.panel.open", { mode: "edit", taskId });
         panel?.show?.();
@@ -1193,7 +1148,7 @@
     evt.preventDefault();
 
     const card = action.closest(".task-card");
-    if (!card) return;
+    if (!card || card.dataset.editable !== "true") return;
 
     const taskId = card.getAttribute("data-task-id");
     const version = parseInt(card.getAttribute("data-task-version") || "0", 10);
@@ -1206,9 +1161,6 @@
       openDeleteModal({ taskId, version, sourceEl: card });
       return;
     }
-
-    // Edit and drag only work when task is editable
-    if (card.dataset.editable !== "true") return;
 
     if (action.classList.contains("task-card-action-edit")) {
       startInlineResize(card, {
@@ -1239,16 +1191,42 @@
     let currentStart = startMinutes;
     let currentEnd = startMinutes + durationMinutes;
 
-    const parentCell = card.closest("td");
-    if (!parentCell) return;
-    if (getComputedStyle(parentCell).position === "static") {
-      parentCell.style.position = "relative";
-    }
-    parentCell.style.overflow = "hidden";
+    // Use table-responsive container for positioning (same as selection bar)
+    const container = tables.querySelector(".table-responsive") || tables.closest(".table-responsive");
+    if (!container) return;
 
-    const cardRect = card.getBoundingClientRect();
+    // Find the starting TD cell and calculate span based on duration
+    const startTd = card.closest("td");
+    if (!startTd) return;
+    const row = startTd.parentElement;
+    if (!row) return;
+
+    // Get all TDs in the row to find the range
+    const allTds = Array.from(row.querySelectorAll("td"));
+    const startTdIndex = allTds.indexOf(startTd);
+    if (startTdIndex < 0) return;
+
+    // Calculate how many slots the task spans
     const durationSlots = Math.max(1, Math.round(durationMinutes / slotSize));
-    const slotWidth = cardRect.width / durationSlots;
+
+    // Find the end TD by walking through cells considering colspan
+    const getEndTdForSlots = (fromTd, slots) => {
+      let remaining = slots;
+      let td = fromTd;
+      while (td && remaining > 0) {
+        const span = parseInt(td.getAttribute("colspan") || "1", 10);
+        remaining -= span;
+        if (remaining <= 0) return td;
+        td = td.nextElementSibling;
+      }
+      return fromTd; // fallback to start if not found
+    };
+
+    let endTd = getEndTdForSlots(startTd, durationSlots);
+
+    // Get initial TD boundaries for overlay positioning
+    const startTdRect = startTd.getBoundingClientRect();
+    const endTdRect = endTd.getBoundingClientRect();
 
     const overlay = document.createElement("div");
     overlay.className = "slot-selection-bar task-resize-bar";
@@ -1262,18 +1240,27 @@
       </button>
     `;
     overlay.style.position = "absolute";
-    const cellRect = parentCell.getBoundingClientRect();
-    overlay.style.left = `${Math.max(0, cardRect.left - cellRect.left)}px`;
-    overlay.style.top = `${Math.max(0, cardRect.top - cellRect.top)}px`;
-    overlay.style.height = `${cardRect.height}px`;
+
+    // Position overlay using TD boundaries (same math as selection bar)
+    const containerRect = container.getBoundingClientRect();
+    // Nudge by 1px so the bar aligns with table borders (matches selection bar logic)
+    const overlayLeft = startTdRect.left - containerRect.left + container.scrollLeft + 1;
+    const overlayTop = startTdRect.top - containerRect.top + container.scrollTop;
+    const overlayWidth = Math.max(1, endTdRect.right - startTdRect.left - 2);
+    const overlayHeight = Math.max(1, startTdRect.height);
+
+    overlay.style.left = `${overlayLeft}px`;
+    overlay.style.top = `${overlayTop}px`;
+    overlay.style.width = `${overlayWidth}px`;
+    overlay.style.height = `${overlayHeight}px`;
     overlay.style.zIndex = "8";
-    
+
     // Apply card styling to overlay
     const cardClasses = card.className;
     const taskCardClassMatch = cardClasses.match(/task-(normal|load|conflict|travel)/);
     if (taskCardClassMatch) {
-      overlay.classList.add(taskCardClassMatch[1] === "normal" ? "task-normal" : 
-                           taskCardClassMatch[1] === "load" ? "task-load" : 
+      overlay.classList.add(taskCardClassMatch[1] === "normal" ? "task-normal" :
+                           taskCardClassMatch[1] === "load" ? "task-load" :
                            taskCardClassMatch[1] === "conflict" ? "task-conflict" : "task-travel");
     }
 
@@ -1340,56 +1327,44 @@
       return true;
     };
 
-    const updateOverlay = () => {
-      // Update the task-time element on the card to show current time range
+    // Helper to get TD index in row
+    const getTdIndexInRow = (td) => {
+      if (!td) return null;
+      const r = td.parentElement;
+      if (!r) return null;
+      const tds = Array.from(r.querySelectorAll("td"));
+      const idx = tds.indexOf(td);
+      return idx >= 0 ? idx : null;
+    };
+
+    // Track current start/end TD indices for resize
+    let currentStartTdIndex = getTdIndexInRow(startTd);
+    let currentEndTdIndex = getTdIndexInRow(endTd);
+
+    const updateOverlayFromTds = (newStartTd, newEndTd) => {
+      // Update time display on card
       const taskTimeEl = card.querySelector(".task-time");
       if (taskTimeEl) {
-        // Get the drag handle if it exists
         const dragHandle = taskTimeEl.querySelector(".task-drag-handle");
         const handleHtml = dragHandle ? dragHandle.outerHTML : "";
         taskTimeEl.innerHTML = `${handleHtml}${formatRange(currentStart, currentEnd)}`;
       }
 
-      const currentRect = card.getBoundingClientRect();
-      if (overlay.classList.contains("is-dragging")) {
-        const totalSlots = (currentEnd - currentStart) / slotSize;
-        const offsetSlots = (currentStart - startMinutes) / slotSize;
-        overlay.style.width = `${Math.max(totalSlots * slotWidth, slotWidth)}px`;
-        overlay.style.transform = `translateX(${offsetSlots * slotWidth}px)`;
-      } else {
-        overlay.style.width = `${currentRect.width}px`;
-        overlay.style.transform = "none";
-      }
-    };
+      // Recalculate overlay position from actual TD boundaries
+      const newStartRect = newStartTd.getBoundingClientRect();
+      const newEndRect = newEndTd.getBoundingClientRect();
+      const newContainerRect = container.getBoundingClientRect();
 
-    const onDrag = (dir, startX, startStart, startEnd, moveEvt) => {
-      const dx = moveEvt.clientX - startX;
-      const slotsDelta = Math.round(dx / (slotWidth || 1));
-      let nextStart = startStart;
-      let nextEnd = startEnd;
+      const newLeft = newStartRect.left - newContainerRect.left + container.scrollLeft + 1;
+      const newTop = newStartRect.top - newContainerRect.top + container.scrollTop;
+      const newWidth = Math.max(1, newEndRect.right - newStartRect.left - 2);
+      const newHeight = Math.max(1, newStartRect.height);
 
-      if (dir === "left") {
-        nextStart = startStart + slotsDelta * slotSize;
-        nextEnd = startEnd;
-      } else {
-        nextEnd = startEnd + slotsDelta * slotSize;
-        nextStart = startStart;
-      }
-
-      nextStart = Math.max(dayStart, Math.max(minStartMinutes, nextStart));
-      nextEnd = Math.min(dayEnd, nextEnd);
-      if (nextEnd - nextStart < slotSize) {
-        if (dir === "left") nextStart = nextEnd - slotSize;
-        else nextEnd = nextStart + slotSize;
-      }
-      // Ensure start time doesn't go before minimum allowed time
-      if (nextStart < minStartMinutes) {
-        nextStart = minStartMinutes;
-      }
-
-      currentStart = nextStart;
-      currentEnd = nextEnd;
-      updateOverlay();
+      overlay.style.left = `${newLeft}px`;
+      overlay.style.top = `${newTop}px`;
+      overlay.style.width = `${newWidth}px`;
+      overlay.style.height = `${newHeight}px`;
+      overlay.style.transform = "none";
     };
 
     const attachDrag = (handle, dir) => {
@@ -1401,25 +1376,135 @@
         e.stopPropagation();
         handle.setPointerCapture(e.pointerId);
         overlay.classList.add("is-dragging");
-        parentCell.style.overflow = "visible";
+        overlay.style.pointerEvents = "none";
 
-        const startX = e.clientX;
         const baseStart = currentStart;
         const baseEnd = currentEnd;
+        const baseStartTdIndex = currentStartTdIndex;
+        const baseEndTdIndex = currentEndTdIndex;
 
-        const move = (ev) => onDrag(dir, startX, baseStart, baseEnd, ev);
+        const move = (ev) => {
+          // Find which TD the mouse is currently over
+          const el = document.elementFromPoint(ev.clientX, ev.clientY);
+          const hoveredTd = el?.closest?.("td");
+          if (!hoveredTd) return;
+
+          // Must be in the same row
+          const hoveredRow = hoveredTd.parentElement;
+          if (!hoveredRow || hoveredRow !== row) return;
+
+          const hoveredIdx = getTdIndexInRow(hoveredTd);
+          if (hoveredIdx == null) return;
+
+          // Check if we're hovering over the task's own TD (for shrinking)
+          const isOverTaskTd = hoveredTd === startTd;
+
+          let newStartMinutes = baseStart;
+          let newEndMinutes = baseEnd;
+
+          if (isOverTaskTd) {
+            // Shrinking: calculate slot position within the task TD based on mouse X
+            const tdRect = startTd.getBoundingClientRect();
+            const tdWidth = tdRect.width;
+            const mouseXInTd = ev.clientX - tdRect.left;
+            const totalTaskSlots = Math.round((baseEnd - baseStart) / slotSize);
+            const slotWidthInTd = tdWidth / totalTaskSlots;
+
+            if (dir === "left") {
+              // Shrink from left: move start time forward
+              const slotsFromLeft = Math.round(mouseXInTd / slotWidthInTd);
+              const clampedSlots = Math.max(0, Math.min(slotsFromLeft, totalTaskSlots - 1));
+              newStartMinutes = baseStart + clampedSlots * slotSize;
+            } else {
+              // Shrink from right: move end time backward
+              const slotsFromLeft = Math.round(mouseXInTd / slotWidthInTd);
+              const clampedSlots = Math.max(1, Math.min(slotsFromLeft, totalTaskSlots));
+              newEndMinutes = baseStart + clampedSlots * slotSize;
+            }
+          } else {
+            // Expanding: use the hovered empty slot TD
+            const slotEl = hoveredTd.querySelector(".schedule-slot");
+            if (!slotEl?.dataset?.slotStartMinutes) return;
+
+            const hoveredSlotStart = parseInt(slotEl.dataset.slotStartMinutes, 10);
+
+            if (dir === "left") {
+              // Expand left: can only go to TDs before the task
+              if (hoveredIdx >= baseStartTdIndex) return;
+              newStartMinutes = hoveredSlotStart;
+            } else {
+              // Expand right: can only go to TDs after the task
+              if (hoveredIdx <= baseEndTdIndex) return;
+              newEndMinutes = hoveredSlotStart + slotSize;
+            }
+          }
+
+          // Apply time constraints
+          newStartMinutes = Math.max(dayStart, Math.max(minStartMinutes, newStartMinutes));
+          newEndMinutes = Math.min(dayEnd, newEndMinutes);
+          if (newEndMinutes - newStartMinutes < slotSize) return;
+
+          // Update state
+          currentStart = newStartMinutes;
+          currentEnd = newEndMinutes;
+
+          // Recalculate overlay position
+          // For shrinking, we stay within the same TD but adjust visual width
+          // For expanding, we need to find the new boundary TDs
+          const newDurationSlots = Math.round((currentEnd - currentStart) / slotSize);
+          const offsetFromOriginalStart = (currentStart - startMinutes) / slotSize;
+
+          // Calculate new overlay dimensions based on original TD and slot calculations
+          const origStartRect = startTd.getBoundingClientRect();
+          const origSlotWidth = origStartRect.width / Math.round((baseEnd - baseStart) / slotSize);
+
+          // For expanding, we need actual TD boundaries
+          if (!isOverTaskTd) {
+            // Find actual start/end TDs for the new range
+            let actualStartTd = startTd;
+            let actualEndTd = startTd;
+
+            if (dir === "left" && hoveredIdx < baseStartTdIndex) {
+              actualStartTd = hoveredTd;
+              currentStartTdIndex = hoveredIdx;
+            } else if (dir === "right" && hoveredIdx > baseEndTdIndex) {
+              actualEndTd = hoveredTd;
+              currentEndTdIndex = hoveredIdx;
+            }
+
+            updateOverlayFromTds(actualStartTd, actualEndTd);
+          } else {
+            // Shrinking within same TD - use pixel-based positioning
+            const containerRect = container.getBoundingClientRect();
+            const newLeft = origStartRect.left - containerRect.left + container.scrollLeft + 1 + (offsetFromOriginalStart * origSlotWidth);
+            const newWidth = Math.max(origSlotWidth, newDurationSlots * origSlotWidth - 2);
+
+            overlay.style.left = `${newLeft}px`;
+            overlay.style.width = `${newWidth}px`;
+            overlay.style.transform = "none";
+
+            // Update time display
+            const taskTimeEl = card.querySelector(".task-time");
+            if (taskTimeEl) {
+              const dragHandle = taskTimeEl.querySelector(".task-drag-handle");
+              const handleHtml = dragHandle ? dragHandle.outerHTML : "";
+              taskTimeEl.innerHTML = `${handleHtml}${formatRange(currentStart, currentEnd)}`;
+            }
+          }
+        };
 
         const up = async (ev) => {
           handle.releasePointerCapture(ev.pointerId);
           handle.removeEventListener("pointermove", move);
           handle.removeEventListener("pointerup", up);
           handle.removeEventListener("pointercancel", up);
-          onDrag(dir, startX, baseStart, baseEnd, ev);
-          const changed = currentStart !== baseStart || currentEnd !== baseEnd;
-          if (changed) await applyTimeUpdate(currentStart, currentEnd);
           overlay.classList.remove("is-dragging");
-          parentCell.style.overflow = "hidden";
-          updateOverlay();
+          overlay.style.pointerEvents = "";
+
+          const changed = currentStart !== baseStart || currentEnd !== baseEnd;
+          if (changed) {
+            await applyTimeUpdate(currentStart, currentEnd);
+          }
         };
 
         handle.addEventListener("pointermove", move);
@@ -1435,8 +1520,8 @@
       teardown();
     });
 
-    updateOverlay();
-    parentCell.appendChild(overlay);
+    // Append to container (same as selection bar) instead of parent cell
+    container.appendChild(overlay);
   };
 
   const clearFieldErrors = (modalEl) => {

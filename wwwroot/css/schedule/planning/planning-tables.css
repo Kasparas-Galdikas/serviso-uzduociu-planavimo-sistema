@@ -542,11 +542,17 @@ td.is-drag-origin .task-card.is-dragging {
   font-weight: 700;
   font-size: 0.95rem;
   color: var(--neutral-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .task-location {
   font-size: 0.8rem;
   color: var(--neutral-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 
