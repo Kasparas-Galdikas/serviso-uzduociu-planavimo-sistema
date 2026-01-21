@@ -32,6 +32,9 @@
         </div>
     </div>
 
+    @{
+        ViewData["InformationType"] = Model.InformationType;
+    }
     @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_Legend.cshtml")
     
     <div class="mt-2">

@@ -34,7 +34,7 @@ public class CreateTaskRequestDto
     public TaskPriority Priority { get; set; } = TaskPriority.Medium;
 
     [Required(ErrorMessage = "Statusas yra privalomas.")]
-    public ScheduleTaskStatus Status { get; set; } = ScheduleTaskStatus.Planned;
+    public ScheduleTaskStatus Status { get; set; } = ScheduleTaskStatus.InProgress;
 
     /// <summary>
     /// Browser timezone offset in minutes (negative for UTC+, positive for UTC-).

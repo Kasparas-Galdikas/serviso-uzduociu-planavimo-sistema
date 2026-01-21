@@ -76,6 +76,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                             var loadClass = task.IsConflict
                                 ? "task-conflict"
                                 : (task.IsLoad || task.OverloadHours > 0) ? "task-load" : "task-normal";
+                            // Task execution status class (inprogress, completed, conflict, canceled)
+                            var statusClass = $"task-status-{task.Status}";
                             var durationMinutes = (int)Math.Round((task.End - task.Start).TotalMinutes);
                             var handleHtml = task.IsEditable ? @"<span class=""task-drag-handle"" draggable=""true"" aria-label=""Perkelti"" title=""Perkelti"">⋮⋮</span>" : string.Empty;
                             var actionsHtml = task.IsEditable
@@ -89,7 +91,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
     </div>"
                                 : string.Empty;
                             return $@"
-<div class=""task-card {loadClass} {sourceClass} {editClass}"" data-plan=""{task.PlanId}"" data-task-id=""{task.Id}"" data-tech-id=""{task.TechnicianId}"" data-plan-source=""{task.Source.ToString().ToLowerInvariant()}""
+<div class=""task-card {loadClass} {sourceClass} {editClass} {statusClass}"" data-plan=""{task.PlanId}"" data-task-id=""{task.Id}"" data-tech-id=""{task.TechnicianId}"" data-plan-source=""{task.Source.ToString().ToLowerInvariant()}"" data-task-status=""{task.Status}""
     data-editable=""{task.IsEditable.ToString().ToLowerInvariant()}"" data-task-version=""{task.Version}"" data-duration-minutes=""{durationMinutes}"" data-date=""{task.Start:yyyy-MM-dd}"" data-start-minutes=""{(int)task.Start.TimeOfDay.TotalMinutes}"">
     {actionsHtml}
     <div class=""task-time"">{handleHtml}{task.Start:HH:mm} - {task.End:HH:mm}</div>

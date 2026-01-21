@@ -157,7 +157,7 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                             StartTime = currentDate.AddHours(startHour),
                             EndTime = currentDate.AddHours(endHour),
                             Priority = TaskPriority.Medium,
-                            Status = ScheduleTaskStatus.Planned,
+                            Status = ScheduleTaskStatus.InProgress,
                             SkillLevel = "Basic",
                             ObjectName = mockObject.Name,
                             Instructions = $"Atlikti darbus objekte {mockObject.Name}"

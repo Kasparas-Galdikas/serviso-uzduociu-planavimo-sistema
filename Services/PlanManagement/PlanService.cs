@@ -882,7 +882,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                         StartAt = DateTime.SpecifyKind(targetDate.Add(timeOfDay), DateTimeKind.Utc),
                         EndAt = DateTime.SpecifyKind(targetDate.Add(timeOfDay).Add(duration), DateTimeKind.Utc),
                         Priority = sourceTask.Priority,
-                        Status = ScheduleTaskStatus.Planned,
+                        Status = ScheduleTaskStatus.InProgress,
                         SkillLevel = sourceTask.SkillLevel,
                         Instructions = sourceTask.Instructions,
                         TechnicianComment = string.Empty, // Clear comment for new plan

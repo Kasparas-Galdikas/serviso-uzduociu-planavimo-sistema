@@ -18,15 +18,17 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
     {
         private readonly ScheduleDbContext _db;
         private readonly IPlanService _planService;
+        private readonly IEvaluationEngine _evaluationEngine;
         private readonly ILogger<TasksController> _logger;
         private readonly ITaskPermissionService _taskPermissionService;
         private readonly IScheduleTimeService _timeService;
         private readonly IUserContextResolver _userContextResolver;
 
-        public TasksController(ScheduleDbContext db, IPlanService planService, ITaskPermissionService taskPermissionService, IScheduleTimeService timeService, IUserContextResolver userContextResolver, ILogger<TasksController> logger)
+        public TasksController(ScheduleDbContext db, IPlanService planService, IEvaluationEngine evaluationEngine, ITaskPermissionService taskPermissionService, IScheduleTimeService timeService, IUserContextResolver userContextResolver, ILogger<TasksController> logger)
         {
             _db = db;
             _planService = planService;
+            _evaluationEngine = evaluationEngine;
             _taskPermissionService = taskPermissionService;
             _timeService = timeService;
             _userContextResolver = userContextResolver;
@@ -775,6 +777,12 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             try
             {
                 await _db.SaveChangesAsync(cancellationToken);
+
+                // Trigger evaluation recalculation when status changes (affects workload for Completed/Canceled tasks)
+                if (task.PlanId.HasValue)
+                {
+                    await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
+                }
 
                 var newVersion = await _db.Tasks
                     .AsNoTracking()

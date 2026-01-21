@@ -24,8 +24,8 @@ namespace ServiceTaskPlanningSystem.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "plan_status", new[] { "draft", "active", "superseded" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "risk_level", new[] { "low", "medium", "high" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_priority", new[] { "low", "medium", "high" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", new[] { "canceled", "completed", "in_progress", "planned" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", "schedule_task_status", new[] { "planned", "in_progress", "completed", "canceled" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", new[] { "canceled", "completed", "conflict", "in_progress" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", "schedule_task_status", new[] { "in_progress", "completed", "conflict", "canceled" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_role", new[] { "manager", "technician" });
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -316,7 +316,7 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("task_status")
                         .HasColumnName("status")
-                        .HasDefaultValueSql("'planned'::task_status");
+                        .HasDefaultValueSql("'in_progress'::task_status");
 
                     b.Property<string>("TechnicianComment")
                         .IsRequired()

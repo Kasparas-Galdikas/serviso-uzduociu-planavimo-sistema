@@ -73,7 +73,7 @@ public class ScheduleProviderTests
             StartAt = startUtc,
             EndAt = startUtc.AddHours(2),
             Title = "Conflict task",
-            Status = ScheduleTaskStatus.Planned,
+            Status = ScheduleTaskStatus.InProgress,
             Priority = TaskPriority.High,
             Object = new ObjectEntity { Id = 100, Address = "Obj address" },
             Evaluation = new TaskEvaluationEntity
@@ -196,7 +196,7 @@ public class ScheduleProviderTests
             StartAt = startUtc,
             EndAt = endUtc,
             Title = $"Task {id}",
-            Status = ScheduleTaskStatus.Planned,
+            Status = ScheduleTaskStatus.InProgress,
             Priority = TaskPriority.Medium,
             Evaluation = new TaskEvaluationEntity { Status = evalStatus }
         };

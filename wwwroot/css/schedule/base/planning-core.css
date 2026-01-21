@@ -9,6 +9,10 @@ body { background: var(--neutral-50); color: var(--neutral-900); }
 .bg-load { background: var(--warning-100); border: 1px solid var(--warning-500); }
 .bg-conflict { background: var(--danger-100); border: 1px solid var(--danger-500); }
 .bg-travel { background: var(--info-100); border: 1px solid var(--info-500); }
+.bg-status-inprogress { background: var(--success-500); border: 1px solid var(--success-700); }
+.bg-status-completed { background: var(--success-600, var(--success-500)); border: 1px solid var(--success-700, var(--success-500)); }
+.bg-status-conflict { background: var(--warning-500); border: 1px solid var(--warning-700, var(--warning-500)); }
+.bg-status-canceled { background: var(--neutral-400); border: 1px solid var(--neutral-500); }
 
 .planning-alert { border: 1px solid var(--warning-500); background: var(--warning-100); }
 .edit-mode .page-header { background: linear-gradient(90deg, #f2f7ff, #fff); border-radius: 10px; padding: 8px 12px; }

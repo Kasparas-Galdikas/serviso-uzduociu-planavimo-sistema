@@ -18,7 +18,7 @@ public class TestUpdateTaskRequestBuilder
     // Defaults for optional/required fields - UPDATE HERE when new fields are added
     private string _location = "HQ";
     private TaskPriority _priority = TaskPriority.Medium;
-    private ScheduleTaskStatus _status = ScheduleTaskStatus.Planned;
+    private ScheduleTaskStatus _status = ScheduleTaskStatus.InProgress;
     private int _timezoneOffsetMinutes = 0;
     private string _skillLevel = "Junior";
     private string _objectName = "Test Object";

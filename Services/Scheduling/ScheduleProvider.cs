@@ -34,15 +34,22 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             _logger = logger;
         }
 
-        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? workload, long? technicianId, PlanEntity? activePlan, PlanEntity? draftPlan, UserContext user, int timezoneOffsetMinutes)
+        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? workload, string? status, string? informationType, long? technicianId, PlanEntity? activePlan, PlanEntity? draftPlan, UserContext user, int timezoneOffsetMinutes)
         {
             var selectedDate = DateResolver.ParseOrToday(date);
             var viewMode = NormalizeView(view);
+            var infoType = NormalizeInformationType(informationType);
+            if (string.Equals(viewMode, "week", StringComparison.OrdinalIgnoreCase))
+            {
+                infoType = "apkrova";
+                status = null;
+            }
             var weekStart = WeekCalculator.GetWeekStart(selectedDate);
             var weekEnd = WeekCalculator.GetWeekEnd(selectedDate);
             var weekStartUtc = DateTime.SpecifyKind(weekStart, DateTimeKind.Utc);
             var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
             var boundary = await _planningCalendar.GetBoundaryAsync();
+            var includeCanceled = string.Equals(infoType, "darbo-statusas", StringComparison.OrdinalIgnoreCase);
 
             _logger.LogInformation("svc.schedule.request view={ViewMode} date={Date} week={WeekStart}-{WeekEnd} location={Location} workload={Workload} technicianId={TechnicianId}", viewMode, selectedDate, weekStart, weekEnd, location, workload, technicianId);
 
@@ -66,17 +73,22 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 })
                 .ToListAsync();
 
-            var taskEntities = await _db.Tasks
+            var taskBaseQuery = _db.Tasks
                 .AsNoTracking()
+                .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc);
+
+            if (!includeCanceled)
+            {
+                taskBaseQuery = taskBaseQuery.Where(t => t.Status != ScheduleTaskStatus.Canceled);
+            }
+
+            var taskEntities = await taskBaseQuery
                 .Include(t => t.Plan)
                 .Include(t => t.Evaluation)
                 .Include(t => t.Object)
-                .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc && t.Status != ScheduleTaskStatus.Canceled)
                 .ToListAsync();
 
-            var taskVersions = await _db.Tasks
-                .AsNoTracking()
-                .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc && t.Status != ScheduleTaskStatus.Canceled)
+            var taskVersions = await taskBaseQuery
                 .Select(t => new { t.Id, Version = EF.Property<uint>(t, "xmin") })
                 .ToDictionaryAsync(x => x.Id, x => x.Version);
 
@@ -145,8 +157,12 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 .ToList();
             var availableWorkloadLevels = BuildAvailableWorkloadLevels(tasks);
 
-            var issues = BuildIssues(tasks, technicians);
-            var summary = BuildSummary(tasks, technicians);
+            var summaryTasks = includeCanceled
+                ? tasks.Where(t => !IsCanceledStatus(t.Status)).ToList()
+                : tasks;
+
+            var issues = BuildIssues(summaryTasks, technicians);
+            var summary = BuildSummary(summaryTasks, technicians);
             _logger.LogInformation("svc.schedule.summary tasks={Tasks} issues={Issues} locations={Locations} workload={Workload}", tasks.Count, issues.Count, availableLocations.Count, availableWorkloadLevels.Count);
 
             var lastPlanPeriod = await _db.Plans
@@ -163,7 +179,14 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             var firstFreeDate = boundary.FirstFreeDate;
 
             (technicians, tasks) = ApplyLocationFilter(location, technicians, tasks);
-            (technicians, tasks) = ApplyWorkloadFilter(workload, viewMode, selectedDate, technicians, tasks);
+            if (string.Equals(infoType, "darbo-statusas", StringComparison.OrdinalIgnoreCase))
+            {
+                (technicians, tasks) = ApplyStatusFilter(status, technicians, tasks);
+            }
+            else
+            {
+                (technicians, tasks) = ApplyWorkloadFilter(workload, viewMode, selectedDate, technicians, tasks);
+            }
             (technicians, tasks) = ApplyTechnicianFilter(technicianId, technicians, tasks);
 
             var planStatusText = draftPlan?.Status.ToString() ?? activePlan?.Status.ToString();
@@ -174,6 +197,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 SelectedDate = selectedDate,
                 IsManager = user.IsManager,
                 ViewMode = viewMode,
+                InformationType = infoType,
                 SelectedTechnicianId = technicianId,
                 Technicians = technicians,
                 Tasks = tasks,
@@ -231,6 +255,34 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
         private static string NormalizeView(string view) =>
             string.Equals(view, "week", StringComparison.OrdinalIgnoreCase) ? "week" : "day";
+
+        private static string NormalizeInformationType(string? informationType) =>
+            string.Equals(informationType, "darbo-statusas", StringComparison.OrdinalIgnoreCase)
+                ? "darbo-statusas"
+                : "apkrova";
+
+        private static string NormalizeStatusFilter(string? status)
+        {
+            if (string.IsNullOrWhiteSpace(status))
+            {
+                return string.Empty;
+            }
+
+            var normalized = status.Trim()
+                .ToLowerInvariant()
+                .Replace("_", string.Empty)
+                .Replace("-", string.Empty);
+
+            return normalized switch
+            {
+                "atlikta" => "completed",
+                "problema" => "conflict",
+                _ => normalized
+            };
+        }
+
+        private static bool IsCanceledStatus(string? status) =>
+            string.Equals(NormalizeStatusFilter(status), "canceled", StringComparison.OrdinalIgnoreCase);
 
         private static (List<Technician> technicians, List<TaskItem> tasks) ApplyLocationFilter(string? location, List<Technician> technicians, List<TaskItem> tasks)
         {
@@ -309,6 +361,31 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             var filteredTasks = tasks
                 .Where(t => matchingTechIds.Contains(t.TechnicianId))
                 .Where(t => !isDayView || t.Start.Date == selectedDate.Date)
+                .ToList();
+
+            return (filteredTechnicians, filteredTasks);
+        }
+
+        private static (List<Technician> technicians, List<TaskItem> tasks) ApplyStatusFilter(string? status, List<Technician> technicians, List<TaskItem> tasks)
+        {
+            var normalized = NormalizeStatusFilter(status);
+            if (string.IsNullOrWhiteSpace(normalized) ||
+                normalized == "visi" ||
+                normalized == "all")
+            {
+                return (technicians, tasks);
+            }
+
+            var filteredTasks = tasks
+                .Where(t => NormalizeStatusFilter(t.Status) == normalized)
+                .ToList();
+
+            var techIds = filteredTasks
+                .Select(t => t.TechnicianId)
+                .ToHashSet();
+
+            var filteredTechnicians = technicians
+                .Where(t => techIds.Contains(t.Id))
                 .ToList();
 
             return (filteredTechnicians, filteredTasks);

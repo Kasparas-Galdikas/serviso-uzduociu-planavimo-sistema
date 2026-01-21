@@ -96,7 +96,7 @@ public class PlanServiceDeleteTests
             Title = "t",
             Location = "loc",
             Priority = TaskPriority.Medium,
-            Status = ScheduleTaskStatus.Planned,
+            Status = ScheduleTaskStatus.InProgress,
             CreatedAt = DateTime.UtcNow
         };
         db.Tasks.Add(task);
