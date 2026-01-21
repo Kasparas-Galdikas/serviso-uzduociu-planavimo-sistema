@@ -10,6 +10,11 @@
   const selection = schedule.selection;
   const refresh = schedule.refresh;
 
+  // Import from shared modules
+  const grid = schedule.grid;
+  const dom = schedule.ui?.dom;
+  const taskApi = schedule.tasks?.api;
+
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
 
@@ -126,11 +131,27 @@
 
     if (!technicianId || startMinutes == null || !targetDate) return;
 
+    // Use task.api module if available
+    if (taskApi?.fetchDragPreview) {
+      const result = await taskApi.fetchDragPreview({
+        taskId: parseIntSafe(dragState.taskId),
+        technicianId,
+        targetDate,
+        startMinutes,
+        durationSlots: dragState.durationSlots || 1,
+      });
+
+      if (result.success && result.previewStates) {
+        dragState.previewData = { previewStates: result.previewStates };
+        applyPreviewCardColors(dragState.previewData);
+      }
+      return;
+    }
+
+    // Fallback: direct fetch
     const timezoneOffset = -new Date().getTimezoneOffset();
     const durationMinutes = (dragState.durationSlots || 1) * 30;
 
-    // Convert the local grid slot to UTC for the API.
-    // JS Date() with "YYYY-MM-DDT00:00:00" is local time; to get UTC we add the signed offset.
     const localDate = new Date(targetDate + "T00:00:00");
     const targetStartAt = new Date(localDate.getTime() + startMinutes * 60000 + timezoneOffset * 60000);
     const targetEndAt = new Date(targetStartAt.getTime() + durationMinutes * 60000);
@@ -285,7 +306,9 @@
     dragState.highlightedCells = [];
   };
 
+  // Use shared grid utility (with fallback)
   const parseIntSafe = (val) => {
+    if (grid?.parseIntSafe) return grid.parseIntSafe(val);
     const n = Number.parseInt(String(val || ""), 10);
     return Number.isFinite(n) ? n : null;
   };
@@ -667,54 +690,80 @@
       });
 
       try {
-        const timezoneOffset = -new Date().getTimezoneOffset();
+        // Use task.api module if available
+        if (taskApi?.moveTask) {
+          const result = await taskApi.moveTask(taskId, {
+            targetTechnicianId: technicianId,
+            targetDate,
+            targetSlotStartMinutes: startMinutes,
+          }, expectedVersion);
 
-        const body = JSON.stringify({
-          targetTechnicianId: technicianId,
-          targetDate,
-          targetSlotStartMinutes: startMinutes,
-          version: expectedVersion,
-          timezoneOffsetMinutes: timezoneOffset,
-        });
+          if (!result.success) {
+            alert(result.error || "Nepavyko perkelti užduoties.");
+          } else {
+            const query =
+              state?.getQuery?.() ||
+              new URLSearchParams(window.location.search || "");
+            if (!query.has("view")) query.set("view", "day");
 
-        const resp =
-          (await logger?.fetchWithTrace?.(
-            `/api/tasks/${taskId}/move`,
-            {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body,
-            },
-            { event: "ui.task.move", taskId }
-          )) ||
-          (await fetch(`/api/tasks/${taskId}/move`, {
-            method: "PATCH",
-            headers: {
-              "X-Requested-With": "XMLHttpRequest",
-              "Content-Type": "application/json",
-            },
-            body,
-          }));
+            await table?.fetchAndRender?.(query, {
+              updateUrl: false,
+              preserveScroll: true,
+            });
 
-        if (resp.status === 409 || resp.status === 422 || resp.status === 403) {
-          const msg =
-            (await resp.json().catch(() => null))?.message ||
-            "Nepavyko perkelti užduoties.";
-          alert(msg);
-        } else if (!resp.ok) {
-          throw new Error("Nepavyko perkelti užduoties.");
+            await tasks?.refreshOpenTask?.(taskId);
+          }
         } else {
-          const query =
-            state?.getQuery?.() ||
-            new URLSearchParams(window.location.search || "");
-          if (!query.has("view")) query.set("view", "day");
+          // Fallback: direct fetch
+          const timezoneOffset = -new Date().getTimezoneOffset();
 
-          await table?.fetchAndRender?.(query, {
-            updateUrl: false,
-            preserveScroll: true,
+          const body = JSON.stringify({
+            targetTechnicianId: technicianId,
+            targetDate,
+            targetSlotStartMinutes: startMinutes,
+            version: expectedVersion,
+            timezoneOffsetMinutes: timezoneOffset,
           });
 
-          await tasks?.refreshOpenTask?.(taskId);
+          const resp =
+            (await logger?.fetchWithTrace?.(
+              `/api/tasks/${taskId}/move`,
+              {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body,
+              },
+              { event: "ui.task.move", taskId }
+            )) ||
+            (await fetch(`/api/tasks/${taskId}/move`, {
+              method: "PATCH",
+              headers: {
+                "X-Requested-With": "XMLHttpRequest",
+                "Content-Type": "application/json",
+              },
+              body,
+            }));
+
+          if (resp.status === 409 || resp.status === 422 || resp.status === 403) {
+            const msg =
+              (await resp.json().catch(() => null))?.message ||
+              "Nepavyko perkelti užduoties.";
+            alert(msg);
+          } else if (!resp.ok) {
+            throw new Error("Nepavyko perkelti užduoties.");
+          } else {
+            const query =
+              state?.getQuery?.() ||
+              new URLSearchParams(window.location.search || "");
+            if (!query.has("view")) query.set("view", "day");
+
+            await table?.fetchAndRender?.(query, {
+              updateUrl: false,
+              preserveScroll: true,
+            });
+
+            await tasks?.refreshOpenTask?.(taskId);
+          }
         }
       } catch (err) {
         logEvent(
