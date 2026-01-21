@@ -228,7 +228,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var techClient = CreateClient("technician@test.com", timezoneOffsetMinutes: 0, technicianId: techId);
         var response = await techClient.PatchAsJsonAsync($"/api/tasks/{task.Id}/technician-update", new TechnicianUpdateTaskRequestDto
         {
-            Status = ScheduleTaskStatus.InProgress,
+            Status = ScheduleTaskStatus.Completed,
             Comment = "Starting now",
             Version = version,
             TimezoneOffsetMinutes = 0
@@ -252,7 +252,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var techClient = CreateClient("austeja.j@test.com", timezoneOffsetMinutes: 0, technicianId: otherTechId);
         var response = await techClient.PatchAsJsonAsync($"/api/tasks/{task.Id}/technician-update", new TechnicianUpdateTaskRequestDto
         {
-            Status = ScheduleTaskStatus.InProgress,
+            Status = ScheduleTaskStatus.Completed,
             Comment = "Should fail",
             Version = version,
             TimezoneOffsetMinutes = 0
