@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Scheduling;
@@ -195,6 +196,180 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _db.Plans
                .AsNoTracking()
                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
+
+        public async Task<LoadSnapshotDto> GetWorkloadSnapshotAsync(long technicianId, DateTime dayStartUtc, CancellationToken cancellationToken = default)
+        {
+            var technician = await _db.Technicians
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == technicianId, cancellationToken);
+
+            if (technician == null)
+            {
+                return new LoadSnapshotDto();
+            }
+
+            var dayEnd = dayStartUtc.AddDays(1);
+            var weekStart = _timeService.GetWeekStart(dayStartUtc);
+            var weekEnd = weekStart.AddDays(7);
+
+            var weekTasks = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.TechnicianId == technicianId &&
+                            t.StartAt >= weekStart &&
+                            t.StartAt < weekEnd)
+                .OrderBy(t => t.StartAt)
+                .ToListAsync(cancellationToken);
+
+            var dayTasks = weekTasks
+                .Where(t => t.StartAt >= dayStartUtc && t.StartAt < dayEnd)
+                .OrderBy(t => t.StartAt)
+                .ToList();
+
+            var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
+            return MapToLoadSnapshotDto(technician, snapshot);
+        }
+
+        private static LoadSnapshotDto MapToLoadSnapshotDto(TechnicianEntity technician, WorkloadSnapshot snapshot)
+        {
+            var context = snapshot.Context;
+            return new LoadSnapshotDto
+            {
+                LoadState = context.ComputeLoadState().ToString(),
+                HasConflict = context.HasConflict,
+                IsDailyLimitExceeded = context.IsDailyLimitExceeded,
+                IsWeeklyLimitExceeded = context.IsWeeklyLimitExceeded,
+                IsSwitchLimitExceeded = context.IsSwitchLimitExceeded,
+                DailyHours = Math.Round(snapshot.DailyHours, 2),
+                WeeklyHours = Math.Round(snapshot.WeeklyHours, 2),
+                DailyLimit = (double)technician.DailyLimit,
+                WeeklyLimit = (double)technician.WeeklyLimit,
+                DailyUtilization = Math.Round(context.DailyUtilization, 2),
+                WeeklyUtilization = Math.Round(context.WeeklyUtilization, 2),
+                SwitchCount = snapshot.SwitchCount
+            };
+        }
+
+        public async Task<TaskDetailResult?> GetTaskDetailAsync(long taskId, CancellationToken cancellationToken = default)
+        {
+            var task = await _db.Tasks
+                .AsNoTracking()
+                .Include(t => t.Plan)
+                .Include(t => t.Object)
+                .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+
+            if (task == null)
+            {
+                return null;
+            }
+
+            var version = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.Id == taskId)
+                .Select(t => EF.Property<uint>(t, "xmin"))
+                .FirstAsync(cancellationToken);
+
+            return new TaskDetailResult(task, version);
+        }
+
+        public async Task<uint> GetTaskVersionAsync(long taskId, CancellationToken cancellationToken = default)
+        {
+            return await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.Id == taskId)
+                .Select(t => EF.Property<uint>(t, "xmin"))
+                .FirstAsync(cancellationToken);
+        }
+
+        public async Task<bool> TechnicianExistsAsync(long technicianId, CancellationToken cancellationToken = default)
+        {
+            return await _db.Technicians
+                .AsNoTracking()
+                .AnyAsync(t => t.Id == technicianId, cancellationToken);
+        }
+
+        public async Task<bool> HasTaskOverlapAsync(long excludeTaskId, long technicianId, DateTime startUtc, DateTime endUtc, CancellationToken cancellationToken = default)
+        {
+            return await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.Id != excludeTaskId)
+                .Where(t => t.TechnicianId == technicianId)
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                .Where(t => t.StartAt < endUtc && t.EndAt > startUtc)
+                .AnyAsync(cancellationToken);
+        }
+
+        public async Task<TechnicianUpdateResult> TechnicianUpdateTaskAsync(
+            long taskId,
+            ScheduleTaskStatus status,
+            string? comment,
+            uint expectedVersion,
+            UserContext user,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default)
+        {
+            // Validate status - technician can only set Completed or Conflict
+            if (status != ScheduleTaskStatus.Completed && status != ScheduleTaskStatus.Conflict)
+            {
+                return new TechnicianUpdateResult(TechnicianUpdateError.InvalidStatus, "Galite nustatyti tik 'Atlikta' arba 'Problema' statusus.");
+            }
+
+            var task = await _db.Tasks
+                .Include(t => t.Plan)
+                .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+
+            if (task == null)
+            {
+                return new TechnicianUpdateResult(TechnicianUpdateError.TaskNotFound, "Uzduotis nerasta.");
+            }
+
+            // Check ownership
+            if (user.IsTechnician && (!user.TechnicianId.HasValue || task.TechnicianId != user.TechnicianId.Value))
+            {
+                return new TechnicianUpdateResult(TechnicianUpdateError.NotOwner, "Galite redaguoti tik savo uzduotis.");
+            }
+
+            // Check if task is still editable
+            if (!_timeService.IsTaskStillEditable(task.EndAt))
+            {
+                return new TechnicianUpdateResult(TechnicianUpdateError.NotEditable, "Si uzduotis nebegali buti redaguojama.");
+            }
+
+            // Check permissions
+            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffsetMinutes);
+            if (!canEdit)
+            {
+                return new TechnicianUpdateResult(TechnicianUpdateError.NotEditable, "Si uzduotis nebegali buti redaguojama.");
+            }
+
+            // Check version
+            var currentVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
+            if (currentVersion != expectedVersion)
+            {
+                return new TechnicianUpdateResult(TechnicianUpdateError.Stale, "Uzduotis buvo pakeista kito vartotojo. Prasome atnaujinti puslapi.", CurrentVersion: currentVersion);
+            }
+
+            // Update task
+            task.Status = status;
+            task.TechnicianComment = comment ?? string.Empty;
+
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+
+                // Recalculate evaluations when status changes
+                if (task.PlanId.HasValue)
+                {
+                    await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
+                }
+
+                var newVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
+                return new TechnicianUpdateResult(TechnicianUpdateError.None, Task: task, CurrentVersion: newVersion);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return new TechnicianUpdateResult(TechnicianUpdateError.Stale, "Uzduotis buvo pakeista kito vartotojo. Prasome atnaujinti puslapi.");
+            }
+        }
 
         public async Task<PlanEntity> CreateDraftFromActiveAsync(DateTime? requestedStart = null, DateTime? requestedEnd = null, int? requestedWeeks = null, CancellationToken cancellationToken = default)
         {
@@ -450,8 +625,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _db.Tasks.Add(task);
             await _db.SaveChangesAsync(cancellationToken);
 
+            var version = _db.Entry(task).Property<uint>("xmin").CurrentValue;
             await _evaluationEngine.RecalculatePlanAsync(targetPlan.Id, cancellationToken);
-            return new TaskCreateResult(TaskCreateError.None, Task: task);
+            return new TaskCreateResult(TaskCreateError.None, Task: task, CurrentVersion: version);
         }
 
         public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, long technicianId, UserContext user, int timezoneOffsetMinutes, string? objectName, string? objectAddress, CancellationToken cancellationToken = default)
@@ -787,6 +963,180 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             _logger.LogInformation("svc.plan.discard draftId={DraftId} removedTasks={Tasks}", draft.Id, draft.Tasks.Count);
+        }
+
+        public async Task<DragPreviewResult> PreviewDragAsync(
+            long taskId,
+            long targetTechnicianId,
+            DateTime targetStartAt,
+            DateTime targetEndAt,
+            UserContext user,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default)
+        {
+            var targetTask = await _db.Tasks
+                .AsNoTracking()
+                .Include(t => t.Plan)
+                .Include(t => t.Technician)
+                .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+
+            if (targetTask == null)
+            {
+                return new DragPreviewResult(DragPreviewError.TaskNotFound);
+            }
+
+            var isEditable = await _taskPermissionService.CanEditTaskAsync(targetTask, user, timezoneOffsetMinutes);
+            if (!isEditable)
+            {
+                return new DragPreviewResult(DragPreviewError.NotEditable);
+            }
+
+            if (targetTask.PlanId == null)
+            {
+                return new DragPreviewResult(DragPreviewError.NoPlan, "Užduotis neturi plano.");
+            }
+
+            var hoverTech = await _db.Technicians
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == targetTechnicianId, cancellationToken);
+
+            if (hoverTech == null)
+            {
+                return new DragPreviewResult(DragPreviewError.TechnicianNotFound, "Technikas nerastas.");
+            }
+
+            var dayStart = targetStartAt.Date;
+            var weekStart = _timeService.GetWeekStart(dayStart);
+            var weekEndExclusive = weekStart.AddDays(7);
+
+            var scopeTasks = await _db.Tasks
+                .AsNoTracking()
+                .Include(t => t.Technician)
+                .Where(t => t.PlanId == targetTask.PlanId &&
+                            t.StartAt < weekEndExclusive &&
+                            t.EndAt > weekStart)
+                .ToListAsync(cancellationToken);
+
+            var technicians = await _db.Technicians
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+
+            var simulation = PlanSimulationContext.Create(scopeTasks, technicians, targetTask);
+
+            var modifiedSim = simulation.WithModifiedTasks(tasks =>
+            {
+                var modified = tasks.ToList();
+                var idx = modified.FindIndex(t => t.Id == targetTask.Id);
+                if (idx >= 0)
+                {
+                    modified[idx] = new TaskEntity
+                    {
+                        Id = targetTask.Id,
+                        PlanId = targetTask.PlanId,
+                        TechnicianId = targetTechnicianId,
+                        Title = targetTask.Title,
+                        Location = targetTask.Location,
+                        RegionId = hoverTech.RegionId ?? targetTask.RegionId,
+                        StartAt = targetStartAt,
+                        EndAt = targetEndAt,
+                        Priority = targetTask.Priority,
+                        Status = targetTask.Status,
+                        CreatedAt = targetTask.CreatedAt,
+                        Plan = targetTask.Plan,
+                        Technician = targetTask.Technician,
+                        Region = targetTask.Region,
+                        Evaluation = targetTask.Evaluation,
+                        Object = targetTask.Object,
+                        ObjectId = targetTask.ObjectId,
+                        Instructions = targetTask.Instructions,
+                        SkillLevel = targetTask.SkillLevel,
+                        TechnicianComment = targetTask.TechnicianComment
+                    };
+                }
+                return modified;
+            });
+
+            var visibleTechs = technicians
+                .Where(t => scopeTasks.Any(task => task.TechnicianId == t.Id) || t.Id == targetTechnicianId)
+                .ToList();
+
+            var response = new Models.DTOs.Responses.DragPreviewResponseDto
+            {
+                DraggedTaskId = targetTask.Id
+            };
+
+            foreach (var tech in visibleTechs)
+            {
+                var loadSnapshot = BuildLoadSnapshotForSimulation(
+                    tech.Id,
+                    dayStart,
+                    modifiedSim.Tasks.ToList(),
+                    modifiedSim.Technicians.ToList());
+
+                response.PreviewStates.Add(new Models.DTOs.Responses.DragPreviewStateDto
+                {
+                    TechnicianId = tech.Id,
+                    LoadState = loadSnapshot.LoadState,
+                    HasConflict = loadSnapshot.HasConflict,
+                    IsDailyLimitExceeded = loadSnapshot.IsDailyLimitExceeded,
+                    IsWeeklyLimitExceeded = loadSnapshot.IsWeeklyLimitExceeded,
+                    IsSwitchLimitExceeded = loadSnapshot.IsSwitchLimitExceeded,
+                    DailyHours = Math.Round(loadSnapshot.DailyHours, 2),
+                    WeeklyHours = Math.Round(loadSnapshot.WeeklyHours, 2),
+                    DailyLimit = loadSnapshot.DailyLimit,
+                    WeeklyLimit = loadSnapshot.WeeklyLimit,
+                    DailyUtilization = Math.Round(loadSnapshot.DailyUtilization, 2),
+                    WeeklyUtilization = Math.Round(loadSnapshot.WeeklyUtilization, 2),
+                    SwitchCount = loadSnapshot.SwitchCount
+                });
+            }
+
+            _logger.LogInformation("svc.plan.preview.drag task={TaskId} plan={PlanId} tech={Tech} date={Day} states={Count}",
+                targetTask.Id, targetTask.PlanId, targetTechnicianId, dayStart, response.PreviewStates.Count);
+
+            return new DragPreviewResult(DragPreviewError.None, Response: response);
+        }
+
+        private static LoadSnapshotDto BuildLoadSnapshotForSimulation(
+            long technicianId,
+            DateTime dayStartUtc,
+            List<TaskEntity> tasks,
+            List<TechnicianEntity> technicians)
+        {
+            var technician = technicians.FirstOrDefault(t => t.Id == technicianId);
+            if (technician == null)
+            {
+                return new LoadSnapshotDto();
+            }
+
+            var dayEnd = dayStartUtc.AddDays(1);
+            var weekStart = GetWeekStartStatic(dayStartUtc);
+            var weekEnd = weekStart.AddDays(7);
+
+            var dayTasks = tasks
+                .Where(t => t.TechnicianId == technicianId &&
+                            t.StartAt >= dayStartUtc &&
+                            t.StartAt < dayEnd)
+                .OrderBy(t => t.StartAt)
+                .ToList();
+
+            var weekTasks = tasks
+                .Where(t => t.TechnicianId == technicianId &&
+                            t.StartAt >= weekStart &&
+                            t.StartAt < weekEnd)
+                .OrderBy(t => t.StartAt)
+                .ToList();
+
+            var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
+            return MapToLoadSnapshotDto(technician, snapshot);
+        }
+
+        private static DateTime GetWeekStartStatic(DateTime date)
+        {
+            var dayOfWeek = date.DayOfWeek;
+            var diff = dayOfWeek - DayOfWeek.Monday;
+            if (diff < 0) diff += 7;
+            return date.AddDays(-diff).Date;
         }
 
         /// <summary>

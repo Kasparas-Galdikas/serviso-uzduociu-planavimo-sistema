@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(dotnet ef migrations:*)",
-      "Bash(taskkill //F //PID 11772)"
+      "Bash(taskkill //F //PID 11772)",
+      "Bash(tree:*)"
     ]
   }
 }

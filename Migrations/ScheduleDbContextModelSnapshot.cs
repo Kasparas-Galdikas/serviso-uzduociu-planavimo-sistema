@@ -26,7 +26,7 @@ namespace ServiceTaskPlanningSystem.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_priority", new[] { "low", "medium", "high" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", new[] { "canceled", "completed", "conflict", "in_progress" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", "schedule_task_status", new[] { "in_progress", "completed", "conflict", "canceled" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_role", new[] { "manager", "technician" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_role", new[] { "manager", "technician", "anonymous" });
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 

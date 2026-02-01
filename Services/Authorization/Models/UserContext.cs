@@ -6,7 +6,7 @@ namespace ServiceTaskPlanningSystem.Services.Authorization.Models
     {
         public long? UserId { get; init; }
         public long? TechnicianId { get; init; }
-        public UserRole Role { get; init; } = UserRole.Technician;
+        public UserRole Role { get; init; } = UserRole.Anonymous;
 
         public bool IsManager => Role == UserRole.Manager;
         public bool IsTechnician => Role == UserRole.Technician;

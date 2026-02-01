@@ -14,7 +14,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
     public sealed record TaskCreateResult(
         TaskCreateError Error,
         string? Message = null,
-        TaskEntity? Task = null)
+        TaskEntity? Task = null,
+        uint? CurrentVersion = null)
     {
         public bool Ok => Error == TaskCreateError.None;
     }

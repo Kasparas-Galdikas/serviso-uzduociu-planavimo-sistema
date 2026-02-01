@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 
 namespace ServiceTaskPlanningSystem.Services.Time
 {
@@ -100,5 +101,13 @@ namespace ServiceTaskPlanningSystem.Services.Time
         /// <param name="timezoneOffsetMinutes">User's timezone offset</param>
         /// <returns>True if date is before user's local today</returns>
         bool IsDateInPastForUser(DateTime dateToCheck, int timezoneOffsetMinutes);
+
+        /// <summary>
+        /// Extracts browser timezone offset from HTTP request headers or cookies.
+        /// Checks X-Timezone-Offset header first, then timezone_offset cookie.
+        /// </summary>
+        /// <param name="request">The HTTP request</param>
+        /// <returns>Timezone offset in minutes, or 0 if not found</returns>
+        int GetBrowserTimezoneOffset(HttpRequest request);
     }
 }

@@ -3,6 +3,7 @@ using System.Security.Claims;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.Authorization;
@@ -14,50 +15,54 @@ namespace Tests.Unit.Authorization;
 public class HttpUserContextResolverTests
 {
     [Fact]
-    public void NoPrincipal_ReturnsTechnicianFallback()
+    public void NoPrincipal_ReturnsAnonymousFallback()
     {
         var accessor = Substitute.For<IHttpContextAccessor>();
         accessor.HttpContext.Returns((HttpContext?)null);
+        var logger = Substitute.For<ILogger<HttpUserContextResolver>>();
         using var db = CreateContext();
 
-        var resolver = new HttpUserContextResolver(accessor, db);
+        var resolver = new HttpUserContextResolver(accessor, db, logger);
         var user = resolver.GetCurrentUser();
 
-        AssertTechnicianFallback(user);
+        AssertAnonymousFallback(user);
     }
 
     [Fact]
-    public void MissingNameIdentifier_ReturnsTechnicianFallback()
+    public void MissingNameIdentifier_ReturnsAnonymousFallback()
     {
         var principal = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.Role, "manager") }, authenticationType: "test", nameType: null, roleType: ClaimTypes.Role));
         var accessor = CreateAccessor(principal);
+        var logger = Substitute.For<ILogger<HttpUserContextResolver>>();
         using var db = CreateContext();
 
-        var resolver = new HttpUserContextResolver(accessor, db);
+        var resolver = new HttpUserContextResolver(accessor, db, logger);
         var user = resolver.GetCurrentUser();
 
-        AssertTechnicianFallback(user);
+        AssertAnonymousFallback(user);
     }
 
     [Fact]
-    public void UnknownUser_ReturnsTechnicianFallback()
+    public void UnknownUser_ReturnsAnonymousFallback()
     {
         var principal = CreatePrincipal("ghost@test.com", "manager");
         var accessor = CreateAccessor(principal);
+        var logger = Substitute.For<ILogger<HttpUserContextResolver>>();
         using var db = CreateContext();
 
-        var resolver = new HttpUserContextResolver(accessor, db);
+        var resolver = new HttpUserContextResolver(accessor, db, logger);
         var user = resolver.GetCurrentUser();
 
-        AssertTechnicianFallback(user);
+        AssertAnonymousFallback(user);
     }
 
     [Fact]
-    public void InactiveUser_ReturnsTechnicianFallback()
+    public void InactiveUser_ReturnsAnonymousFallback()
     {
         const string email = "inactive@test.com";
         var principal = CreatePrincipal(email, "manager");
         var accessor = CreateAccessor(principal);
+        var logger = Substitute.For<ILogger<HttpUserContextResolver>>();
         using var db = CreateContext();
         db.Users.Add(new UserEntity
         {
@@ -69,10 +74,10 @@ public class HttpUserContextResolverTests
         });
         db.SaveChanges();
 
-        var resolver = new HttpUserContextResolver(accessor, db);
+        var resolver = new HttpUserContextResolver(accessor, db, logger);
         var user = resolver.GetCurrentUser();
 
-        AssertTechnicianFallback(user);
+        AssertAnonymousFallback(user);
     }
 
     [Fact]
@@ -81,6 +86,7 @@ public class HttpUserContextResolverTests
         const string email = "manager@test.com";
         var principal = CreatePrincipal(email, "manager");
         var accessor = CreateAccessor(principal);
+        var logger = Substitute.For<ILogger<HttpUserContextResolver>>();
         using var db = CreateContext();
         db.Users.Add(new UserEntity
         {
@@ -92,7 +98,7 @@ public class HttpUserContextResolverTests
         });
         db.SaveChanges();
 
-        var resolver = new HttpUserContextResolver(accessor, db);
+        var resolver = new HttpUserContextResolver(accessor, db, logger);
         var user = resolver.GetCurrentUser();
 
         user.Role.Should().Be(UserRole.Manager);
@@ -106,10 +112,11 @@ public class HttpUserContextResolverTests
         const string email = "tech@test.com";
         var principal = CreatePrincipal(email, "technician");
         var accessor = CreateAccessor(principal);
+        var logger = Substitute.For<ILogger<HttpUserContextResolver>>();
         using var db = CreateContext();
         SeedUserAndTechnician(db, email, technicianId: 200, userId: 20);
 
-        var resolver = new HttpUserContextResolver(accessor, db);
+        var resolver = new HttpUserContextResolver(accessor, db, logger);
         var user = resolver.GetCurrentUser();
 
         user.Role.Should().Be(UserRole.Technician);
@@ -123,6 +130,7 @@ public class HttpUserContextResolverTests
         const string email = "tech-no-row@test.com";
         var principal = CreatePrincipal(email, "technician");
         var accessor = CreateAccessor(principal);
+        var logger = Substitute.For<ILogger<HttpUserContextResolver>>();
         using var db = CreateContext();
         db.Users.Add(new UserEntity
         {
@@ -134,7 +142,7 @@ public class HttpUserContextResolverTests
         });
         db.SaveChanges();
 
-        var resolver = new HttpUserContextResolver(accessor, db);
+        var resolver = new HttpUserContextResolver(accessor, db, logger);
         var user = resolver.GetCurrentUser();
 
         user.Role.Should().Be(UserRole.Technician);
@@ -143,18 +151,19 @@ public class HttpUserContextResolverTests
     }
 
     [Fact]
-    public void TechnicianWithInactiveUser_ReturnsFallback()
+    public void TechnicianWithInactiveUser_ReturnsAnonymousFallback()
     {
         const string email = "tech-inactive@test.com";
         var principal = CreatePrincipal(email, "technician");
         var accessor = CreateAccessor(principal);
+        var logger = Substitute.For<ILogger<HttpUserContextResolver>>();
         using var db = CreateContext();
         SeedUserAndTechnician(db, email, technicianId: 300, userId: 40, isActive: false);
 
-        var resolver = new HttpUserContextResolver(accessor, db);
+        var resolver = new HttpUserContextResolver(accessor, db, logger);
         var user = resolver.GetCurrentUser();
 
-        AssertTechnicianFallback(user);
+        AssertAnonymousFallback(user);
     }
 
     private static IHttpContextAccessor CreateAccessor(ClaimsPrincipal principal)
@@ -211,9 +220,9 @@ public class HttpUserContextResolverTests
         db.SaveChanges();
     }
 
-    private static void AssertTechnicianFallback(UserContext user)
+    private static void AssertAnonymousFallback(UserContext user)
     {
-        user.Role.Should().Be(UserRole.Technician);
+        user.Role.Should().Be(UserRole.Anonymous);
         user.UserId.Should().BeNull();
         user.TechnicianId.Should().BeNull();
     }

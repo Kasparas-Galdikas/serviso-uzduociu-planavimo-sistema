@@ -48,7 +48,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AuthMe_UnknownUser_FallsBackToTechnicianContext()
+    public async Task AuthMe_UnknownUser_FallsBackToAnonymousContext()
     {
         await ResetAndReseedAsync();
         var client = CreateClient("missing-user@test.com");
@@ -57,7 +57,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
-        payload!.GetProperty("role").GetString().Should().Be("technician");
+        payload!.GetProperty("role").GetString().Should().Be("anonymous");
         payload.GetProperty("userId").ValueKind.Should().Be(JsonValueKind.Null);
         payload.GetProperty("technicianId").ValueKind.Should().Be(JsonValueKind.Null);
     }

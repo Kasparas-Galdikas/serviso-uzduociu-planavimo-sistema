@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Scheduling;
+using ServiceTaskPlanningSystem.Services.Time;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Services.Authorization;
 
@@ -14,14 +15,16 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
         private readonly IScheduleProvider _scheduleProvider;
         private readonly IScheduleLayoutBuilder _layoutBuilder;
         private readonly IPlanService _planService;
+        private readonly IScheduleTimeService _timeService;
         private readonly ILogger<ScheduleViewController> _logger;
         private readonly IUserContextResolver _userContextResolver;
 
-        public ScheduleViewController(IScheduleProvider scheduleProvider, IScheduleLayoutBuilder layoutBuilder, IPlanService planService, IUserContextResolver userContextResolver, ILogger<ScheduleViewController> logger)
+        public ScheduleViewController(IScheduleProvider scheduleProvider, IScheduleLayoutBuilder layoutBuilder, IPlanService planService, IScheduleTimeService timeService, IUserContextResolver userContextResolver, ILogger<ScheduleViewController> logger)
         {
             _scheduleProvider = scheduleProvider;
             _layoutBuilder = layoutBuilder;
             _planService = planService;
+            _timeService = timeService;
             _userContextResolver = userContextResolver;
             _logger = logger;
         }
@@ -40,7 +43,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
                 // Invalid state: draft should originate from an active plan. Log/flag as needed.
             }
 
-            var timezoneOffset = GetBrowserTimezoneOffset();
+            var timezoneOffset = _timeService.GetBrowserTimezoneOffset(Request);
             var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, status, info, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
             vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
@@ -81,7 +84,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
                 // Invalid state: draft should originate from an active plan. Log/flag as needed.
             }
 
-            var timezoneOffset = GetBrowserTimezoneOffset();
+            var timezoneOffset = _timeService.GetBrowserTimezoneOffset(Request);
             var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, status, info, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
             vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
@@ -127,28 +130,6 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             }
 
             return viewModel;
-        }
-
-       
-        /// Extract browser timezone offset from request headers.
-        /// Default to 0 if not provided.
-        private int GetBrowserTimezoneOffset()
-        {
-            // Try header first (for AJAX requests)
-            if (Request.Headers.TryGetValue("X-Timezone-Offset", out var tzHeader) &&
-                int.TryParse(tzHeader.ToString(), out var offset))
-            {
-                return offset;
-            }
-
-            // Fallback to cookie (for initial page loads)
-            if (Request.Cookies.TryGetValue("timezone_offset", out var tzCookie) &&
-                int.TryParse(tzCookie, out var cookieOffset))
-            {
-                return cookieOffset;
-            }
-
-            return 0;
         }
     }
 }

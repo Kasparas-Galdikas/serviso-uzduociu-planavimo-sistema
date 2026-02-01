@@ -1,4 +1,5 @@
 using System;
+using Microsoft.AspNetCore.Http;
 
 namespace ServiceTaskPlanningSystem.Services.Time
 {
@@ -98,6 +99,25 @@ namespace ServiceTaskPlanningSystem.Services.Time
         {
             var userLocalToday = GetUserLocalToday(timezoneOffsetMinutes);
             return dateToCheck.Date < userLocalToday;
+        }
+
+        public int GetBrowserTimezoneOffset(HttpRequest request)
+        {
+            // Try header first (for AJAX requests)
+            if (request.Headers.TryGetValue("X-Timezone-Offset", out var tzHeader) &&
+                int.TryParse(tzHeader.ToString(), out var offset))
+            {
+                return offset;
+            }
+
+            // Fallback to cookie (for initial page loads)
+            if (request.Cookies.TryGetValue("timezone_offset", out var tzCookie) &&
+                int.TryParse(tzCookie, out var cookieOffset))
+            {
+                return cookieOffset;
+            }
+
+            return 0;
         }
     }
 }
