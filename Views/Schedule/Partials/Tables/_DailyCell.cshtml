@@ -1,0 +1,21 @@
+@model ServiceTaskPlanningSystem.Models.Planning.DailyCellData
+
+@if (Model.IsEmpty && Model.EmptySlot != null)
+{
+    var slot = Model.EmptySlot;
+    <div class="schedule-slot"
+         role="button"
+         tabindex="0"
+         aria-label="Pasirinkti laiko tarpa nuo @slot.TimeLabel"
+         data-date="@slot.Date"
+         data-tech-id="@slot.TechnicianId"
+         data-slot-start-minutes="@slot.SlotStartMinutes">
+    </div>
+}
+else
+{
+    @foreach (var task in Model.Tasks)
+    {
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TaskCard.cshtml", task)
+    }
+}

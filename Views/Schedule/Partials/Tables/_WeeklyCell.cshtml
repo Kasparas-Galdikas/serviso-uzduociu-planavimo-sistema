@@ -1,0 +1,38 @@
+@model ServiceTaskPlanningSystem.Models.Planning.WeeklyCellData
+
+@{
+    var data = Model;
+    var loadLine = $"{data.TotalHours:0.#}h / {data.DailyLimit:0.#}h";
+    var taskLine = data.TaskCount > 0 ? $"{data.TaskCount} uzduotys" : "Nera uzduociu";
+    var freeLine = data.FreeHours >= 0
+        ? $"+{data.FreeHours:0.#}h laisva"
+        : $"{Math.Abs(data.FreeHours):0.#}h virsija";
+    var freeClass = data.FreeHours >= 0 ? "text-success" : "text-danger";
+    var dotTitle = data.StateClass switch
+    {
+        "task-conflict" => "Perkrova",
+        "task-load" => "Apkrova",
+        _ => "Normali"
+    };
+    var dotClass = data.StateClass switch
+    {
+        "task-conflict" => "is-conflict",
+        "task-load" => "is-load",
+        _ => "is-normal"
+    };
+}
+
+<a href="@data.DailyUrl" class="text-decoration-none d-block">
+    <div class="task-card weekly-card p-2">
+        <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+            <div class="fact-line fw-semibold mb-0">@loadLine</div>
+            <span class="state-dot-only @dotClass" title="@dotTitle" aria-label="@dotTitle"></span>
+        </div>
+        <div class="d-flex justify-content-between align-items-start gap-2">
+            <div class="weekly-facts">
+                <div class="fact-line text-muted">@taskLine</div>
+                <div class="fact-line @freeClass">@freeLine</div>
+            </div>
+        </div>
+    </div>
+</a>

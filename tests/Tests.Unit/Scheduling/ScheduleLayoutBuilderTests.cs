@@ -59,6 +59,9 @@ public class ScheduleLayoutBuilderTests
         var row = layout.Table.Rows.Single();
         var firstCell = row.Cells.First();
 
-        firstCell.ContentHtml.Should().Contain("Perkrova");
+        // WeeklyData now contains structured data instead of HTML
+        firstCell.WeeklyData.Should().NotBeNull();
+        firstCell.WeeklyData!.HasConflicts.Should().BeTrue();
+        firstCell.WeeklyData.StateClass.Should().Be("task-conflict");
     }
 }

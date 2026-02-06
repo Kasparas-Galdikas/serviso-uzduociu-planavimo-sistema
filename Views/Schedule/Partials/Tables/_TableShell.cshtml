@@ -23,10 +23,32 @@
             @foreach (var row in Model.Rows)
             {
                 <tr>
-                    <th class="align-top tech-cell">@Html.Raw(row.HeaderHtml)</th>
+                    <th class="align-top tech-cell">
+                        @if (row.TechnicianInfo != null)
+                        {
+                            @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TechnicianHeader.cshtml", row.TechnicianInfo)
+                        }
+                        else
+                        {
+                            @Html.Raw(row.HeaderHtml)
+                        }
+                    </th>
                     @foreach (var cell in row.Cells)
                     {
-                        <td class="@cell.CssClass" colspan="@cell.ColSpan">@Html.Raw(cell.ContentHtml)</td>
+                        <td class="@cell.CssClass" colspan="@cell.ColSpan">
+                            @if (cell.DailyData != null)
+                            {
+                                @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_DailyCell.cshtml", cell.DailyData)
+                            }
+                            else if (cell.WeeklyData != null)
+                            {
+                                @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_WeeklyCell.cshtml", cell.WeeklyData)
+                            }
+                            else
+                            {
+                                @Html.Raw(cell.ContentHtml)
+                            }
+                        </td>
                     }
                 </tr>
             }
