@@ -12,11 +12,13 @@ namespace ServiceTaskPlanningSystem.Services.Time
     public class PlanningCalendar : IPlanningCalendar
     {
         private readonly ScheduleDbContext _db;
+        private readonly IScheduleTimeService _timeService;
         private readonly ILogger<PlanningCalendar> _logger;
 
-        public PlanningCalendar(ScheduleDbContext db, ILogger<PlanningCalendar> logger)
+        public PlanningCalendar(ScheduleDbContext db, IScheduleTimeService timeService, ILogger<PlanningCalendar> logger)
         {
             _db = db;
+            _timeService = timeService;
             _logger = logger;
         }
 
@@ -34,7 +36,7 @@ namespace ServiceTaskPlanningSystem.Services.Time
                 .DefaultIfEmpty((DateTime?)null)
                 .Max();
 
-            var today = DateTime.Today;
+            var today = _timeService.GetLocalToday();
             var firstFreeDate = lastOccupied == null || lastOccupied == default
                 ? today
                 : lastOccupied.Value.AddDays(1);

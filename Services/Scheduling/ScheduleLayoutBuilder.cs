@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using ServiceTaskPlanningSystem.Models.Planning;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.Scheduling
 {
@@ -14,6 +15,13 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
     public class ScheduleLayoutBuilder : IScheduleLayoutBuilder
     {
+        private readonly IScheduleTimeService _timeService;
+
+        public ScheduleLayoutBuilder(IScheduleTimeService timeService)
+        {
+            _timeService = timeService;
+        }
+
         public DailyTableLayout BuildDailyLayout(SchedulePageViewModel viewModel)
         {
             var day = viewModel.SelectedDate != default ? viewModel.SelectedDate : viewModel.WeekStart;
@@ -115,7 +123,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             return new DailyTableLayout
             {
                 HeaderLabel = headerLabel,
-                IsToday = day.Date == DateTime.Today,
+                IsToday = day.Date == _timeService.GetLocalToday(),
                 Table = new TableShellModel
                 {
                     FirstColumnTitle = "Technikai",
@@ -138,7 +146,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 .Select(d =>
                 {
                     var label = lt.TextInfo.ToTitleCase(d.ToString("dddd yyyy-MM-dd", lt));
-                    var isToday = d.Date == DateTime.Today;
+                    var isToday = d.Date == _timeService.GetLocalToday();
                     return new TableColumn
                     {
                         Title = label,

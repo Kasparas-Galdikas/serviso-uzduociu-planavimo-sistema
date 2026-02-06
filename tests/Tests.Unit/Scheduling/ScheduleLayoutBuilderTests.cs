@@ -1,18 +1,23 @@
 using System;
 using System.Linq;
 using FluentAssertions;
+using NSubstitute;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.Scheduling;
+using ServiceTaskPlanningSystem.Services.Time;
 using Xunit;
 
 namespace Tests.Unit.Scheduling;
 
 public class ScheduleLayoutBuilderTests
 {
+    private readonly IScheduleTimeService _timeService = Substitute.For<IScheduleTimeService>();
+
     [Fact]
     public void DailyLayout_ProducesExpectedSlotsAndRows()
     {
-        var builder = new ScheduleLayoutBuilder();
+        _timeService.GetLocalToday().Returns(new DateTime(2026, 1, 20));
+        var builder = new ScheduleLayoutBuilder(_timeService);
         var vm = new SchedulePageViewModel
         {
             SelectedDate = new DateTime(2026, 1, 20),
@@ -35,7 +40,8 @@ public class ScheduleLayoutBuilderTests
     [Fact]
     public void WeeklyLayout_Marks_Conflict_State()
     {
-        var builder = new ScheduleLayoutBuilder();
+        _timeService.GetLocalToday().Returns(new DateTime(2026, 1, 19));
+        var builder = new ScheduleLayoutBuilder(_timeService);
         var weekStart = new DateTime(2026, 1, 19);
         var vm = new SchedulePageViewModel
         {

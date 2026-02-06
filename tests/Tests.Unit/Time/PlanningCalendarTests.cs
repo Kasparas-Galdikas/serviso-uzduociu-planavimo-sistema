@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.Time;
 using Xunit;
@@ -11,6 +12,13 @@ namespace Tests.Unit.Time;
 
 public class PlanningCalendarTests
 {
+    private readonly IScheduleTimeService _timeService = Substitute.For<IScheduleTimeService>();
+
+    public PlanningCalendarTests()
+    {
+        _timeService.GetLocalToday().Returns(DateTime.Today);
+    }
+
     [Fact]
     public async Task Builds_Window_From_Boundary_With_Fallback_Weeks()
     {
@@ -27,7 +35,7 @@ public class PlanningCalendarTests
         });
         db.SaveChanges();
 
-        var calendar = new PlanningCalendar(db, NullLogger<PlanningCalendar>.Instance);
+        var calendar = new PlanningCalendar(db, _timeService, NullLogger<PlanningCalendar>.Instance);
 
         var boundary = await calendar.GetBoundaryAsync();
         var window = await calendar.BuildWindowAsync(null, null, null, fallbackWeeks: 4);
@@ -55,7 +63,7 @@ public class PlanningCalendarTests
         });
         db.SaveChanges();
 
-        var calendar = new PlanningCalendar(db, NullLogger<PlanningCalendar>.Instance);
+        var calendar = new PlanningCalendar(db, _timeService, NullLogger<PlanningCalendar>.Instance);
         var boundary = await calendar.GetBoundaryAsync();
         var beforeBoundary = boundary.FirstFreeDate.AddDays(-1);
 

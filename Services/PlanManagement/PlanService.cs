@@ -1105,7 +1105,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             var dayEnd = dayStartUtc.AddDays(1);
-            var weekStart = GetWeekStartStatic(dayStartUtc);
+            var weekStart = Scheduling.WeekCalculator.GetWeekStart(dayStartUtc);
             var weekEnd = weekStart.AddDays(7);
 
             var dayTasks = tasks
@@ -1124,14 +1124,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
             return MapToLoadSnapshotDto(technician, snapshot);
-        }
-
-        private static DateTime GetWeekStartStatic(DateTime date)
-        {
-            var dayOfWeek = date.DayOfWeek;
-            var diff = dayOfWeek - DayOfWeek.Monday;
-            if (diff < 0) diff += 7;
-            return date.AddDays(-diff).Date;
         }
 
         /// <summary>

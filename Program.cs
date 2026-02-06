@@ -87,7 +87,7 @@ builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Inte
 builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Interfaces.IPlanStatusEditPolicy, ServiceTaskPlanningSystem.Services.Authorization.Policies.ActivePlanEditPolicy>();
 builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Interfaces.IPlanStatusEditPolicy, ServiceTaskPlanningSystem.Services.Authorization.Policies.SupersededPlanEditPolicy>();
 builder.Services.AddTransient<DatabaseSeeder>();
-builder.Services.AddSingleton<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
+builder.Services.AddScoped<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 builder.Services.AddHostedService<EvaluationRepairService>();
 builder.Services.AddHostedService<TaskAutoExpirationService>();
 

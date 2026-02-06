@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.Scheduling;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -223,7 +224,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             List<TechnicianEntity> allTechnicians)
         {
             var dayStart = targetTask.StartAt.Date;
-            var weekStart = GetWeekStart(dayStart);
+            var weekStart = WeekCalculator.GetWeekStart(dayStart);
             return EvaluateTechnicianSnapshot(
                 targetTask.TechnicianId,
                 dayStart,
@@ -232,13 +233,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 allTechnicians);
         }
 
-        private static DateTime GetWeekStart(DateTime date)
-        {
-            var dayOfWeek = date.DayOfWeek;
-            var diff = dayOfWeek - DayOfWeek.Monday;
-            if (diff < 0) diff += 7;
-            return date.AddDays(-diff).Date;
-        }
     }
 
     /// <summary>

@@ -44,8 +44,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 infoType = "apkrova";
                 status = null;
             }
-            var weekStart = WeekCalculator.GetWeekStart(selectedDate);
-            var weekEnd = WeekCalculator.GetWeekEnd(selectedDate);
+            var weekStart = _timeService.GetWeekStart(selectedDate);
+            var weekEnd = _timeService.GetWeekEnd(selectedDate);
             var weekStartUtc = DateTime.SpecifyKind(weekStart, DateTimeKind.Utc);
             var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
             var boundary = await _planningCalendar.GetBoundaryAsync();

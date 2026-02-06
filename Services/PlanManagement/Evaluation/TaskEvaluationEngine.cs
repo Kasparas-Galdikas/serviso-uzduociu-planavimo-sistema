@@ -6,17 +6,20 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
     public class TaskEvaluationEngine : IEvaluationEngine
     {
         private readonly ScheduleDbContext _db;
+        private readonly IScheduleTimeService _timeService;
         private readonly ILogger<TaskEvaluationEngine> _logger;
 
-        public TaskEvaluationEngine(ScheduleDbContext db, ILogger<TaskEvaluationEngine> logger)
+        public TaskEvaluationEngine(ScheduleDbContext db, IScheduleTimeService timeService, ILogger<TaskEvaluationEngine> logger)
         {
             _db = db;
+            _timeService = timeService;
             _logger = logger;
         }
 
@@ -52,7 +55,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .Where(t => t != null)
                 .GroupBy(t => t!.Id)
                 .ToDictionary(g => g.Key, g => g.First()!);
-            var now = DateTime.UtcNow;
+            var now = _timeService.GetCurrentUtcTime();
             var evaluations = new List<TaskEvaluationEntity>();
             var tracked = await _db.TaskEvaluations
                 .Where(e => tasks.Select(t => t.Id).Contains(e.TaskId))
@@ -82,7 +85,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 foreach (var dayGroup in tasksByDay)
                 {
                     var dayTasks = dayGroup.OrderBy(t => t.StartAt).ToList();
-                    var weekStart = Services.Scheduling.WeekCalculator.GetWeekStart(dayGroup.Key);
+                    var weekStart = _timeService.GetWeekStart(dayGroup.Key);
                     var weekEnd = weekStart.AddDays(7);
                     var weekTasks = techGroup
                         .Where(t => t.StartAt.Date >= weekStart && t.StartAt.Date < weekEnd)
