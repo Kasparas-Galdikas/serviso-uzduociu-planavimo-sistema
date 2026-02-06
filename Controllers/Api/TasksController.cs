@@ -347,16 +347,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             }
 
             var user = _userContextResolver.GetCurrentUser();
-            if (user.IsTechnician && (!user.TechnicianId.HasValue || existing.TechnicianId != user.TechnicianId.Value))
-            {
-                return StatusCode(403, new { message = "Galite redaguoti tik savo uzduotis." });
-            }
 
-            if (!_timeService.IsTaskStillEditable(existing.EndAt))
-            {
-                return UnprocessableEntity(new { message = "Si uzduotis nebegali buti redaguojama." });
-            }
-
+            // Single authorization check - TaskPermissionService is the sole authority
             var canEdit = await _taskPermissionService.CanEditTaskAsync(existing, user, dto.TimezoneOffsetMinutes);
             if (!canEdit)
             {

@@ -322,22 +322,16 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TechnicianUpdateResult(TechnicianUpdateError.TaskNotFound, "Uzduotis nerasta.");
             }
 
-            // Check ownership
-            if (user.IsTechnician && (!user.TechnicianId.HasValue || task.TechnicianId != user.TechnicianId.Value))
-            {
-                return new TechnicianUpdateResult(TechnicianUpdateError.NotOwner, "Galite redaguoti tik savo uzduotis.");
-            }
-
-            // Check if task is still editable
-            if (!_timeService.IsTaskStillEditable(task.EndAt))
-            {
-                return new TechnicianUpdateResult(TechnicianUpdateError.NotEditable, "Si uzduotis nebegali buti redaguojama.");
-            }
-
-            // Check permissions
+            // Single authorization check - TaskPermissionService is the sole authority
+            // (handles ownership, time editability, and role-based rules)
             var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffsetMinutes);
             if (!canEdit)
             {
+                // Check if it's an ownership issue for technicians (for specific error message)
+                if (user.IsTechnician && (!user.TechnicianId.HasValue || task.TechnicianId != user.TechnicianId.Value))
+                {
+                    return new TechnicianUpdateResult(TechnicianUpdateError.NotOwner, "Galite redaguoti tik savo uzduotis.");
+                }
                 return new TechnicianUpdateResult(TechnicianUpdateError.NotEditable, "Si uzduotis nebegali buti redaguojama.");
             }
 
@@ -773,8 +767,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, "Pabaiga turi buti veliau nei pradzia.");
             }
 
+            // Single authorization check - TaskPermissionService handles time editability internally
             var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffsetMinutes);
-            if (!canEdit || !_timeService.IsTaskStillEditable(task.EndAt))
+            if (!canEdit)
             {
                 return new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, "Neturite teisiu keisti uzduoties laiko.");
             }
