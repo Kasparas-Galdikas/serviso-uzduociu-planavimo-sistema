@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-using ServiceTaskPlanningSystem.Services.Scheduling;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Data.Seed
 {
@@ -14,10 +14,12 @@ namespace ServiceTaskPlanningSystem.Data.Seed
     public class DatabaseSeeder
     {
         private readonly ScheduleDbContext _db;
+        private readonly IScheduleTimeService _timeService;
 
-        public DatabaseSeeder(ScheduleDbContext db)
+        public DatabaseSeeder(ScheduleDbContext db, IScheduleTimeService timeService)
         {
             _db = db;
+            _timeService = timeService;
         }
 
         public async Task SeedAsync()
@@ -205,7 +207,7 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             Dictionary<string, AddressEntity> addressLookupByFull,
             Dictionary<long, AddressEntity> addressById)
         {
-            var weekStart = WeekCalculator.GetWeekStart(DateTime.Today);
+            var weekStart = _timeService.GetWeekStart(DateTime.Today);
             var mockTasks = MockSeedData.GetTasks(weekStart, 5);
 
             if (mockTasks.Count == 0) return;
@@ -239,8 +241,8 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                 }
 
                 // Convert local times to UTC
-                var startUtc = ConvertLocalToUtc(mockTask.StartTime, timezoneOffsetMinutes);
-                var endUtc = ConvertLocalToUtc(mockTask.EndTime, timezoneOffsetMinutes);
+                var startUtc = _timeService.ConvertLocalToUtc(mockTask.StartTime, timezoneOffsetMinutes);
+                var endUtc = _timeService.ConvertLocalToUtc(mockTask.EndTime, timezoneOffsetMinutes);
 
                 // Find object if specified
                 long? objectId = null;
@@ -342,17 +344,6 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
             _db.TaskEvaluations.AddRange(evaluations);
             await _db.SaveChangesAsync();
-        }
-
-        private static DateTime ConvertLocalToUtc(DateTime localTime, int timezoneOffsetMinutes)
-        {
-            if (localTime.Kind == DateTimeKind.Utc)
-            {
-                return localTime;
-            }
-
-            var unspecified = DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified);
-            return DateTime.SpecifyKind(unspecified.AddMinutes(-timezoneOffsetMinutes), DateTimeKind.Utc);
         }
 
         private async Task<AddressEntity> GetTaskAddressEntityAsync(

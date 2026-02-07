@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using ServiceTaskPlanningSystem.Data;
-using ServiceTaskPlanningSystem.Services.Scheduling;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -39,16 +39,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         /// </summary>
         public LoadScoreContext OriginalState { get; }
 
+        private readonly IScheduleTimeService _timeService;
+
         private PlanSimulationContext(
             IReadOnlyList<TaskEntity> tasks,
             IReadOnlyList<TechnicianEntity> technicians,
             TaskEntity targetTask,
-            LoadScoreContext originalState)
+            LoadScoreContext originalState,
+            IScheduleTimeService timeService)
         {
             Tasks = tasks;
             Technicians = technicians;
             TargetTask = targetTask;
             OriginalState = originalState;
+            _timeService = timeService;
         }
 
         /// <summary>
@@ -57,18 +61,23 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public static PlanSimulationContext Create(
             IEnumerable<TaskEntity> allTasks,
             IEnumerable<TechnicianEntity> allTechnicians,
-            TaskEntity targetTask)
+            TaskEntity targetTask,
+            IScheduleTimeService timeService)
         {
+            if (timeService == null)
+                throw new ArgumentNullException(nameof(timeService));
+
             var tasksList = allTasks.ToList();
             var techList = allTechnicians.ToList();
-            
-            var originalState = EvaluateSnapshotState(targetTask, tasksList, techList);
+
+            var originalState = EvaluateSnapshotState(targetTask, tasksList, techList, timeService);
 
             return new PlanSimulationContext(
                 tasksList.AsReadOnly(),
                 techList.AsReadOnly(),
                 targetTask,
-                originalState);
+                originalState,
+                timeService);
         }
 
         /// <summary>
@@ -82,7 +91,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 modifiedTasks.AsReadOnly(),
                 Technicians,
                 TargetTask,
-                OriginalState);
+                OriginalState,
+                _timeService);
         }
 
         /// <summary>
@@ -91,7 +101,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         /// </summary>
         public LoadScoreContext EvaluateCurrentState()
         {
-            return EvaluateSnapshotState(TargetTask, Tasks.ToList(), Technicians.ToList());
+            return EvaluateSnapshotState(TargetTask, Tasks.ToList(), Technicians.ToList(), _timeService);
         }
 
         /// <summary>
@@ -221,10 +231,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private static LoadScoreContext EvaluateSnapshotState(
             TaskEntity targetTask,
             List<TaskEntity> allTasks,
-            List<TechnicianEntity> allTechnicians)
+            List<TechnicianEntity> allTechnicians,
+            IScheduleTimeService timeService)
         {
             var dayStart = targetTask.StartAt.Date;
-            var weekStart = WeekCalculator.GetWeekStart(dayStart);
+            var weekStart = timeService.GetWeekStart(dayStart);
             return EvaluateTechnicianSnapshot(
                 targetTask.TechnicianId,
                 dayStart,

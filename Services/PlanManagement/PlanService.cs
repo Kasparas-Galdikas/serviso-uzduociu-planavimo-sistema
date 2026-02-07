@@ -1016,7 +1016,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .AsNoTracking()
                 .ToListAsync(cancellationToken);
 
-            var simulation = PlanSimulationContext.Create(scopeTasks, technicians, targetTask);
+            var simulation = PlanSimulationContext.Create(scopeTasks, technicians, targetTask, _timeService);
 
             var modifiedSim = simulation.WithModifiedTasks(tasks =>
             {
@@ -1092,7 +1092,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             return new DragPreviewResult(DragPreviewError.None, Response: response);
         }
 
-        private static LoadSnapshotDto BuildLoadSnapshotForSimulation(
+        private LoadSnapshotDto BuildLoadSnapshotForSimulation(
             long technicianId,
             DateTime dayStartUtc,
             List<TaskEntity> tasks,
@@ -1105,7 +1105,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             var dayEnd = dayStartUtc.AddDays(1);
-            var weekStart = Scheduling.WeekCalculator.GetWeekStart(dayStartUtc);
+            var weekStart = _timeService.GetWeekStart(dayStartUtc);
             var weekEnd = weekStart.AddDays(7);
 
             var dayTasks = tasks

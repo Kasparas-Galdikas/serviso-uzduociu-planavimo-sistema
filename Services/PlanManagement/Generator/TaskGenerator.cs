@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Interfaces;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -28,14 +29,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private readonly ScheduleDbContext _db;
         private readonly IEvaluationEngine _evaluationEngine;
         private readonly ILogger<TaskGenerator> _logger;
+        private readonly IScheduleTimeService _timeService;
 
         public TaskGenerator(
             ScheduleDbContext db,
             IEvaluationEngine evaluationEngine,
+            IScheduleTimeService timeService,
             ILogger<TaskGenerator> logger)
         {
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _evaluationEngine = evaluationEngine ?? throw new ArgumentNullException(nameof(evaluationEngine));
+            _timeService = timeService ?? throw new ArgumentNullException(nameof(timeService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -84,7 +88,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 var originalScore = ComputeTaskScore(targetTask, scopeTasks, allTechnicians, weights);
 
                 // Create simulation context for real evaluation
-                var simulation = PlanSimulationContext.Create(scopeTasks, allTechnicians, targetTask);
+                var simulation = PlanSimulationContext.Create(scopeTasks, allTechnicians, targetTask, _timeService);
 
                 // Generate candidate scenarios
                 var candidates = new List<CandidatePlan>();
@@ -428,14 +432,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         /// This is the baseline used to measure candidate improvement.
         /// Uses PlanSimulationContext to ensure accurate metrics from real data.
         /// </summary>
-        private static double ComputeTaskScore(
+        private double ComputeTaskScore(
             TaskEntity task,
             List<TaskEntity> allTasks,
             List<TechnicianEntity> allTechnicians,
             LoadScoreWeights weights)
         {
             // Create a simulation to get real metrics
-            var sim = PlanSimulationContext.Create(allTasks, allTechnicians, task);
+            var sim = PlanSimulationContext.Create(allTasks, allTechnicians, task, _timeService);
             var state = sim.EvaluateCurrentState();
             return LoadScoreCalculator.ComputeLoadScore(state, weights);
         }
@@ -444,7 +448,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         /// Fallback: Computes initial score from task evaluation if simulation not available.
         /// Used only when full context not available.
         /// </summary>
-        private static double ComputeTaskScore(TaskEntity task, LoadScoreWeights weights)
+        private double ComputeTaskScore(TaskEntity task, LoadScoreWeights weights)
         {
             if (task.Evaluation == null)
                 return 0.0;

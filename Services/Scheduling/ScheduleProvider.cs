@@ -540,18 +540,4 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
         }
     }
 
-    internal static class WeekCalculator
-    {
-        public static DateTime GetWeekStart(DateTime date)
-        {
-            var localDate = date.Date;
-            var offset = ((int)localDate.DayOfWeek + 6) % 7; // Monday = 0
-            return localDate.AddDays(-offset);
-        }
-
-        public static DateTime GetWeekEnd(DateTime date) => GetWeekStart(date).AddDays(6);
-
-        public static bool IsInRange(DateTime date, DateTime start, DateTime end) =>
-            date.Date >= start.Date && date.Date <= end.Date;
-    }
 }

@@ -21,6 +21,11 @@ namespace ServiceTaskPlanningSystem.Services.Time
 
         public DateTime ConvertLocalToUtc(DateTime localDateTime, int timezoneOffsetMinutes)
         {
+            if (localDateTime.Kind == DateTimeKind.Utc)
+            {
+                return localDateTime;
+            }
+
             // Local time is: UTC + offset
             // So to get UTC: Local - offset
             var utcDateTime = localDateTime.AddMinutes(-timezoneOffsetMinutes);
@@ -40,18 +45,6 @@ namespace ServiceTaskPlanningSystem.Services.Time
             return taskEndUtc > now;
         }
 
-        public bool IsDateInPast(DateTime dateToCheck)
-        {
-            var today = GetLocalToday();
-            return dateToCheck.Date < today.Date;
-        }
-
-        public bool IsDateTimeInPastUtc(DateTime dateTimeUtc)
-        {
-            var now = GetCurrentUtcTime();
-            return dateTimeUtc < now;
-        }
-
         public DateTime GetWeekStart(DateTime date)
         {
             var dayOfWeek = (int)date.DayOfWeek;
@@ -66,23 +59,9 @@ namespace ServiceTaskPlanningSystem.Services.Time
             return weekStart.AddDays(6);
         }
 
-        public string MinutesToTimeString(int minutes)
-        {
-            var mm = Math.Max(0, minutes | 0);
-            var h = String.Format("{0:D2}", Math.Floor((double)mm / 60));
-            var min = String.Format("{0:D2}", mm % 60);
-            return $"{h}:{min}";
-        }
-
-        public DateTime GetUserLocalNow(int timezoneOffsetMinutes)
-        {
-            var utcNow = GetCurrentUtcTime();
-            return ConvertUtcToLocal(utcNow, timezoneOffsetMinutes);
-        }
-
         public DateTime GetUserLocalToday(int timezoneOffsetMinutes)
         {
-            var userLocalNow = GetUserLocalNow(timezoneOffsetMinutes);
+            var userLocalNow = ConvertUtcToLocal(GetCurrentUtcTime(), timezoneOffsetMinutes);
             return userLocalNow.Date;
         }
 
@@ -93,12 +72,6 @@ namespace ServiceTaskPlanningSystem.Services.Time
 
             // Convert to UTC for storage
             return ConvertLocalToUtc(localDateTime, timezoneOffsetMinutes);
-        }
-
-        public bool IsDateInPastForUser(DateTime dateToCheck, int timezoneOffsetMinutes)
-        {
-            var userLocalToday = GetUserLocalToday(timezoneOffsetMinutes);
-            return dateToCheck.Date < userLocalToday;
         }
 
         public int GetBrowserTimezoneOffset(HttpRequest request)
