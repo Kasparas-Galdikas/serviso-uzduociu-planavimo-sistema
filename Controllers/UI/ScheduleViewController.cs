@@ -54,7 +54,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
                     t.IsEditable = false;
                 }
             }
-            vm = EnrichWithLayout(vm);
+            vm = EnrichWithLayout(vm, timezoneOffset);
             _logger.LogInformation("api.schedule.index {View} {Date} {Location} {Workload} active={Active} activePeriod={ActiveStart}-{ActiveEnd} activeStatus={ActiveStatus} draft={Draft} draftPeriod={DraftStart}-{DraftEnd} draftStatus={DraftStatus}",
                 vm.ViewMode,
                 vm.SelectedDate,
@@ -95,7 +95,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
                     t.IsEditable = false;
                 }
             }
-            vm = EnrichWithLayout(vm);
+            vm = EnrichWithLayout(vm, timezoneOffset);
             var partial = string.Equals(vm.ViewMode, "week", StringComparison.OrdinalIgnoreCase)
                 ? "~/Views/Schedule/Partials/Tables/_WeeklyTable.cshtml"
                 : "~/Views/Schedule/Partials/Tables/_DailyTable.cshtml";
@@ -118,15 +118,15 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             return PartialView(partial, vm);
         }
 
-        private SchedulePageViewModel EnrichWithLayout(SchedulePageViewModel viewModel)
+        private SchedulePageViewModel EnrichWithLayout(SchedulePageViewModel viewModel, int timezoneOffsetMinutes)
         {
             if (string.Equals(viewModel.ViewMode, "week", StringComparison.OrdinalIgnoreCase))
             {
-                viewModel.WeeklyLayout = _layoutBuilder.BuildWeeklyLayout(viewModel);
+                viewModel.WeeklyLayout = _layoutBuilder.BuildWeeklyLayout(viewModel, timezoneOffsetMinutes);
             }
             else
             {
-                viewModel.DailyLayout = _layoutBuilder.BuildDailyLayout(viewModel);
+                viewModel.DailyLayout = _layoutBuilder.BuildDailyLayout(viewModel, timezoneOffsetMinutes);
             }
 
             return viewModel;

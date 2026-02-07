@@ -16,7 +16,7 @@ public class ScheduleLayoutBuilderTests
     [Fact]
     public void DailyLayout_ProducesExpectedSlotsAndRows()
     {
-        _timeService.GetLocalToday().Returns(new DateTime(2026, 1, 20));
+        _timeService.GetUserLocalToday(0).Returns(new DateTime(2026, 1, 20));
         var builder = new ScheduleLayoutBuilder(_timeService);
         var vm = new SchedulePageViewModel
         {
@@ -29,7 +29,7 @@ public class ScheduleLayoutBuilderTests
             }
         };
 
-        var layout = builder.BuildDailyLayout(vm);
+        var layout = builder.BuildDailyLayout(vm, 0);
 
         var columns = layout.Table.Columns.ToList();
         columns.Should().HaveCount((ScheduleGrid.DayEndMinutes - ScheduleGrid.DayStartMinutes) / ScheduleGrid.SlotSizeMinutes + 1);
@@ -40,7 +40,7 @@ public class ScheduleLayoutBuilderTests
     [Fact]
     public void WeeklyLayout_Marks_Conflict_State()
     {
-        _timeService.GetLocalToday().Returns(new DateTime(2026, 1, 19));
+        _timeService.GetUserLocalToday(0).Returns(new DateTime(2026, 1, 19));
         var builder = new ScheduleLayoutBuilder(_timeService);
         var weekStart = new DateTime(2026, 1, 19);
         var vm = new SchedulePageViewModel
@@ -61,7 +61,7 @@ public class ScheduleLayoutBuilderTests
             }
         };
 
-        var layout = builder.BuildWeeklyLayout(vm);
+        var layout = builder.BuildWeeklyLayout(vm, 0);
         var row = layout.Table.Rows.Single();
         var firstCell = row.Cells.First();
 

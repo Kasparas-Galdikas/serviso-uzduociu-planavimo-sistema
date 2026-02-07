@@ -9,8 +9,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 {
     public interface IScheduleLayoutBuilder
     {
-        DailyTableLayout BuildDailyLayout(SchedulePageViewModel viewModel);
-        WeeklyTableLayout BuildWeeklyLayout(SchedulePageViewModel viewModel);
+        DailyTableLayout BuildDailyLayout(SchedulePageViewModel viewModel, int timezoneOffsetMinutes);
+        WeeklyTableLayout BuildWeeklyLayout(SchedulePageViewModel viewModel, int timezoneOffsetMinutes);
     }
 
     public class ScheduleLayoutBuilder : IScheduleLayoutBuilder
@@ -22,7 +22,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             _timeService = timeService;
         }
 
-        public DailyTableLayout BuildDailyLayout(SchedulePageViewModel viewModel)
+        public DailyTableLayout BuildDailyLayout(SchedulePageViewModel viewModel, int timezoneOffsetMinutes)
         {
             var day = viewModel.SelectedDate != default ? viewModel.SelectedDate : viewModel.WeekStart;
 
@@ -123,7 +123,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             return new DailyTableLayout
             {
                 HeaderLabel = headerLabel,
-                IsToday = day.Date == _timeService.GetLocalToday(),
+                IsToday = day.Date == _timeService.GetUserLocalToday(timezoneOffsetMinutes),
                 Table = new TableShellModel
                 {
                     FirstColumnTitle = "Technikai",
@@ -135,7 +135,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             };
         }
 
-        public WeeklyTableLayout BuildWeeklyLayout(SchedulePageViewModel viewModel)
+        public WeeklyTableLayout BuildWeeklyLayout(SchedulePageViewModel viewModel, int timezoneOffsetMinutes)
         {
             var lt = CultureInfo.GetCultureInfo("lt-LT");
             var days = Enumerable.Range(0, 7)
@@ -146,7 +146,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 .Select(d =>
                 {
                     var label = lt.TextInfo.ToTitleCase(d.ToString("dddd yyyy-MM-dd", lt));
-                    var isToday = d.Date == _timeService.GetLocalToday();
+                    var isToday = d.Date == _timeService.GetUserLocalToday(timezoneOffsetMinutes);
                     return new TableColumn
                     {
                         Title = label,
