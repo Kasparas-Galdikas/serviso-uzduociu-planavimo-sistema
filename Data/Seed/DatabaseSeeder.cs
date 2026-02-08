@@ -218,8 +218,14 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             Dictionary<string, ServiceObjectEntity> serviceObjectLookup,
             Dictionary<long, AddressEntity> addressById)
         {
-            var weekStart = _timeService.GetWeekStart(DateTime.Today);
-            var mockTasks = MockSeedData.GetTasks(weekStart, 5);
+            var today = _timeService.GetLocalToday();
+            var startDate = today.DayOfWeek switch
+            {
+                DayOfWeek.Saturday => today.AddDays(2),
+                DayOfWeek.Sunday => today.AddDays(1),
+                _ => today
+            };
+            var mockTasks = MockSeedData.GetTasks(startDate, 5);
 
             if (mockTasks.Count == 0) return;
 
@@ -238,8 +244,9 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             _db.Plans.Add(activePlan);
             await _db.SaveChangesAsync();
 
-            // Lithuania timezone offset (UTC+2 in winter, UTC+3 in summer)
-            var timezoneOffsetMinutes = 120; // EET (Eastern European Time) = UTC+2
+            // Seed timezone offset in minutes (currently fixed to Lithuania winter time: UTC+2).
+            // TODO: Consider sourcing this from configuration or adding DST-aware logic.
+            const int timezoneOffsetMinutes = 120;
 
             var taskEntities = new List<TaskEntity>();
             var evaluations = new List<TaskEvaluationEntity>();
@@ -251,9 +258,11 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                     continue; // Skip if technician not found
                 }
 
-                // Convert local times to UTC
-                var startUtc = _timeService.ConvertLocalToUtc(mockTask.StartTime, timezoneOffsetMinutes);
-                var endUtc = _timeService.ConvertLocalToUtc(mockTask.EndTime, timezoneOffsetMinutes);
+                // Convert local times to UTC using the shared time service.
+                var startMinutes = (int)Math.Round(mockTask.StartTime.TimeOfDay.TotalMinutes);
+                var endMinutes = (int)Math.Round(mockTask.EndTime.TimeOfDay.TotalMinutes);
+                var startUtc = _timeService.CreateUtcFromDateAndMinutes(mockTask.StartTime.Date, startMinutes, timezoneOffsetMinutes);
+                var endUtc = _timeService.CreateUtcFromDateAndMinutes(mockTask.EndTime.Date, endMinutes, timezoneOffsetMinutes);
 
                 // Find object if specified
                 if (!serviceObjectLookup.TryGetValue(mockTask.ObjectName, out var serviceObject))

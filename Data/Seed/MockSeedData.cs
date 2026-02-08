@@ -127,19 +127,25 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             var objects = GetObjects();
             var durationOptions = new[] { 1.5, 2.0, 2.5, 3.0 };
 
-            for (var dayOffset = 0; dayOffset < totalDays; dayOffset++)
+            var generatedDays = 0;
+            var currentDate = startDate.Date;
+            while (generatedDays < totalDays)
             {
-                var currentDate = startDate.Date.AddDays(dayOffset);
+                if (currentDate.DayOfWeek == DayOfWeek.Saturday || currentDate.DayOfWeek == DayOfWeek.Sunday)
+                {
+                    currentDate = currentDate.AddDays(1);
+                    continue;
+                }
 
                 for (var techIndex = 0; techIndex < technicians.Count; techIndex++)
                 {
                     var technician = technicians[techIndex];
-                    var startHour = 8.0 + (dayOffset % 3) * 0.5; // Vary start times slightly
-                    var taskCount = 2 + ((techIndex + dayOffset) % 3);
+                    var startHour = 8.0 + (generatedDays % 3) * 0.5; // Vary start times slightly
+                    var taskCount = 2 + ((techIndex + generatedDays) % 3);
 
                     for (var taskIndex = 0; taskIndex < taskCount; taskIndex++)
                     {
-                        var duration = durationOptions[(techIndex + dayOffset + taskIndex) % durationOptions.Length];
+                        var duration = durationOptions[(techIndex + generatedDays + taskIndex) % durationOptions.Length];
                         var endHour = startHour + duration;
 
                         if (endHour > 18.0) break; // Don't schedule beyond 6 PM
@@ -162,6 +168,9 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                         startHour = endHour + 0.5; // 30-minute break between tasks
                     }
                 }
+
+                generatedDays++;
+                currentDate = currentDate.AddDays(1);
             }
 
             return tasks;
