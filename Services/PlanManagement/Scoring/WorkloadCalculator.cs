@@ -30,7 +30,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public static WorkloadSnapshot Evaluate(
             TechnicianEntity technician,
             List<TaskEntity> dayTasks,
-            List<TaskEntity> weekTasks)
+            List<TaskEntity> weekTasks,
+            IReadOnlyDictionary<long, int>? travelMinutesByTaskId = null)
         {
             // Ensure deterministic ordering for conflict detection.
             dayTasks = dayTasks.OrderBy(t => t.StartAt).ToList();
@@ -47,9 +48,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var dailyTaskHours = activeDayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
             var weeklyTaskHours = activeWeekTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
 
-            // Calculate travel time hours from active tasks
-            var dailyTravelHours = activeDayTasks.Sum(t => (t.TravelDurationMinutes ?? 0) / 60.0);
-            var weeklyTravelHours = activeWeekTasks.Sum(t => (t.TravelDurationMinutes ?? 0) / 60.0);
+            // Calculate travel time hours from active tasks (source: travel_routes)
+            var dailyTravelHours = activeDayTasks.Sum(t =>
+                travelMinutesByTaskId != null && travelMinutesByTaskId.TryGetValue(t.Id, out var minutes)
+                    ? minutes / 60.0
+                    : 0.0);
+            var weeklyTravelHours = activeWeekTasks.Sum(t =>
+                travelMinutesByTaskId != null && travelMinutesByTaskId.TryGetValue(t.Id, out var minutes)
+                    ? minutes / 60.0
+                    : 0.0);
 
             // Total workload includes both task duration and travel time
             var dailyHours = dailyTaskHours + dailyTravelHours;

@@ -19,6 +19,7 @@ namespace ServiceTaskPlanningSystem.Data.Seed
         public class MockRegion
         {
             public string Name { get; set; } = string.Empty;
+            public string Country { get; set; } = "Lithuania";
             public int PriorityWeight { get; set; }
         }
 
@@ -31,8 +32,6 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             public int TravelSwitchLimit { get; set; }
             public string? RulesSummary { get; set; }
             public string WorkplaceAddress { get; set; } = string.Empty;
-            public decimal? WorkplaceLatitude { get; set; }
-            public decimal? WorkplaceLongitude { get; set; }
         }
 
         public class MockObject
@@ -47,13 +46,12 @@ namespace ServiceTaskPlanningSystem.Data.Seed
         {
             public string TechnicianName { get; set; } = string.Empty;
             public string Title { get; set; } = string.Empty;
-            public string Location { get; set; } = string.Empty;
             public DateTime StartTime { get; set; }
             public DateTime EndTime { get; set; }
             public TaskPriority Priority { get; set; }
             public ScheduleTaskStatus Status { get; set; }
             public string SkillLevel { get; set; } = string.Empty;
-            public string? ObjectName { get; set; }
+            public string ObjectName { get; set; } = string.Empty;
             public string? Instructions { get; set; }
         }
 
@@ -80,12 +78,12 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
         public static List<MockRegion> GetRegions() => new()
         {
-            new() { Name = "Vilnius", PriorityWeight = 0 },
-            new() { Name = "Kaunas", PriorityWeight = 0 },
-            new() { Name = "Klaipeda", PriorityWeight = 0 },
-            new() { Name = "Siauliai", PriorityWeight = 0 },
-            new() { Name = "Panevezys", PriorityWeight = 0 },
-            new() { Name = "Alytus", PriorityWeight = 0 }
+            new() { Name = "Vilnius", Country = "Lithuania", PriorityWeight = 0 },
+            new() { Name = "Kaunas", Country = "Lithuania", PriorityWeight = 0 },
+            new() { Name = "Klaipeda", Country = "Lithuania", PriorityWeight = 0 },
+            new() { Name = "Siauliai", Country = "Lithuania", PriorityWeight = 0 },
+            new() { Name = "Panevezys", Country = "Lithuania", PriorityWeight = 0 },
+            new() { Name = "Alytus", Country = "Lithuania", PriorityWeight = 0 }
         };
 
         public static List<MockTechnician> GetTechnicians() => new()
@@ -152,8 +150,6 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                         {
                             TechnicianName = technician.Name,
                             Title = taskIndex == 0 ? "Ryto vizitas" : taskIndex == taskCount - 1 ? "Dienos pabaigos darbai" : $"Darbai - {mockObject.Name}",
-                            // Store the actual object address so UI can display a real location instead of the technician's region.
-                            Location = mockObject.Address,
                             StartTime = currentDate.AddHours(startHour),
                             EndTime = currentDate.AddHours(endHour),
                             Priority = TaskPriority.Medium,

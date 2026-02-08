@@ -22,7 +22,7 @@ public class ScheduleProviderTests
     public async Task Filters_Tasks_By_Week_And_Location()
     {
         using var db = CreateContext();
-        SeedAddress(db, 1);
+        SeedAddress(db, 1, regionId: 1);
         var north = SeedTechnician(db, 1, "North");
         var south = SeedTechnician(db, 2, "South");
         var plan = SeedPlan(db, 1);
@@ -62,7 +62,7 @@ public class ScheduleProviderTests
     public async Task Maps_Task_Flags_And_Object_Address()
     {
         using var db = CreateContext();
-        SeedAddress(db, 1);
+        SeedAddress(db, 1, regionId: 1);
         var tech = SeedTechnician(db, 1, "North");
         var plan = SeedPlan(db, 1);
         var startUtc = new DateTime(2026, 1, 20, 8, 0, 0, DateTimeKind.Utc);
@@ -77,7 +77,15 @@ public class ScheduleProviderTests
             Title = "Conflict task",
             Status = ScheduleTaskStatus.InProgress,
             Priority = TaskPriority.High,
-            Object = new ObjectEntity { Id = 100, Address = "Obj address" },
+            ServiceObjectId = 100,
+            RegionId = 1,
+            ServiceObject = new ServiceObjectEntity
+            {
+                Id = 100,
+                Name = "Obj",
+                AddressId = 2,
+                Address = new AddressEntity { Id = 2, RegionId = 1, Street = "Obj", FullAddress = "Obj address" }
+            },
             Evaluation = new TaskEvaluationEntity
             {
                 Status = LoadState.Conflict,
@@ -135,9 +143,9 @@ public class ScheduleProviderTests
         return new ScheduleDbContext(options);
     }
 
-    private static void SeedAddress(ScheduleDbContext db, long id)
+    private static void SeedAddress(ScheduleDbContext db, long id, long regionId)
     {
-        db.Addresses.Add(new AddressEntity { Id = id, FullAddress = "Addr" });
+        db.Addresses.Add(new AddressEntity { Id = id, RegionId = regionId, Street = "Addr", FullAddress = "Addr" });
     }
 
     private static TechnicianEntity SeedTechnician(ScheduleDbContext db, long id, string location)
@@ -150,7 +158,7 @@ public class ScheduleProviderTests
             Role = UserRole.Technician,
             IsActive = true
         };
-        var region = new RegionEntity { Id = id, Name = location, CreatedAt = DateTime.UtcNow };
+        var region = new RegionEntity { Id = id, Name = location, Country = "LT", CreatedAt = DateTime.UtcNow };
 
         var tech = new TechnicianEntity
         {
@@ -188,11 +196,22 @@ public class ScheduleProviderTests
 
     private static void SeedTask(ScheduleDbContext db, long id, long techId, long planId, DateTime startUtc, DateTime endUtc, LoadState evalStatus)
     {
+        if (!db.Addresses.Any(a => a.Id == 1))
+        {
+            db.Addresses.Add(new AddressEntity { Id = 1, RegionId = 1, Street = "Addr", FullAddress = "Addr" });
+        }
+        if (!db.ServiceObjects.Any(s => s.Id == 1))
+        {
+            db.ServiceObjects.Add(new ServiceObjectEntity { Id = 1, Name = "Obj", AddressId = 1 });
+        }
+
         var task = new TaskEntity
         {
             Id = id,
             PlanId = planId,
             TechnicianId = techId,
+            ServiceObjectId = 1,
+            RegionId = 1,
             StartAt = startUtc,
             EndAt = endUtc,
             Title = $"Task {id}",

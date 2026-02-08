@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Authorization;
@@ -42,7 +42,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             // System constraint: New tasks must always start with InProgress status
             if (dto.Status != ScheduleTaskStatus.InProgress)
             {
-                return UnprocessableEntity(new { message = "Naujos užduotys turi prasidėti su 'Vykdoma' statusu. Sistema nustato statusą automatiškai." });
+                return UnprocessableEntity(new { message = "Naujos uÅ¾duotys turi prasidÄ—ti su 'Vykdoma' statusu. Sistema nustato statusÄ… automatiÅ¡kai." });
             }
 
             if (!TryParseDate(dto.TargetDate, out var targetDate))
@@ -57,8 +57,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (string.IsNullOrWhiteSpace(dto.SkillLevel) ||
                 string.IsNullOrWhiteSpace(dto.ObjectName) ||
-                string.IsNullOrWhiteSpace(dto.ObjectAddress) ||
-                string.IsNullOrWhiteSpace(dto.Location))
+                string.IsNullOrWhiteSpace(dto.ObjectAddress))
             {
                 return UnprocessableEntity(new { message = "Privalomi laukai (kvalifikacija, objektas ir adresas) turi buti uzpildyti." });
             }
@@ -66,7 +65,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var normalizedSkillLevel = dto.SkillLevel.Trim();
             var normalizedObjectName = dto.ObjectName.Trim();
             var normalizedObjectAddress = dto.ObjectAddress.Trim();
-            var normalizedLocation = dto.Location.Trim();
 
             var user = _userContextResolver.GetCurrentUser();
             var result = await _planService.CreateTaskAsync(
@@ -75,7 +73,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 dto.StartMinutes,
                 dto.EndMinutes,
                 dto.Title,
-                normalizedLocation,
                 dto.Priority,
                 dto.Status,
                 normalizedSkillLevel,
@@ -137,16 +134,16 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 PlanId = task.PlanId,
                 TechnicianId = task.TechnicianId,
                 Title = task.Title,
-                Location = task.Location,
+                Location = task.ServiceObject?.Address?.FullAddress ?? string.Empty,
                 StartAt = localStartAt,
                 EndAt = localEndAt,
                 Priority = task.Priority,
                 Status = task.Status,
                 TechnicianComment = task.TechnicianComment,
                 SkillLevel = task.SkillLevel,
-                ObjectId = task.ObjectId,
-                ObjectName = task.Object?.Name ?? string.Empty,
-                ObjectAddress = task.Object?.Address ?? string.Empty,
+                ObjectId = task.ServiceObjectId,
+                ObjectName = task.ServiceObject?.Name ?? string.Empty,
+                ObjectAddress = task.ServiceObject?.Address?.FullAddress ?? string.Empty,
                 Instructions = task.Instructions,
                 PlanStatus = task.Plan?.Status.ToString() ?? string.Empty,
                 IsEditable = isEditable,
@@ -264,7 +261,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (dto.TargetEndAt <= dto.TargetStartAt)
             {
-                return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlesnis už pradžią." });
+                return UnprocessableEntity(new { message = "Pabaigos laikas turi bÅ«ti vÄ—lesnis uÅ¾ pradÅ¾iÄ…." });
             }
 
             var timezoneOffset = _timeService.GetBrowserTimezoneOffset(Request);
@@ -312,8 +309,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (string.IsNullOrWhiteSpace(dto.SkillLevel) ||
                 string.IsNullOrWhiteSpace(dto.ObjectName) ||
-                string.IsNullOrWhiteSpace(dto.ObjectAddress) ||
-                string.IsNullOrWhiteSpace(dto.Location))
+                string.IsNullOrWhiteSpace(dto.ObjectAddress))
             {
                 return UnprocessableEntity(new { message = "Privalomi laukai (kvalifikacija, objektas ir adresas) turi buti uzpildyti." });
             }
@@ -321,7 +317,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var normalizedSkillLevel = dto.SkillLevel.Trim();
             var normalizedObjectName = dto.ObjectName.Trim();
             var normalizedObjectAddress = dto.ObjectAddress.Trim();
-            var normalizedLocation = dto.Location.Trim();
             var normalizedInstructions = (dto.Instructions ?? string.Empty).Trim();
 
             // Convert local times from frontend to UTC for storage
@@ -393,7 +388,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var updated = await _planService.UpdateTaskAsync(id, task =>
             {
                 task.Title = dto.Title;
-                task.Location = normalizedLocation;
                 task.StartAt = utcStartAt;
                 task.EndAt = utcEndAt;
                 task.Priority = dto.Priority;
@@ -548,3 +542,4 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
     }
 }
+

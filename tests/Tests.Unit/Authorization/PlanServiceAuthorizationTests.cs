@@ -50,7 +50,7 @@ public class PlanServiceAuthorizationTests
             .Returns(Task.FromResult(false));
 
         var service = CreateService(db);
-        var result = await service.CreateTaskAsync(1, DateTime.Today.AddDays(1), 480, 540, "t", "loc",
+        var result = await service.CreateTaskAsync(1, DateTime.Today.AddDays(1), 480, 540, "t",
             TaskPriority.Medium, ScheduleTaskStatus.InProgress, string.Empty, string.Empty, string.Empty, string.Empty,
             Manager(), 0, CancellationToken.None);
 
@@ -68,7 +68,7 @@ public class PlanServiceAuthorizationTests
             .Returns(Task.FromResult(true));
 
         var service = CreateService(db);
-        var result = await service.CreateTaskAsync(999, DateTime.Today.AddDays(1), 480, 540, "t", "loc",
+        var result = await service.CreateTaskAsync(999, DateTime.Today.AddDays(1), 480, 540, "t",
             TaskPriority.Medium, ScheduleTaskStatus.InProgress, string.Empty, string.Empty, string.Empty, string.Empty,
             Manager(), 0, CancellationToken.None);
 
@@ -117,7 +117,7 @@ public class PlanServiceAuthorizationTests
         _time.GetUserLocalToday(0).Returns(DateTime.Today);
 
         var service = CreateService(db);
-        var result = await service.CreateTaskAsync(1, DateTime.Today.AddDays(-1), 480, 540, "t", "loc",
+        var result = await service.CreateTaskAsync(1, DateTime.Today.AddDays(-1), 480, 540, "t",
             TaskPriority.Medium, ScheduleTaskStatus.InProgress, string.Empty, string.Empty, string.Empty, string.Empty,
             Manager(), 0, CancellationToken.None);
 
@@ -139,13 +139,18 @@ public class PlanServiceAuthorizationTests
 
     private static void SeedTechnician(ScheduleDbContext db, long id)
     {
+        if (!db.Regions.AnyAsync().GetAwaiter().GetResult())
+        {
+            db.Regions.Add(new RegionEntity { Id = 1, Name = "Region", Country = "LT" });
+        }
         if (!db.Addresses.AnyAsync().GetAwaiter().GetResult())
         {
-            db.Addresses.Add(new AddressEntity { Id = 1, FullAddress = "addr" });
+            db.Addresses.Add(new AddressEntity { Id = 1, RegionId = 1, Street = "Main", FullAddress = "Main 1" });
         }
         db.Technicians.Add(new TechnicianEntity
         {
             Id = id,
+            RegionId = 1,
             WorkplaceAddressId = 1,
             DailyLimit = 8,
             WeeklyLimit = 40,
@@ -172,14 +177,28 @@ public class PlanServiceAuthorizationTests
     private static TaskEntity SeedTask(ScheduleDbContext db, long planId, long technicianId)
     {
         var start = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddHours(10), DateTimeKind.Utc);
+        if (!db.Regions.AnyAsync().GetAwaiter().GetResult())
+        {
+            db.Regions.Add(new RegionEntity { Id = 1, Name = "Region", Country = "LT" });
+        }
+        if (!db.Addresses.AnyAsync().GetAwaiter().GetResult())
+        {
+            db.Addresses.Add(new AddressEntity { Id = 1, RegionId = 1, Street = "Main", FullAddress = "Main 1" });
+        }
+        if (!db.ServiceObjects.AnyAsync().GetAwaiter().GetResult())
+        {
+            db.ServiceObjects.Add(new ServiceObjectEntity { Id = 1, Name = "Obj", AddressId = 1 });
+        }
+
         var task = new TaskEntity
         {
             PlanId = planId,
             TechnicianId = technicianId,
+            ServiceObjectId = 1,
+            RegionId = 1,
             StartAt = start,
             EndAt = start.AddHours(1),
             Title = "t",
-            Location = "loc",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.InProgress,
             CreatedAt = DateTime.UtcNow

@@ -43,13 +43,13 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             // Seed Technicians
             var technicianLookup = await SeedTechniciansAsync(userLookup, regionLookup, addressLookup);
 
-            // Seed Objects
-            var objectLookup = await SeedObjectsAsync(regionLookup, addressLookup);
+            // Seed Service Objects
+            var serviceObjectLookup = await SeedServiceObjectsAsync(regionLookup, addressLookup);
 
             // Seed Plan and Tasks
             // Build address ID lookup for tasks
             var addressById = addressLookup.Values.ToDictionary(a => a.Id);
-            await SeedPlanAndTasksAsync(technicianLookup, regionLookup, objectLookup, addressLookup, addressById);
+            await SeedPlanAndTasksAsync(technicianLookup, serviceObjectLookup, addressById);
 
             await transaction.CommitAsync();
         }
@@ -94,6 +94,7 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                 var region = new RegionEntity
                 {
                     Name = mockRegion.Name,
+                    Country = mockRegion.Country,
                     PriorityWeight = mockRegion.PriorityWeight,
                     CreatedAt = DateTime.UtcNow
                 };
@@ -126,15 +127,18 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                     continue; // Skip if user not found
                 }
 
-                var address = await EnsureAddressAsync(mockTech.WorkplaceAddress, addressLookup);
+                if (!regionLookup.TryGetValue(mockTech.RegionName, out var region))
+                {
+                    continue;
+                }
+
+                var address = await EnsureAddressAsync(mockTech.WorkplaceAddress, region.Id, addressLookup);
 
                 var technician = new TechnicianEntity
                 {
                     UserId = user.Id,
-                    RegionId = regionLookup.TryGetValue(mockTech.RegionName, out var region) ? region.Id : null,
+                    RegionId = region.Id,
                     WorkplaceAddressId = address.Id,
-                    WorkplaceLatitude = mockTech.WorkplaceLatitude,
-                    WorkplaceLongitude = mockTech.WorkplaceLongitude,
                     DailyLimit = mockTech.DailyLimit,
                     WeeklyLimit = mockTech.WeeklyLimit,
                     TravelSwitchLimit = mockTech.TravelSwitchLimit,
@@ -150,15 +154,21 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             return technicianLookup;
         }
 
-        private async Task<AddressEntity> EnsureAddressAsync(string fullAddress, Dictionary<string, AddressEntity> addressLookup)
+        private async Task<AddressEntity> EnsureAddressAsync(
+            string fullAddress,
+            long regionId,
+            Dictionary<string, AddressEntity> addressLookup)
         {
             if (addressLookup.TryGetValue(fullAddress, out var existing))
             {
                 return existing;
             }
 
+            var street = ParseStreet(fullAddress);
             var address = new AddressEntity
             {
+                RegionId = regionId,
+                Street = street,
                 FullAddress = fullAddress,
                 CreatedAt = DateTime.UtcNow
             };
@@ -168,31 +178,34 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             return address;
         }
 
-        private async Task<Dictionary<string, ObjectEntity>> SeedObjectsAsync(
+        private async Task<Dictionary<string, ServiceObjectEntity>> SeedServiceObjectsAsync(
             Dictionary<string, RegionEntity> regionLookup,
             Dictionary<string, AddressEntity> addressLookup)
         {
             var mockObjects = MockSeedData.GetObjects();
-            var existingObjects = await _db.Objects.ToListAsync();
+            var existingObjects = await _db.ServiceObjects.ToListAsync();
             var objectLookup = existingObjects.ToDictionary(o => o.Name, StringComparer.OrdinalIgnoreCase);
 
             foreach (var mockObject in mockObjects)
             {
                 if (objectLookup.ContainsKey(mockObject.Name)) continue;
 
-                var addr = await EnsureAddressAsync(mockObject.Address, addressLookup);
+                if (!regionLookup.TryGetValue(mockObject.RegionName, out var region))
+                {
+                    continue;
+                }
 
-                var obj = new ObjectEntity
+                var addr = await EnsureAddressAsync(mockObject.Address, region.Id, addressLookup);
+
+                var obj = new ServiceObjectEntity
                 {
                     Name = mockObject.Name,
-                    Address = mockObject.Address,
                     AddressId = addr.Id,
-                    RegionId = regionLookup.TryGetValue(mockObject.RegionName, out var region) ? region.Id : null,
                     Description = mockObject.Description,
                     CreatedAt = DateTime.UtcNow
                 };
 
-                _db.Objects.Add(obj);
+                _db.ServiceObjects.Add(obj);
                 objectLookup[mockObject.Name] = obj;
             }
 
@@ -202,9 +215,7 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
         private async Task SeedPlanAndTasksAsync(
             Dictionary<string, TechnicianEntity> technicianLookup,
-            Dictionary<string, RegionEntity> regionLookup,
-            Dictionary<string, ObjectEntity> objectLookup,
-            Dictionary<string, AddressEntity> addressLookupByFull,
+            Dictionary<string, ServiceObjectEntity> serviceObjectLookup,
             Dictionary<long, AddressEntity> addressById)
         {
             var weekStart = _timeService.GetWeekStart(DateTime.Today);
@@ -245,21 +256,26 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                 var endUtc = _timeService.ConvertLocalToUtc(mockTask.EndTime, timezoneOffsetMinutes);
 
                 // Find object if specified
-                long? objectId = null;
-                if (!string.IsNullOrWhiteSpace(mockTask.ObjectName) &&
-                    objectLookup.TryGetValue(mockTask.ObjectName, out var obj))
+                if (!serviceObjectLookup.TryGetValue(mockTask.ObjectName, out var serviceObject))
                 {
-                    objectId = obj.Id;
+                    continue;
+                }
+
+                var taskRegionId = addressById.TryGetValue(serviceObject.AddressId, out var serviceAddress)
+                    ? serviceAddress.RegionId
+                    : technician.RegionId ?? 0;
+                if (taskRegionId == 0)
+                {
+                    continue;
                 }
 
                 var taskEntity = new TaskEntity
                 {
                     PlanId = activePlan.Id,
                     TechnicianId = technician.Id,
-                    ObjectId = objectId,
+                    ServiceObjectId = serviceObject.Id,
                     Title = mockTask.Title,
-                    Location = mockTask.Location,
-                    RegionId = regionLookup.TryGetValue(mockTask.Location, out var region) ? region.Id : null,
+                    RegionId = taskRegionId,
                     StartAt = startUtc,
                     EndAt = endUtc,
                     Priority = mockTask.Priority,
@@ -289,9 +305,9 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                     foreach (var task in dayGroup.OrderBy(t => t.StartAt))
                     {
                         var fromAddr = prev != null
-                            ? await GetTaskAddressEntityAsync(prev, addressLookupByFull, addressById, objectLookup)
+                            ? GetTaskAddressEntityAsync(prev, addressById, serviceObjectLookup)
                             : addressById[technician.WorkplaceAddressId];
-                        var toAddr = await GetTaskAddressEntityAsync(task, addressLookupByFull, addressById, objectLookup);
+                        var toAddr = GetTaskAddressEntityAsync(task, addressById, serviceObjectLookup);
 
                         var key = (fromAddr.Id, toAddr.Id);
                         if (!travelCache.TryGetValue(key, out var cached))
@@ -309,8 +325,6 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                             _db.TravelRoutes.Add(cached);
                         }
 
-                        task.TravelDistanceKm = cached.DistanceKm;
-                        task.TravelDurationMinutes = cached.DurationMinutes;
                         task.PreviousTaskId = prev?.Id;
 
                         prev = task;
@@ -346,31 +360,34 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             await _db.SaveChangesAsync();
         }
 
-        private async Task<AddressEntity> GetTaskAddressEntityAsync(
+        private static AddressEntity GetTaskAddressEntityAsync(
             TaskEntity task,
-            Dictionary<string, AddressEntity> addressLookupByFull,
             Dictionary<long, AddressEntity> addressById,
-            Dictionary<string, ObjectEntity> objectLookup)
+            Dictionary<string, ServiceObjectEntity> serviceObjectLookup)
         {
-            if (task.ObjectId.HasValue)
+            var obj = serviceObjectLookup.Values.FirstOrDefault(o => o.Id == task.ServiceObjectId);
+            if (obj != null && addressById.TryGetValue(obj.AddressId, out var addr))
             {
-                var obj = objectLookup.Values.FirstOrDefault(o => o.Id == task.ObjectId.Value);
-                if (obj?.AddressId != null && addressById.TryGetValue(obj.AddressId.Value, out var addr))
-                {
-                    return addr;
-                }
+                return addr;
             }
 
-            // Fallback: synthetic address per location string (ensure it exists in addressLookup)
-            var fallback = $"Location: {task.Location}";
-            if (addressLookupByFull.TryGetValue(fallback, out var existing))
+            throw new InvalidOperationException($"Task {task.Id} has no resolvable service object address.");
+        }
+
+        private static string ParseStreet(string fullAddress)
+        {
+            if (string.IsNullOrWhiteSpace(fullAddress))
             {
-                return existing;
+                return string.Empty;
             }
 
-            var newAddr = await EnsureAddressAsync(fallback, addressLookupByFull);
-            addressById[newAddr.Id] = newAddr;
-            return newAddr;
+            var firstPart = fullAddress.Split(',', 2, StringSplitOptions.TrimEntries)[0];
+            if (string.IsNullOrWhiteSpace(firstPart))
+            {
+                return fullAddress.Trim();
+            }
+
+            return firstPart.Trim();
         }
 
         private static (decimal distanceKm, int durationMinutes) EstimateTravel(

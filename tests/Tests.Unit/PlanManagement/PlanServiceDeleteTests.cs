@@ -87,14 +87,28 @@ public class PlanServiceDeleteTests
     private static TaskEntity SeedTask(ScheduleDbContext db, long planId, long technicianId, DateTime? endAtUtc = null)
     {
         var start = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddHours(10), DateTimeKind.Utc);
+        if (!db.Regions.AnyAsync().GetAwaiter().GetResult())
+        {
+            db.Regions.Add(new RegionEntity { Id = 1, Name = "Region", Country = "LT" });
+        }
+        if (!db.Addresses.AnyAsync().GetAwaiter().GetResult())
+        {
+            db.Addresses.Add(new AddressEntity { Id = 1, RegionId = 1, Street = "Main", FullAddress = "Main 1" });
+        }
+        if (!db.ServiceObjects.AnyAsync().GetAwaiter().GetResult())
+        {
+            db.ServiceObjects.Add(new ServiceObjectEntity { Id = 1, Name = "Obj", AddressId = 1 });
+        }
+
         var task = new TaskEntity
         {
             PlanId = planId,
             TechnicianId = technicianId,
+            ServiceObjectId = 1,
+            RegionId = 1,
             StartAt = start,
             EndAt = endAtUtc ?? start.AddHours(1),
             Title = "t",
-            Location = "loc",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.InProgress,
             CreatedAt = DateTime.UtcNow

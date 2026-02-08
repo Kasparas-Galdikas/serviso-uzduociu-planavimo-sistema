@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
@@ -111,7 +111,6 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
 
         var attackerClient = CreateClient("austeja.j@test.com", timezoneOffsetMinutes: -120, technicianId: otherTechId);
         var updateDto = TestUpdateTaskRequestBuilder.Create(ownerTechId, task.LocalStart, task.LocalEnd, "Should fail", version)
-            .WithLocation("Anywhere")
             .WithTimezone(-120)
             .Build();
         var response = await attackerClient.PatchAsJsonAsync($"/api/tasks/{task.Id}", updateDto);
@@ -134,7 +133,6 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var version = await GetTaskVersionAsync(task.Id);
 
         var updateDto = TestUpdateTaskRequestBuilder.Create(techId, task.LocalStart, task.LocalEnd, "Past update", version)
-            .WithLocation("Past")
             .WithTimezone(-120)
             .Build();
         var response = await managerClient.PatchAsJsonAsync($"/api/tasks/{task.Id}", updateDto);
@@ -355,3 +353,4 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         await db.SaveChangesAsync();
     }
 }
+

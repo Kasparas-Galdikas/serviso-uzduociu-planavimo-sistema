@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -84,7 +84,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             var taskEntities = await taskBaseQuery
                 .Include(t => t.Plan)
                 .Include(t => t.Evaluation)
-                .Include(t => t.Object)
+                .Include(t => t.ServiceObject)
+                    .ThenInclude(o => o.Address)
                 .ToListAsync();
 
             var taskVersions = await taskBaseQuery
@@ -126,6 +127,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
             var draftExists = plansInView.Any(p => p!.Status == PlanStatus.Draft);
 
+            var travelMetricsByTaskId = await BuildTravelMetricsAsync(taskEntities, CancellationToken.None);
             var tasks = new List<TaskItem>();
             foreach (var t in taskEntities)
             {
@@ -137,7 +139,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                     _ => TaskPlanSource.Active
                 };
                 taskVersions.TryGetValue(t.Id, out var version);
-                var task = MapTask(t, technicians, planStatus, version, timezoneOffsetMinutes);
+                var task = MapTask(t, technicians, planStatus, version, timezoneOffsetMinutes, travelMetricsByTaskId);
                 task.Source = source;
                 task.IsEditable = await _taskPermissionService.CanEditTaskAsync(t, user, timezoneOffsetMinutes);
                 task.CanDelete = await _taskPermissionService.CanDeleteTaskAsync(t, user, timezoneOffsetMinutes);
@@ -218,12 +220,19 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             };
         }
 
-        private TaskItem MapTask(Data.TaskEntity task, List<Technician> technicians, PlanStatus planStatus, uint version, int timezoneOffsetMinutes)
+        private TaskItem MapTask(
+            Data.TaskEntity task,
+            List<Technician> technicians,
+            PlanStatus planStatus,
+            uint version,
+            int timezoneOffsetMinutes,
+            IReadOnlyDictionary<long, (decimal? DistanceKm, int? DurationMinutes)> travelMetricsByTaskId)
         {
             var eval = task.Evaluation;
             var tech = technicians.FirstOrDefault(t => t.Id == task.TechnicianId);
             var status = eval?.Status ?? LoadState.Normal;
-            var objectAddress = task.Object?.Address;
+            var objectAddress = task.ServiceObject?.Address?.FullAddress;
+            travelMetricsByTaskId.TryGetValue(task.Id, out var travelMetrics);
 
             // Convert UTC times to local time for display
             var startLocal = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffsetMinutes);
@@ -238,7 +247,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 Version = version,
                 Title = task.Title,
                 // Prefer the object's address when available; fallback to legacy location field.
-                Location = !string.IsNullOrWhiteSpace(objectAddress) ? objectAddress! : task.Location,
+                Location = objectAddress ?? string.Empty,
                 Start = startLocal,
                 End = endLocal,
                 Priority = task.Priority.ToString().ToLowerInvariant(),
@@ -249,8 +258,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 Risk = eval?.RiskLevel?.ToString().ToLowerInvariant(),
                 OverloadHours = eval?.OverloadHours ?? 0,
                 LoadStatus = status.ToString().ToLowerInvariant(),
-                TravelDurationMinutes = task.TravelDurationMinutes.HasValue ? (decimal)task.TravelDurationMinutes.Value : null,
-                TravelDistanceKm = task.TravelDistanceKm
+                TravelDurationMinutes = travelMetrics.DurationMinutes.HasValue ? (decimal)travelMetrics.DurationMinutes.Value : null,
+                TravelDistanceKm = travelMetrics.DistanceKm
             };
         }
 
@@ -502,6 +511,65 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 }
             });
         }
+
+        private async Task<Dictionary<long, (decimal? DistanceKm, int? DurationMinutes)>> BuildTravelMetricsAsync(
+            List<Data.TaskEntity> tasks,
+            CancellationToken cancellationToken)
+        {
+            var result = new Dictionary<long, (decimal? DistanceKm, int? DurationMinutes)>();
+            if (tasks.Count == 0)
+            {
+                return result;
+            }
+
+            var routes = await _db.TravelRoutes
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+            var routeLookup = routes.ToDictionary(r => (r.FromAddressId, r.ToAddressId), r => r);
+
+            var workplaceLookup = await _db.Technicians
+                .AsNoTracking()
+                .Select(t => new { t.Id, t.WorkplaceAddressId })
+                .ToDictionaryAsync(t => t.Id, t => t.WorkplaceAddressId, cancellationToken);
+
+            var tasksByTech = tasks
+                .Where(t => t.ServiceObject != null)
+                .GroupBy(t => t.TechnicianId)
+                .ToList();
+
+            foreach (var techGroup in tasksByTech)
+            {
+                if (!workplaceLookup.TryGetValue(techGroup.Key, out var workplaceAddressId))
+                {
+                    continue;
+                }
+
+                foreach (var dayGroup in techGroup.OrderBy(t => t.StartAt).GroupBy(t => t.StartAt.Date))
+                {
+                    Data.TaskEntity? prev = null;
+                    foreach (var task in dayGroup.OrderBy(t => t.StartAt))
+                    {
+                        var fromAddressId = prev != null
+                            ? prev.ServiceObject!.AddressId
+                            : workplaceAddressId;
+                        var toAddressId = task.ServiceObject!.AddressId;
+
+                        if (routeLookup.TryGetValue((fromAddressId, toAddressId), out var route))
+                        {
+                            result[task.Id] = (route.DistanceKm, route.DurationMinutes);
+                        }
+                        else
+                        {
+                            result[task.Id] = (null, null);
+                        }
+
+                        prev = task;
+                    }
+                }
+            }
+
+            return result;
+        }
     }
 
     internal static class DateResolver
@@ -529,3 +597,4 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
     }
 
 }
+

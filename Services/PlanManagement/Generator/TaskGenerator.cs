@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -194,8 +194,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                             PlanId = targetTask.PlanId,
                             TechnicianId = targetTask.TechnicianId,
                             Title = targetTask.Title,
-                            Location = targetTask.Location,
                             RegionId = targetTask.RegionId,
+                            ServiceObjectId = targetTask.ServiceObjectId,
                             StartAt = newStart,
                             EndAt = newEnd,
                             Priority = targetTask.Priority,
@@ -282,8 +282,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                             PlanId = targetTask.PlanId,
                             TechnicianId = tech.Id,  // Changed technician
                             Title = targetTask.Title,
-                            Location = targetTask.Location,
                             RegionId = targetTask.RegionId,
+                            ServiceObjectId = targetTask.ServiceObjectId,
                             StartAt = targetTask.StartAt,
                             EndAt = targetTask.EndAt,
                             Priority = targetTask.Priority,
@@ -365,8 +365,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                             PlanId = targetTask.PlanId,
                             TechnicianId = targetTask.TechnicianId,
                             Title = targetTask.Title,
-                            Location = targetTask.Location,
                             RegionId = targetTask.RegionId,
+                            ServiceObjectId = targetTask.ServiceObjectId,
                             StartAt = newStart,  // Changed day
                             EndAt = newEnd,      // Changed day
                             Priority = targetTask.Priority,
@@ -470,3 +470,4 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         }
     }
 }
+

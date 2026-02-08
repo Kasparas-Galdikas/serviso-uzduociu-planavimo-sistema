@@ -203,15 +203,19 @@ public class HttpUserContextResolverTests
             Role = UserRole.Technician,
             IsActive = isActive
         });
+        db.Regions.Add(new RegionEntity { Id = 1, Name = "Region", Country = "LT" });
         db.Addresses.Add(new AddressEntity
         {
             Id = 1,
+            RegionId = 1,
+            Street = "Addr",
             FullAddress = "Addr"
         });
         db.Technicians.Add(new TechnicianEntity
         {
             Id = technicianId,
             UserId = userId,
+            RegionId = 1,
             WorkplaceAddressId = 1,
             DailyLimit = 8,
             WeeklyLimit = 40,

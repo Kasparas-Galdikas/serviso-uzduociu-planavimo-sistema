@@ -41,7 +41,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         {
             var tasks = await scope(_db.Tasks
                     .Include(t => t.Evaluation)
-                    .Include(t => t.Technician))
+                    .Include(t => t.Technician)
+                        .ThenInclude(t => t.WorkplaceAddress)
+                    .Include(t => t.ServiceObject)
+                        .ThenInclude(o => o.Address))
                 .AsNoTracking()
                 .ToListAsync(cancellationToken);
 
@@ -69,6 +72,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var conflictCount = 0;
             var overloadTotal = 0d;
+            var travelMinutesByTaskId = await BuildTravelMinutesByTaskIdAsync(tasks, cancellationToken);
+
             foreach (var techGroup in tasksByTech)
             {
                 if (!techLookup.TryGetValue(techGroup.Key, out var technician))
@@ -91,7 +96,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                         .OrderBy(t => t.StartAt)
                         .ToList();
 
-                    var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
+                    var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks, travelMinutesByTaskId);
                     var status = snapshot.Context.ComputeLoadState();
                     var overloadHours = Math.Max(snapshot.Context.DailyOverHours, snapshot.Context.WeeklyOverHours);
                     overloadTotal += overloadHours;
@@ -148,6 +153,53 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             await transaction.CommitAsync(cancellationToken);
 
             _logger.LogInformation("svc.eval.recalculate tasks={Tasks} techs={Techs} conflicts={Conflicts} overloadHours={OverloadHours}", tasks.Count, tasksByTech.Count, conflictCount, overloadTotal);
+        }
+
+        private async Task<Dictionary<long, int>> BuildTravelMinutesByTaskIdAsync(
+            List<TaskEntity> tasks,
+            CancellationToken cancellationToken)
+        {
+            var routes = await _db.TravelRoutes
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+            var routeLookup = routes.ToDictionary(r => (r.FromAddressId, r.ToAddressId), r => r);
+
+            var result = new Dictionary<long, int>();
+            var tasksByTech = tasks
+                .Where(t => t.Technician != null && t.ServiceObject != null)
+                .GroupBy(t => t.TechnicianId)
+                .ToList();
+
+            foreach (var techGroup in tasksByTech)
+            {
+                var technician = techGroup.First().Technician!;
+                var workplaceAddressId = technician.WorkplaceAddressId;
+
+                foreach (var dayGroup in techGroup.OrderBy(t => t.StartAt).GroupBy(t => t.StartAt.Date))
+                {
+                    TaskEntity? prev = null;
+                    foreach (var task in dayGroup.OrderBy(t => t.StartAt))
+                    {
+                        var fromAddressId = prev != null
+                            ? prev.ServiceObject!.AddressId
+                            : workplaceAddressId;
+                        var toAddressId = task.ServiceObject!.AddressId;
+
+                        if (routeLookup.TryGetValue((fromAddressId, toAddressId), out var route))
+                        {
+                            result[task.Id] = route.DurationMinutes;
+                        }
+                        else
+                        {
+                            result[task.Id] = 0;
+                        }
+
+                        prev = task;
+                    }
+                }
+            }
+
+            return result;
         }
     }
 }
