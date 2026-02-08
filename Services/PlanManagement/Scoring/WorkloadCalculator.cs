@@ -32,7 +32,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             List<TaskEntity> dayTasks,
             List<TaskEntity> weekTasks)
         {
-            // Ensure deterministic ordering for conflict/switch detection.
+            // Ensure deterministic ordering for conflict detection.
             dayTasks = dayTasks.OrderBy(t => t.StartAt).ToList();
             weekTasks = weekTasks.OrderBy(t => t.StartAt).ToList();
 
@@ -42,16 +42,22 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var dailyLimit = technician.DailyLimit > 0 ? (double)technician.DailyLimit : DefaultDailyLimit;
             var weeklyLimit = technician.WeeklyLimit > 0 ? (double)technician.WeeklyLimit : DefaultWeeklyLimit;
-            var switchLimit = technician.TravelSwitchLimit < 0 ? 0 : technician.TravelSwitchLimit;
 
-            // Calculate hours only from active tasks (not Canceled)
-            var dailyHours = activeDayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
-            var weeklyHours = activeWeekTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+            // Calculate task duration hours from active tasks (not Canceled)
+            var dailyTaskHours = activeDayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+            var weeklyTaskHours = activeWeekTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+
+            // Calculate travel time hours from active tasks
+            var dailyTravelHours = activeDayTasks.Sum(t => (t.TravelDurationMinutes ?? 0) / 60.0);
+            var weeklyTravelHours = activeWeekTasks.Sum(t => (t.TravelDurationMinutes ?? 0) / 60.0);
+
+            // Total workload includes both task duration and travel time
+            var dailyHours = dailyTaskHours + dailyTravelHours;
+            var weeklyHours = weeklyTaskHours + weeklyTravelHours;
             var dailyOver = Math.Max(0d, dailyHours - dailyLimit);
             var weeklyOver = Math.Max(0d, weeklyHours - weeklyLimit);
 
-            // Switch count and conflicts only from active tasks
-            var switchCount = CalculateSwitchCount(activeDayTasks);
+            // Conflict detection from active tasks
             var conflicts = DetectConflicts(activeDayTasks);
 
             var context = new LoadScoreContext
@@ -61,36 +67,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 IsWeeklyLimitExceeded = weeklyOver > 0,
                 DailyOverHours = dailyOver,
                 WeeklyOverHours = weeklyOver,
-                SwitchCount = switchCount,
-                IsSwitchLimitExceeded = switchCount > switchLimit,
+                TravelTimeHours = dailyTravelHours,
                 DailyUtilization = dailyLimit > 0 ? dailyHours / dailyLimit : 1d,
                 WeeklyUtilization = weeklyLimit > 0 ? weeklyHours / weeklyLimit : 1d
             };
 
-            return new WorkloadSnapshot(context, conflicts, dailyHours, weeklyHours, switchCount);
-        }
-
-        public static int CalculateSwitchCount(List<TaskEntity> orderedDayTasks)
-        {
-            if (orderedDayTasks.Count == 0)
-            {
-                return 0;
-            }
-
-            var switches = 0;
-            var lastLocation = orderedDayTasks[0].Location;
-
-            for (var i = 1; i < orderedDayTasks.Count; i++)
-            {
-                var current = orderedDayTasks[i].Location;
-                if (!string.Equals(current, lastLocation, StringComparison.OrdinalIgnoreCase))
-                {
-                    switches++;
-                }
-                lastLocation = current;
-            }
-
-            return switches;
+            return new WorkloadSnapshot(context, conflicts, dailyHours, weeklyHours);
         }
 
         public static HashSet<long> DetectConflicts(List<TaskEntity> orderedTasks)
@@ -129,6 +111,5 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         LoadScoreContext Context,
         HashSet<long> Conflicts,
         double DailyHours,
-        double WeeklyHours,
-        int SwitchCount);
+        double WeeklyHours);
 }

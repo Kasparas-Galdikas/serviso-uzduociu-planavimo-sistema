@@ -461,8 +461,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 IsWeeklyLimitExceeded = false, // Would need full week context
                 DailyOverHours = (double)(task.Evaluation.OverloadHours ?? 0),
                 WeeklyOverHours = 0,
-                SwitchCount = task.Evaluation.SwitchCount ?? 0,
-                IsSwitchLimitExceeded = task.Evaluation.TravelRequired,
+                TravelTimeHours = 0,
                 DailyUtilization = task.Evaluation.IsOverloaded ? 0.9 : 0.6,
                 WeeklyUtilization = task.Evaluation.IsOverloaded ? 0.85 : 0.5
             };

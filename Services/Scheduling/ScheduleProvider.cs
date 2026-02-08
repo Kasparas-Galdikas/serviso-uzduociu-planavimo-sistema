@@ -68,8 +68,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                     WeeklyHours = 0,
                     WeeklyLimit = (int)t.WeeklyLimit,
                     DailyHours = 0,
-                    DailyLimit = (int)t.DailyLimit,
-                    TravelSwitches = t.TravelSwitchLimit
+                    DailyLimit = (int)t.DailyLimit
                 })
                 .ToListAsync();
 
@@ -246,12 +245,12 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 Status = task.Status.ToString().ToLowerInvariant(),
                 IsConflict = status == LoadState.Conflict,
                 IsLoad = status == LoadState.Load,
-                IsTravelSwitch = eval?.TravelRequired == true,
                 IsNewPlan = false,
                 Risk = eval?.RiskLevel?.ToString().ToLowerInvariant(),
                 OverloadHours = eval?.OverloadHours ?? 0,
-                SwitchCount = eval?.SwitchCount ?? 0,
-                LoadStatus = status.ToString().ToLowerInvariant()
+                LoadStatus = status.ToString().ToLowerInvariant(),
+                TravelDurationMinutes = task.TravelDurationMinutes.HasValue ? (decimal)task.TravelDurationMinutes.Value : null,
+                TravelDistanceKm = task.TravelDistanceKm
             };
         }
 
@@ -469,15 +468,6 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                         Detail = $"Apkrova virsija limita +{task.OverloadHours:0.##}h"
                     });
                 }
-                else if (task.IsTravelSwitch)
-                {
-                    issues.Add(new IssueItem
-                    {
-                        Id = $"task-{task.Id}",
-                        Title = $"[~] {techName} {task.Start:HH:mm}-{task.End:HH:mm}",
-                        Detail = "Virsyti kelioniu perjungimai"
-                    });
-                }
             }
 
             return issues;
@@ -486,14 +476,12 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
         private static ScheduleSummary BuildSummary(IEnumerable<TaskItem> tasks, IEnumerable<Technician> technicians)
         {
             var techLookup = technicians.ToDictionary(t => t.Id);
-            var switchExceedances = tasks.Count(t => t.IsTravelSwitch);
 
             return new ScheduleSummary
             {
                 TotalTasks = tasks.Count(),
                 ConflictTasks = tasks.Count(t => t.IsConflict),
-                OverloadHours = tasks.Sum(t => t.OverloadHours),
-                SwitchExceedances = switchExceedances
+                OverloadHours = tasks.Sum(t => t.OverloadHours)
             };
         }
 

@@ -238,14 +238,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 HasConflict = context.HasConflict,
                 IsDailyLimitExceeded = context.IsDailyLimitExceeded,
                 IsWeeklyLimitExceeded = context.IsWeeklyLimitExceeded,
-                IsSwitchLimitExceeded = context.IsSwitchLimitExceeded,
                 DailyHours = Math.Round(snapshot.DailyHours, 2),
                 WeeklyHours = Math.Round(snapshot.WeeklyHours, 2),
                 DailyLimit = (double)technician.DailyLimit,
                 WeeklyLimit = (double)technician.WeeklyLimit,
                 DailyUtilization = Math.Round(context.DailyUtilization, 2),
                 WeeklyUtilization = Math.Round(context.WeeklyUtilization, 2),
-                SwitchCount = snapshot.SwitchCount
+                TravelTimeHours = Math.Round(context.TravelTimeHours, 2)
             };
         }
 
@@ -1075,14 +1074,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     HasConflict = loadSnapshot.HasConflict,
                     IsDailyLimitExceeded = loadSnapshot.IsDailyLimitExceeded,
                     IsWeeklyLimitExceeded = loadSnapshot.IsWeeklyLimitExceeded,
-                    IsSwitchLimitExceeded = loadSnapshot.IsSwitchLimitExceeded,
                     DailyHours = Math.Round(loadSnapshot.DailyHours, 2),
                     WeeklyHours = Math.Round(loadSnapshot.WeeklyHours, 2),
                     DailyLimit = loadSnapshot.DailyLimit,
                     WeeklyLimit = loadSnapshot.WeeklyLimit,
                     DailyUtilization = Math.Round(loadSnapshot.DailyUtilization, 2),
                     WeeklyUtilization = Math.Round(loadSnapshot.WeeklyUtilization, 2),
-                    SwitchCount = loadSnapshot.SwitchCount
+                    TravelTimeHours = Math.Round(loadSnapshot.TravelTimeHours, 2)
                 });
             }
 

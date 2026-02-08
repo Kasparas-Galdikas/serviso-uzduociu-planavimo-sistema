@@ -158,16 +158,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var dailyHours = dayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
             var dailyLimit = (double)technician.DailyLimit;
-            var switchCount = WorkloadCalculator.CalculateSwitchCount(dayTasks);
 
             return new DayWorkload(
                 TechnicianId: technicianId,
                 DayStart: dayStart,
                 Tasks: dayTasks.AsReadOnly(),
                 DailyHours: dailyHours,
-                DailyLimit: dailyLimit,
-                SwitchCount: switchCount,
-                SwitchLimit: technician.TravelSwitchLimit);
+                DailyLimit: dailyLimit);
         }
 
         /// <summary>
@@ -254,13 +251,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         DateTime DayStart,
         IReadOnlyList<TaskEntity> Tasks,
         double DailyHours,
-        double DailyLimit,
-        int SwitchCount,
-        int SwitchLimit)
+        double DailyLimit)
     {
         public double Utilization => DailyLimit > 0 ? DailyHours / DailyLimit : 1.0;
         public bool IsOverloaded => DailyHours > DailyLimit;
-        public bool SwitchesExceeded => SwitchCount > SwitchLimit;
     }
 
     /// <summary>

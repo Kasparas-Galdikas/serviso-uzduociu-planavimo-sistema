@@ -69,7 +69,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var conflictCount = 0;
             var overloadTotal = 0d;
-            var switchExceeded = 0;
             foreach (var techGroup in tasksByTech)
             {
                 if (!techLookup.TryGetValue(techGroup.Key, out var technician))
@@ -97,11 +96,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     var overloadHours = Math.Max(snapshot.Context.DailyOverHours, snapshot.Context.WeeklyOverHours);
                     overloadTotal += overloadHours;
 
-                    if (snapshot.Context.IsSwitchLimitExceeded)
-                    {
-                        switchExceeded++;
-                    }
-
                     var conflictSet = snapshot.Conflicts;
                     conflictCount += conflictSet.Count;
 
@@ -119,11 +113,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                         eval.DailyHours = (decimal)Math.Round(snapshot.DailyHours, 2);
                         eval.WeeklyHours = (decimal)Math.Round(snapshot.WeeklyHours, 2);
                         eval.OverloadHours = overloadHours > 0d ? (decimal)Math.Round(overloadHours, 2) : null;
-                        eval.SwitchCount = snapshot.SwitchCount;
                         eval.Status = status;
                         eval.IsConflict = status == LoadState.Conflict;
                         eval.IsOverloaded = status != LoadState.Normal;
-                        eval.TravelRequired = snapshot.Context.IsSwitchLimitExceeded;
                         eval.LoadHours = (decimal)Math.Round(taskDuration, 2);
                         eval.RiskLevel = status == LoadState.Conflict
                             ? RiskLevel.High
@@ -155,7 +147,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
-            _logger.LogInformation("svc.eval.recalculate tasks={Tasks} techs={Techs} conflicts={Conflicts} overloadHours={OverloadHours} switchesExceeded={SwitchExceeded}", tasks.Count, tasksByTech.Count, conflictCount, overloadTotal, switchExceeded);
+            _logger.LogInformation("svc.eval.recalculate tasks={Tasks} techs={Techs} conflicts={Conflicts} overloadHours={OverloadHours}", tasks.Count, tasksByTech.Count, conflictCount, overloadTotal);
         }
     }
 }

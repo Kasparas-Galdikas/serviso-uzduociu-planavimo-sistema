@@ -81,9 +81,7 @@ public class ScheduleProviderTests
             Evaluation = new TaskEvaluationEntity
             {
                 Status = LoadState.Conflict,
-                OverloadHours = 2,
-                SwitchCount = 3,
-                TravelRequired = true
+                OverloadHours = 2
             }
         };
         db.Tasks.Add(task);
@@ -109,9 +107,7 @@ public class ScheduleProviderTests
         mapped.Location.Should().Be("Obj address");
         mapped.IsConflict.Should().BeTrue();
         mapped.IsLoad.Should().BeFalse();
-        mapped.IsTravelSwitch.Should().BeTrue();
         mapped.OverloadHours.Should().Be(2);
-        mapped.SwitchCount.Should().Be(3);
         mapped.LoadStatus.Should().Be("conflict");
         mapped.Start.Should().Be(startUtc.AddMinutes(120));
     }
