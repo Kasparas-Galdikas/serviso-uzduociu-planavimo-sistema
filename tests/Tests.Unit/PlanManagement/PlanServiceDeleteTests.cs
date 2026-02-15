@@ -9,6 +9,7 @@ using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Authorization.Models;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
@@ -22,6 +23,7 @@ public class PlanServiceDeleteTests
     private readonly IPlanningCalendar _planningCalendar = Substitute.For<IPlanningCalendar>();
     private readonly ITaskPermissionService _permission = Substitute.For<ITaskPermissionService>();
     private readonly IScheduleTimeService _time = Substitute.For<IScheduleTimeService>();
+    private readonly IRouteEvaluationService _routeEvaluation = Substitute.For<IRouteEvaluationService>();
     private readonly ILogger<PlanService> _logger = Substitute.For<ILogger<PlanService>>();
 
     public PlanServiceDeleteTests()
@@ -57,7 +59,7 @@ public class PlanServiceDeleteTests
     }
 
     private PlanService CreateService(ScheduleDbContext db) =>
-        new(db, _evaluation, _planningCalendar, _permission, _time, _logger);
+        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _logger);
 
     private static ScheduleDbContext CreateContext()
     {

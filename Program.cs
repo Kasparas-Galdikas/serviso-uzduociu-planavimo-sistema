@@ -9,6 +9,7 @@ using ServiceTaskPlanningSystem.Services.Authentication;
 using ServiceTaskPlanningSystem.Configuration;
 using ServiceTaskPlanningSystem.Middleware;
 using ServiceTaskPlanningSystem.Infrastructure.Logging;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Authorization;
@@ -81,6 +82,9 @@ builder.Services.AddScoped<IScheduleTimeService, ScheduleTimeService>();
 builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
 builder.Services.AddScoped<IUserContextResolver, HttpUserContextResolver>();
 builder.Services.AddScoped<ILoginService, LoginService>();
+builder.Services.AddScoped<IRouteEvaluationService, RouteEvaluationService>();
+builder.Services.AddHttpClient<ILocationApiClient, LocationApiClient>();
+builder.Services.AddHttpClient<IDistanceApiClient, DistanceApiClient>();
 
 // Register strategy pattern implementations for plan-status-specific edit policies
 builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Interfaces.IPlanStatusEditPolicy, ServiceTaskPlanningSystem.Services.Authorization.Policies.DraftPlanEditPolicy>();

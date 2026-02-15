@@ -13,6 +13,7 @@ using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -23,15 +24,24 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private readonly IPlanningCalendar _planningCalendar;
         private readonly ITaskPermissionService _taskPermissionService;
         private readonly IScheduleTimeService _timeService;
+        private readonly IRouteEvaluationService _routeEvaluationService;
         private readonly ILogger<PlanService> _logger;
 
-        public PlanService(ScheduleDbContext db, IEvaluationEngine evaluationEngine, IPlanningCalendar planningCalendar, ITaskPermissionService taskPermissionService, IScheduleTimeService timeService, ILogger<PlanService> logger)
+        public PlanService(
+            ScheduleDbContext db,
+            IEvaluationEngine evaluationEngine,
+            IPlanningCalendar planningCalendar,
+            ITaskPermissionService taskPermissionService,
+            IScheduleTimeService timeService,
+            IRouteEvaluationService routeEvaluationService,
+            ILogger<PlanService> logger)
         {
             _db = db;
             _evaluationEngine = evaluationEngine;
             _planningCalendar = planningCalendar;
             _taskPermissionService = taskPermissionService;
             _timeService = timeService;
+            _routeEvaluationService = routeEvaluationService;
             _logger = logger;
         }
 
@@ -672,6 +682,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var version = _db.Entry(task).Property<uint>("xmin").CurrentValue;
             await _evaluationEngine.RecalculatePlanAsync(targetPlan.Id, cancellationToken);
+            await TriggerRouteEvaluationSafelyAsync(task.Id, cancellationToken);
             return new TaskCreateResult(TaskCreateError.None, Task: task, CurrentVersion: version);
         }
 
@@ -691,6 +702,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             {
                 throw new InvalidOperationException("Neturite teisiu redaguoti sios uzduoties.");
             }
+
+            var oldAddressId = await _db.ServiceObjects
+                .AsNoTracking()
+                .Where(o => o.Id == task.ServiceObjectId)
+                .Select(o => o.AddressId)
+                .FirstOrDefaultAsync(cancellationToken);
 
             if (technicianId != task.TechnicianId)
             {
@@ -722,11 +739,23 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             await _db.SaveChangesAsync(cancellationToken);
+            var newAddressId = await _db.ServiceObjects
+                .AsNoTracking()
+                .Where(o => o.Id == task.ServiceObjectId)
+                .Select(o => o.AddressId)
+                .FirstOrDefaultAsync(cancellationToken);
+
             if (task.PlanId.HasValue)
             {
                 await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
                 await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
             }
+
+            if (oldAddressId != newAddressId)
+            {
+                await TriggerRouteEvaluationSafelyAsync(task.Id, cancellationToken);
+            }
+
             return task;
         }
 
@@ -1180,6 +1209,18 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
             return MapToLoadSnapshotDto(technician, snapshot);
+        }
+
+        private async Task TriggerRouteEvaluationSafelyAsync(long taskId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _routeEvaluationService.EvaluateTaskRouteImpactAsync(taskId, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "route.evaluation.trigger.failed taskId={TaskId}", taskId);
+            }
         }
 
         private async Task<Dictionary<long, int>> BuildTravelMinutesByTaskIdAsync(

@@ -119,7 +119,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task UpdateTask_PastTask_IsRejected()
+    public async Task UpdateTask_PastTask_IsForbidden()
     {
         await ResetAndReseedAsync();
         var techId = await GetTechnicianIdAsync("technician@test.com");
@@ -137,7 +137,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
             .Build();
         var response = await managerClient.PatchAsJsonAsync($"/api/tasks/{task.Id}", updateDto);
 
-        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]

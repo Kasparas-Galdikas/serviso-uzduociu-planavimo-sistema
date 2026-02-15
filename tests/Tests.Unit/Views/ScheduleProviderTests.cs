@@ -196,11 +196,11 @@ public class ScheduleProviderTests
 
     private static void SeedTask(ScheduleDbContext db, long id, long techId, long planId, DateTime startUtc, DateTime endUtc, LoadState evalStatus)
     {
-        if (!db.Addresses.Any(a => a.Id == 1))
+        if (!db.Addresses.Local.Any(a => a.Id == 1) && !db.Addresses.Any(a => a.Id == 1))
         {
             db.Addresses.Add(new AddressEntity { Id = 1, RegionId = 1, Street = "Addr", FullAddress = "Addr" });
         }
-        if (!db.ServiceObjects.Any(s => s.Id == 1))
+        if (!db.ServiceObjects.Local.Any(s => s.Id == 1) && !db.ServiceObjects.Any(s => s.Id == 1))
         {
             db.ServiceObjects.Add(new ServiceObjectEntity { Id = 1, Name = "Obj", AddressId = 1 });
         }
