@@ -6,6 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Services.ExternalServices.Common;
+using ServiceTaskPlanningSystem.Services.ExternalServices.ExternalApis;
 
 namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
 {
@@ -19,13 +21,25 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
         private readonly string _apiKey;
+        private readonly HeigitApiOptions _heigitOptions;
+        private readonly IExternalCallPolicy _policy;
+        private readonly IExternalCallKeyedLock _keyedLock;
         private readonly ILogger<LocationApiClient> _logger;
 
-        public LocationApiClient(HttpClient httpClient, IConfiguration configuration, ILogger<LocationApiClient> logger)
+        public LocationApiClient(
+            HttpClient httpClient,
+            IConfiguration configuration,
+            HeigitApiOptions heigitOptions,
+            IExternalCallPolicy policy,
+            IExternalCallKeyedLock keyedLock,
+            ILogger<LocationApiClient> logger)
         {
             _httpClient = httpClient;
             _baseUrl = configuration["HEIGIT_BASE_URL"] ?? "https://api.openrouteservice.org";
             _apiKey = configuration["HEIGIT_API_KEY"] ?? string.Empty;
+            _heigitOptions = heigitOptions;
+            _policy = policy;
+            _keyedLock = keyedLock;
             _logger = logger;
         }
 
@@ -36,10 +50,24 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 throw new ArgumentException("Address must be provided.", nameof(address));
             }
 
+            var key = $"geocode:{NormalizeAddressKey(address)}";
+            return await _keyedLock.RunSingleFlightAsync(
+                key,
+                async _ => await _policy.ExecuteAsync(
+                    HeigitEndpoints.Geocode,
+                    _heigitOptions.ResolvePerMinute(HeigitEndpoints.Geocode),
+                    ct => ExecuteGeocodeAsync(address, ct),
+                    cancellationToken),
+                cancellationToken);
+        }
+
+        private async Task<GeoPoint> ExecuteGeocodeAsync(string address, CancellationToken cancellationToken)
+        {
             var encodedAddress = Uri.EscapeDataString(address);
-            var encodedApiKey = Uri.EscapeDataString(_apiKey);
-            var url = $"{_baseUrl.TrimEnd('/')}/geocode/search?api_key={encodedApiKey}&text={encodedAddress}&size=1";
-            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            var url = $"{_baseUrl.TrimEnd('/')}/geocode/search?text={encodedAddress}&size=1";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("Authorization", _apiKey);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             var payload = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -58,13 +86,17 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 throw new InvalidOperationException($"Invalid geocoding payload for address '{address}'.");
             }
 
-            // OpenRouteService geocode returns [lon, lat].
             var lon = coords[0].GetDouble();
             var lat = coords[1].GetDouble();
             _logger.LogInformation("route.evaluation.geocode.success address={Address}", address);
             return new GeoPoint(
                 decimal.Parse(lat.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture),
                 decimal.Parse(lon.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture));
+        }
+
+        private static string NormalizeAddressKey(string address)
+        {
+            return string.Join(" ", address.Trim().ToUpperInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
         }
     }
 }

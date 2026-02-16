@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Services.ExternalServices.Common;
+using ServiceTaskPlanningSystem.Services.ExternalServices.ExternalApis;
 
 namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
 {
@@ -21,13 +23,25 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
         private readonly string _apiKey;
+        private readonly HeigitApiOptions _heigitOptions;
+        private readonly IExternalCallPolicy _policy;
+        private readonly IExternalCallKeyedLock _keyedLock;
         private readonly ILogger<DistanceApiClient> _logger;
 
-        public DistanceApiClient(HttpClient httpClient, IConfiguration configuration, ILogger<DistanceApiClient> logger)
+        public DistanceApiClient(
+            HttpClient httpClient,
+            IConfiguration configuration,
+            HeigitApiOptions heigitOptions,
+            IExternalCallPolicy policy,
+            IExternalCallKeyedLock keyedLock,
+            ILogger<DistanceApiClient> logger)
         {
             _httpClient = httpClient;
             _baseUrl = configuration["HEIGIT_BASE_URL"] ?? "https://api.openrouteservice.org";
             _apiKey = configuration["HEIGIT_API_KEY"] ?? string.Empty;
+            _heigitOptions = heigitOptions;
+            _policy = policy;
+            _keyedLock = keyedLock;
             _logger = logger;
         }
 
@@ -38,6 +52,22 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 return MatrixResult.Empty(coordinates.Count);
             }
 
+            var key = "matrix:" + string.Join(
+                "|",
+                coordinates.Select(c => $"{c.Latitude.ToString(CultureInfo.InvariantCulture)},{c.Longitude.ToString(CultureInfo.InvariantCulture)}"));
+
+            return await _keyedLock.RunSingleFlightAsync(
+                key,
+                async _ => await _policy.ExecuteAsync(
+                    HeigitEndpoints.Matrix,
+                    _heigitOptions.ResolvePerMinute(HeigitEndpoints.Matrix),
+                    ct => ExecuteMatrixAsync(coordinates, ct),
+                    cancellationToken),
+                cancellationToken);
+        }
+
+        private async Task<MatrixResult> ExecuteMatrixAsync(IReadOnlyList<GeoPoint> coordinates, CancellationToken cancellationToken)
+        {
             var locations = coordinates
                 .Select(c => new[] { c.Longitude.ToString(CultureInfo.InvariantCulture), c.Latitude.ToString(CultureInfo.InvariantCulture) })
                 .ToArray();
