@@ -52,7 +52,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 return MatrixResult.Empty(coordinates.Count);
             }
 
-            var key = "matrix:" + string.Join(
+            var key = HeigitEndpoints.Matrix + ":" + string.Join(
                 "|",
                 coordinates.Select(c => $"{c.Latitude.ToString(CultureInfo.InvariantCulture)},{c.Longitude.ToString(CultureInfo.InvariantCulture)}"));
 

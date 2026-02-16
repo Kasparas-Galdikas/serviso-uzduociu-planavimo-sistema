@@ -50,7 +50,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 throw new ArgumentException("Address must be provided.", nameof(address));
             }
 
-            var key = $"geocode:{NormalizeAddressKey(address)}";
+            var key = $"{HeigitEndpoints.Geocode}:{NormalizeAddressKey(address)}";
             return await _keyedLock.RunSingleFlightAsync(
                 key,
                 async _ => await _policy.ExecuteAsync(
