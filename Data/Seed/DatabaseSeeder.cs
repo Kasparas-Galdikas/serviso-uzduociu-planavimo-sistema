@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Data.Seed
@@ -15,11 +17,19 @@ namespace ServiceTaskPlanningSystem.Data.Seed
     {
         private readonly ScheduleDbContext _db;
         private readonly IScheduleTimeService _timeService;
+        private readonly IRouteEvaluationService _routeEvaluationService;
+        private readonly ILogger<DatabaseSeeder> _logger;
 
-        public DatabaseSeeder(ScheduleDbContext db, IScheduleTimeService timeService)
+        public DatabaseSeeder(
+            ScheduleDbContext db,
+            IScheduleTimeService timeService,
+            IRouteEvaluationService routeEvaluationService,
+            ILogger<DatabaseSeeder> logger)
         {
             _db = db;
             _timeService = timeService;
+            _routeEvaluationService = routeEvaluationService;
+            _logger = logger;
         }
 
         public async Task SeedAsync()
@@ -301,39 +311,14 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             _db.Tasks.AddRange(taskEntities);
             await _db.SaveChangesAsync();
 
-            // Wire previous task chain + travel estimation for each technician per day (using address entities + travel routes).
-            var travelCache = new Dictionary<(long fromId, long toId), TravelRouteEntity>();
+            // Wire previous task chain for each technician per day.
             foreach (var techGroup in taskEntities.GroupBy(t => t.TechnicianId))
             {
-                var techId = techGroup.Key;
-                var technician = technicianLookup.Values.First(t => t.Id == techId);
-
                 foreach (var dayGroup in techGroup.OrderBy(t => t.StartAt).GroupBy(t => t.StartAt.Date))
                 {
                     TaskEntity? prev = null;
                     foreach (var task in dayGroup.OrderBy(t => t.StartAt))
                     {
-                        var fromAddr = prev != null
-                            ? GetTaskAddressEntityAsync(prev, addressById, serviceObjectLookup)
-                            : addressById[technician.WorkplaceAddressId];
-                        var toAddr = GetTaskAddressEntityAsync(task, addressById, serviceObjectLookup);
-
-                        var key = (fromAddr.Id, toAddr.Id);
-                        if (!travelCache.TryGetValue(key, out var cached))
-                        {
-                            var (distanceKm, durationMinutes) = EstimateTravel(fromAddr.FullAddress, toAddr.FullAddress, technician.RegionId, task.RegionId);
-                            cached = new TravelRouteEntity
-                            {
-                                FromAddressId = fromAddr.Id,
-                                ToAddressId = toAddr.Id,
-                                DistanceKm = distanceKm,
-                                DurationMinutes = durationMinutes,
-                                CalculatedAt = DateTime.UtcNow
-                            };
-                            travelCache[key] = cached;
-                            _db.TravelRoutes.Add(cached);
-                        }
-
                         task.PreviousTaskId = prev?.Id;
 
                         prev = task;
@@ -367,20 +352,29 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
             _db.TaskEvaluations.AddRange(evaluations);
             await _db.SaveChangesAsync();
-        }
 
-        private static AddressEntity GetTaskAddressEntityAsync(
-            TaskEntity task,
-            Dictionary<long, AddressEntity> addressById,
-            Dictionary<string, ServiceObjectEntity> serviceObjectLookup)
-        {
-            var obj = serviceObjectLookup.Values.FirstOrDefault(o => o.Id == task.ServiceObjectId);
-            if (obj != null && addressById.TryGetValue(obj.AddressId, out var addr))
+            // Populate coordinates and travel routes through the same external route-evaluation flow used by runtime operations.
+            var seededDays = taskEntities
+                .Select(t => t.StartAt.Date)
+                .Distinct()
+                .OrderBy(d => d)
+                .ToList();
+
+            foreach (var day in seededDays)
             {
-                return addr;
+                try
+                {
+                    await _routeEvaluationService.EvaluatePlanDayAsync(activePlan.Id, day);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "seed.route-evaluation.failed planId={PlanId} day={Day}",
+                        activePlan.Id,
+                        day);
+                }
             }
-
-            throw new InvalidOperationException($"Task {task.Id} has no resolvable service object address.");
         }
 
         private static string ParseStreet(string fullAddress)
@@ -399,19 +393,5 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             return firstPart.Trim();
         }
 
-        private static (decimal distanceKm, int durationMinutes) EstimateTravel(
-            string fromAddress,
-            string toAddress,
-            long? fromRegionId,
-            long? toRegionId)
-        {
-            // Simple deterministic mock: same region => short trip, different => longer.
-            var sameRegion = fromRegionId.HasValue && toRegionId.HasValue && fromRegionId == toRegionId;
-            var hash = Math.Abs((fromAddress + "|" + toAddress).GetHashCode());
-            var baseKm = sameRegion ? 3 + (hash % 10) : 40 + (hash % 60); // 3-12km intra-region, 40-99km inter-region
-            var distanceKm = (decimal)baseKm;
-            var durationMinutes = Math.Max(10, (int)Math.Round(baseKm / 40.0 * 60)); // assume ~40km/h avg + clamp to 10 min
-            return (distanceKm, durationMinutes);
-        }
     }
 }
