@@ -77,11 +77,19 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             var street = ParseStreet(normalizedAddress);
+            // Prefer exact full-address reuse globally to avoid duplicate address rows
+            // when region inference differs between operations.
             var existingAddress = await _db.Addresses
-                .FirstOrDefaultAsync(a =>
-                    a.RegionId == regionId.Value &&
-                    a.Street == street,
-                    cancellationToken);
+                .FirstOrDefaultAsync(a => a.FullAddress == normalizedAddress, cancellationToken);
+
+            if (existingAddress == null)
+            {
+                existingAddress = await _db.Addresses
+                    .FirstOrDefaultAsync(a =>
+                        a.RegionId == regionId.Value &&
+                        a.Street == street,
+                        cancellationToken);
+            }
 
             if (existingAddress == null)
             {

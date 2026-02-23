@@ -39,29 +39,61 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                 return; // already seeded
             }
 
+            long? seededPlanId = null;
+            List<DateTime> seededDays = new();
             await using var transaction = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                // Address cache to enforce deduplication
+                var addressLookup = new Dictionary<string, AddressEntity>(StringComparer.OrdinalIgnoreCase);
 
-            // Address cache to enforce deduplication
-            var addressLookup = new Dictionary<string, AddressEntity>(StringComparer.OrdinalIgnoreCase);
+                // Seed Users
+                var userLookup = await SeedUsersAsync();
 
-            // Seed Users
-            var userLookup = await SeedUsersAsync();
+                // Seed Regions
+                var regionLookup = await SeedRegionsAsync();
 
-            // Seed Regions
-            var regionLookup = await SeedRegionsAsync();
+                // Seed Technicians
+                var technicianLookup = await SeedTechniciansAsync(userLookup, regionLookup, addressLookup);
 
-            // Seed Technicians
-            var technicianLookup = await SeedTechniciansAsync(userLookup, regionLookup, addressLookup);
+                // Seed Service Objects
+                var serviceObjectLookup = await SeedServiceObjectsAsync(regionLookup, addressLookup);
 
-            // Seed Service Objects
-            var serviceObjectLookup = await SeedServiceObjectsAsync(regionLookup, addressLookup);
+                // Seed Plan and Tasks
+                // Build address ID lookup for tasks
+                var addressById = addressLookup.Values.ToDictionary(a => a.Id);
+                var result = await SeedPlanAndTasksAsync(technicianLookup, serviceObjectLookup, addressById);
+                seededPlanId = result.PlanId;
+                seededDays = result.SeededDays;
 
-            // Seed Plan and Tasks
-            // Build address ID lookup for tasks
-            var addressById = addressLookup.Values.ToDictionary(a => a.Id);
-            await SeedPlanAndTasksAsync(technicianLookup, serviceObjectLookup, addressById);
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
 
-            await transaction.CommitAsync();
+            if (!seededPlanId.HasValue || seededDays.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var day in seededDays)
+            {
+                try
+                {
+                    await _routeEvaluationService.EvaluatePlanDayAsync(seededPlanId.Value, day);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "seed.route-evaluation.failed planId={PlanId} day={Day}",
+                        seededPlanId.Value,
+                        day);
+                }
+            }
         }
 
         private async Task<Dictionary<string, UserEntity>> SeedUsersAsync()
@@ -223,7 +255,7 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             return objectLookup;
         }
 
-        private async Task SeedPlanAndTasksAsync(
+        private async Task<(long? PlanId, List<DateTime> SeededDays)> SeedPlanAndTasksAsync(
             Dictionary<string, TechnicianEntity> technicianLookup,
             Dictionary<string, ServiceObjectEntity> serviceObjectLookup,
             Dictionary<long, AddressEntity> addressById)
@@ -237,7 +269,10 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             };
             var mockTasks = MockSeedData.GetTasks(startDate, 5);
 
-            if (mockTasks.Count == 0) return;
+            if (mockTasks.Count == 0)
+            {
+                return (null, new List<DateTime>());
+            }
 
             var periodStart = mockTasks.Min(t => t.StartTime.Date);
             var periodEnd = mockTasks.Max(t => t.EndTime.Date);
@@ -353,28 +388,13 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             _db.TaskEvaluations.AddRange(evaluations);
             await _db.SaveChangesAsync();
 
-            // Populate coordinates and travel routes through the same external route-evaluation flow used by runtime operations.
             var seededDays = taskEntities
                 .Select(t => t.StartAt.Date)
                 .Distinct()
                 .OrderBy(d => d)
                 .ToList();
 
-            foreach (var day in seededDays)
-            {
-                try
-                {
-                    await _routeEvaluationService.EvaluatePlanDayAsync(activePlan.Id, day);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(
-                        ex,
-                        "seed.route-evaluation.failed planId={PlanId} day={Day}",
-                        activePlan.Id,
-                        day);
-                }
-            }
+            return (activePlan.Id, seededDays);
         }
 
         private static string ParseStreet(string fullAddress)

@@ -79,15 +79,39 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
 
             request.Headers.TryAddWithoutValidation("Authorization", _apiKey);
             using var response = await _httpClient.SendAsync(request, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
             var payload = await response.Content.ReadAsStringAsync(cancellationToken);
-            using var doc = JsonDocument.Parse(payload);
-            var distances = ParseMatrix(doc.RootElement.GetProperty("distances"));
-            var durations = ParseMatrix(doc.RootElement.GetProperty("durations"));
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "route.evaluation.matrix.http-failed status={StatusCode} reason={Reason} coordinateCount={CoordinateCount} payload={PayloadPreview}",
+                    (int)response.StatusCode,
+                    response.ReasonPhrase,
+                    coordinates.Count,
+                    ToPayloadPreview(payload));
+                throw new HttpRequestException(
+                    $"Matrix request failed with status code {(int)response.StatusCode}.",
+                    null,
+                    response.StatusCode);
+            }
 
-            _logger.LogInformation("route.evaluation.matrix.success coordinateCount={CoordinateCount}", coordinates.Count);
-            return new MatrixResult(durations, distances);
+            try
+            {
+                using var doc = JsonDocument.Parse(payload);
+                var distances = ParseMatrix(doc.RootElement.GetProperty("distances"));
+                var durations = ParseMatrix(doc.RootElement.GetProperty("durations"));
+
+                _logger.LogInformation("route.evaluation.matrix.success coordinateCount={CoordinateCount}", coordinates.Count);
+                return new MatrixResult(durations, distances);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "route.evaluation.matrix.parse-failed coordinateCount={CoordinateCount} payload={PayloadPreview}",
+                    coordinates.Count,
+                    ToPayloadPreview(payload));
+                throw;
+            }
         }
 
         private static IReadOnlyList<IReadOnlyList<double>> ParseMatrix(JsonElement element)
@@ -95,6 +119,20 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             return element.EnumerateArray()
                 .Select(row => (IReadOnlyList<double>)row.EnumerateArray().Select(v => v.GetDouble()).ToList())
                 .ToList();
+        }
+
+        private static string ToPayloadPreview(string payload)
+        {
+            const int maxLength = 1200;
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                return "<empty>";
+            }
+
+            var normalized = payload.Replace('\r', ' ').Replace('\n', ' ').Trim();
+            return normalized.Length <= maxLength
+                ? normalized
+                : normalized.Substring(0, maxLength) + "...";
         }
     }
 }

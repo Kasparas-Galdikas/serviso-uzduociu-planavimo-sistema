@@ -68,35 +68,85 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.TryAddWithoutValidation("Authorization", _apiKey);
             using var response = await _httpClient.SendAsync(request, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
             var payload = await response.Content.ReadAsStringAsync(cancellationToken);
-            using var doc = JsonDocument.Parse(payload);
-
-            if (!doc.RootElement.TryGetProperty("features", out var features) || features.GetArrayLength() == 0)
+            if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException($"No geocoding result for address '{address}'.");
+                _logger.LogWarning(
+                    "route.evaluation.geocode.http-failed address={Address} status={StatusCode} reason={Reason} payload={PayloadPreview}",
+                    address,
+                    (int)response.StatusCode,
+                    response.ReasonPhrase,
+                    ToPayloadPreview(payload));
+                throw new HttpRequestException(
+                    $"Geocode request failed with status code {(int)response.StatusCode}.",
+                    null,
+                    response.StatusCode);
             }
 
-            var firstFeature = features[0];
-            if (!firstFeature.TryGetProperty("geometry", out var geometry) ||
-                !geometry.TryGetProperty("coordinates", out var coords) ||
-                coords.GetArrayLength() < 2)
+            JsonDocument doc;
+            try
             {
-                throw new InvalidOperationException($"Invalid geocoding payload for address '{address}'.");
+                doc = JsonDocument.Parse(payload);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "route.evaluation.geocode.parse-failed address={Address} payload={PayloadPreview}",
+                    address,
+                    ToPayloadPreview(payload));
+                throw;
             }
 
-            var lon = coords[0].GetDouble();
-            var lat = coords[1].GetDouble();
-            _logger.LogInformation("route.evaluation.geocode.success address={Address}", address);
-            return new GeoPoint(
-                decimal.Parse(lat.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture),
-                decimal.Parse(lon.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture));
+            using (doc)
+            {
+                if (!doc.RootElement.TryGetProperty("features", out var features) || features.GetArrayLength() == 0)
+                {
+                    _logger.LogWarning(
+                        "route.evaluation.geocode.invalid-payload address={Address} reason=missing-features payload={PayloadPreview}",
+                        address,
+                        ToPayloadPreview(payload));
+                    throw new InvalidOperationException($"No geocoding result for address '{address}'.");
+                }
+
+                var firstFeature = features[0];
+                if (!firstFeature.TryGetProperty("geometry", out var geometry) ||
+                    !geometry.TryGetProperty("coordinates", out var coords) ||
+                    coords.GetArrayLength() < 2)
+                {
+                    _logger.LogWarning(
+                        "route.evaluation.geocode.invalid-payload address={Address} reason=missing-coordinates payload={PayloadPreview}",
+                        address,
+                        ToPayloadPreview(payload));
+                    throw new InvalidOperationException($"Invalid geocoding payload for address '{address}'.");
+                }
+
+                var lon = coords[0].GetDouble();
+                var lat = coords[1].GetDouble();
+                _logger.LogInformation("route.evaluation.geocode.success address={Address}", address);
+                return new GeoPoint(
+                    decimal.Parse(lat.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture),
+                    decimal.Parse(lon.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture));
+            }
         }
 
         private static string NormalizeAddressKey(string address)
         {
             return string.Join(" ", address.Trim().ToUpperInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        private static string ToPayloadPreview(string payload)
+        {
+            const int maxLength = 1200;
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                return "<empty>";
+            }
+
+            var normalized = payload.Replace('\r', ' ').Replace('\n', ' ').Trim();
+            return normalized.Length <= maxLength
+                ? normalized
+                : normalized.Substring(0, maxLength) + "...";
         }
     }
 }
