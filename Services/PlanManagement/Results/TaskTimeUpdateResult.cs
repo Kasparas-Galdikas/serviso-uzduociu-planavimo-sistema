@@ -9,7 +9,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         NotEditable,
         Stale,
         InvalidWindow,
-        Overlap
+        Overlap,
+        TravelInfeasible
     }
 
     public sealed record TaskTimeUpdateResult(

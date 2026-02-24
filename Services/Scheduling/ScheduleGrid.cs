@@ -1,5 +1,6 @@
 namespace ServiceTaskPlanningSystem.Services.Scheduling
 {
+    // Defines the time grid for scheduling tasks, used for visualization and conflict detection.
     public static class ScheduleGrid
     {
         public const int DayStartMinutes = 8 * 60;  // 08:00

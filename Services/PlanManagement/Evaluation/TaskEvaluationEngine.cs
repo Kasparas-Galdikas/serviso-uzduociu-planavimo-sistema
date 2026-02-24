@@ -104,6 +104,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     var conflictSet = snapshot.Conflicts;
                     conflictCount += conflictSet.Count;
 
+                    var activeDayTasks = dayTasks
+                        .Where(t => WorkloadCalculator.CountsTowardsWorkload(t.Status))
+                        .OrderBy(t => t.StartAt)
+                        .ToList();
+                    var travelViolations = WorkloadCalculator.DetectTravelViolations(activeDayTasks, travelMinutesByTaskId);
+
                     foreach (var task in dayTasks)
                     {
                         var hasConflict = conflictSet.Contains(task.Id);
@@ -126,6 +132,19 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                             ? RiskLevel.High
                             : status == LoadState.Load ? RiskLevel.Medium : (RiskLevel?)null;
                         eval.EvaluatedAt = now;
+
+                        if (travelViolations.TryGetValue(task.Id, out var violation))
+                        {
+                            eval.IsTravelInfeasible = true;
+                            eval.RequiredTravelMinutes = violation.Required;
+                            eval.AvailableGapMinutes = violation.Available;
+                        }
+                        else
+                        {
+                            eval.IsTravelInfeasible = false;
+                            eval.RequiredTravelMinutes = null;
+                            eval.AvailableGapMinutes = null;
+                        }
 
                         evaluations.Add(eval);
                     }

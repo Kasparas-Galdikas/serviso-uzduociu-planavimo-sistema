@@ -354,6 +354,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("task_id");
 
+                    b.Property<int?>("AvailableGapMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("available_gap_minutes");
+
                     b.Property<string>("ConflictReason")
                         .HasColumnType("text")
                         .HasColumnName("conflict_reason");
@@ -380,6 +384,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_overloaded");
 
+                    b.Property<bool>("IsTravelInfeasible")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_travel_infeasible");
+
                     b.Property<decimal?>("LoadHours")
                         .HasColumnType("numeric")
                         .HasColumnName("load_hours");
@@ -387,6 +395,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.Property<decimal?>("OverloadHours")
                         .HasColumnType("numeric")
                         .HasColumnName("overload_hours");
+
+                    b.Property<int?>("RequiredTravelMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("required_travel_minutes");
 
                     b.Property<RiskLevel?>("RiskLevel")
                         .HasColumnType("risk_level")

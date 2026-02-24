@@ -18,6 +18,9 @@ namespace ServiceTaskPlanningSystem.Data
         public decimal? OverloadHours { get; set; }
         public int? SwitchCount { get; set; }
         public LoadState? Status { get; set; }
+        public bool IsTravelInfeasible { get; set; }
+        public int? RequiredTravelMinutes { get; set; }
+        public int? AvailableGapMinutes { get; set; }
 
         public TaskEntity Task { get; set; } = default!;
     }

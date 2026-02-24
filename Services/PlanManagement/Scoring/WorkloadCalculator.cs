@@ -82,6 +82,38 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             return new WorkloadSnapshot(context, conflicts, dailyHours, weeklyHours);
         }
 
+        /// <summary>
+        /// Detects tasks that cannot be reached in time given stored travel durations.
+        /// Checks consecutive task pairs: the gap between prev.EndAt and next.StartAt must be
+        /// >= the stored travel time to reach next from prev.
+        /// Returns a map of task ID → (RequiredMinutes, AvailableMinutes) for each infeasible task.
+        /// </summary>
+        public static Dictionary<long, (int Required, int Available)> DetectTravelViolations(
+            List<TaskEntity> orderedActiveDayTasks,
+            IReadOnlyDictionary<long, int> travelMinutesByTaskId)
+        {
+            var violations = new Dictionary<long, (int Required, int Available)>();
+
+            for (var i = 1; i < orderedActiveDayTasks.Count; i++)
+            {
+                var task = orderedActiveDayTasks[i];
+                var prev = orderedActiveDayTasks[i - 1];
+
+                if (!travelMinutesByTaskId.TryGetValue(task.Id, out var required) || required == 0)
+                {
+                    continue;
+                }
+
+                var available = (int)(task.StartAt - prev.EndAt).TotalMinutes;
+                if (required > available)
+                {
+                    violations[task.Id] = (required, available);
+                }
+            }
+
+            return violations;
+        }
+
         public static HashSet<long> DetectConflicts(List<TaskEntity> orderedTasks)
         {
             var conflicts = new HashSet<long>();

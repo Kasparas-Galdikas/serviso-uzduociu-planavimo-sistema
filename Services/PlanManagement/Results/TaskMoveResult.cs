@@ -10,7 +10,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         Stale,
         InvalidWindow,
         Overlap,
-        TechnicianNotFound
+        TechnicianNotFound,
+        TravelInfeasible
     }
 
     public sealed record TaskMoveResult(

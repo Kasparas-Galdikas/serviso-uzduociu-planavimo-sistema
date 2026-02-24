@@ -664,10 +664,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             // Find or create service object
             var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, validation.RegionId, cancellationToken);
-            var taskRegionId = await _db.ServiceObjects
+            var serviceObjectMeta = await _db.ServiceObjects
                 .Where(o => o.Id == serviceObjectId)
-                .Select(o => o.Address.RegionId)
+                .Select(o => new { o.AddressId, RegionId = o.Address.RegionId })
                 .FirstAsync(cancellationToken);
+            var taskRegionId = serviceObjectMeta.RegionId;
+
+            var travelError = await CheckTravelGapsAsync(technicianId, validation.StartAt, validation.EndAt, serviceObjectMeta.AddressId, startMinutes, null, cancellationToken);
+            if (travelError != null)
+            {
+                return new TaskCreateResult(TaskCreateError.TravelInfeasible, travelError);
+            }
 
             var task = new TaskEntity
             {
@@ -818,6 +825,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 };
             }
 
+            var moveServiceAddressId = await _db.ServiceObjects
+                .Where(o => o.Id == task.ServiceObjectId)
+                .Select(o => o.AddressId)
+                .FirstAsync(cancellationToken);
+
+            var moveTravelError = await CheckTravelGapsAsync(targetTechnicianId, validation.StartAt, validation.EndAt, moveServiceAddressId, targetSlotStartMinutes, taskId, cancellationToken);
+            if (moveTravelError != null)
+            {
+                return new TaskMoveResult(TaskMoveError.TravelInfeasible, moveTravelError);
+            }
+
             var oldTechnicianId = task.TechnicianId;
             var oldDay = task.StartAt.Date;
 
@@ -897,6 +915,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     PlacementError.Overlap => new TaskTimeUpdateResult(TaskTimeUpdateError.Overlap, validation.Message),
                     _ => new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, validation.Message)
                 };
+            }
+
+            var timeServiceAddressId = await _db.ServiceObjects
+                .Where(o => o.Id == task.ServiceObjectId)
+                .Select(o => o.AddressId)
+                .FirstAsync(cancellationToken);
+
+            var timeTravelError = await CheckTravelGapsAsync(task.TechnicianId, validation.StartAt, validation.EndAt, timeServiceAddressId, targetSlotStartMinutes, task.Id, cancellationToken);
+            if (timeTravelError != null)
+            {
+                return new TaskTimeUpdateResult(TaskTimeUpdateError.TravelInfeasible, timeTravelError);
             }
 
             var oldDay = task.StartAt.Date;
@@ -1236,6 +1265,91 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             return MapToLoadSnapshotDto(technician, snapshot);
         }
 
+        /// <summary>
+        /// Checks whether inserting a task at the proposed slot would violate travel time constraints.
+        /// Rule A (idx == 0): technician must be able to reach the first task from their workplace
+        ///   starting at DayStartMinutes. Available = proposedStartMinutesLocal - DayStartMinutes.
+        /// Rule B (idx > 0): gap between previous task end and this task start must cover travel.
+        /// Rule B trailing: gap from proposed end to next task start must also cover travel.
+        /// Uses only stored TravelRouteEntity records — skips pairs with no stored route (allow-if-no-data).
+        /// Returns a user-facing error message when infeasible, null when feasible.
+        /// </summary>
+        private async Task<string?> CheckTravelGapsAsync(
+            long technicianId,
+            DateTime proposedStartAt,
+            DateTime proposedEndAt,
+            long serviceAddressId,
+            int proposedStartMinutesLocal,
+            long? excludeTaskId,
+            CancellationToken cancellationToken)
+        {
+            var workplaceAddressId = await _db.Technicians
+                .Where(t => t.Id == technicianId)
+                .Select(t => t.WorkplaceAddressId)
+                .FirstAsync(cancellationToken);
+
+            var dayStart = proposedStartAt.Date;
+            var dayEnd = dayStart.AddDays(1);
+
+            var daySlots = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.TechnicianId == technicianId)
+                .Where(t => t.StartAt >= dayStart && t.StartAt < dayEnd)
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                .Where(t => excludeTaskId == null || t.Id != excludeTaskId.Value)
+                .OrderBy(t => t.StartAt)
+                .Select(t => new { t.StartAt, t.EndAt, AddressId = t.ServiceObject.AddressId })
+                .ToListAsync(cancellationToken);
+
+            var sequence = daySlots
+                .Select(t => (StartAt: t.StartAt, EndAt: t.EndAt, AddressId: t.AddressId))
+                .Append((StartAt: proposedStartAt, EndAt: proposedEndAt, AddressId: serviceAddressId))
+                .OrderBy(t => t.StartAt)
+                .ToList();
+
+            var idx = sequence.FindIndex(t => t.StartAt == proposedStartAt && t.AddressId == serviceAddressId);
+
+            var pairsToCheck = new List<(long From, long To, int Available)>();
+
+            if (idx == 0)
+            {
+                // Rule A: gap from work-day start to first task start
+                var available = proposedStartMinutesLocal - ScheduleGrid.DayStartMinutes;
+                pairsToCheck.Add((workplaceAddressId, serviceAddressId, available));
+            }
+            else
+            {
+                // Rule B: gap from previous task end to this task start
+                var prev = sequence[idx - 1];
+                pairsToCheck.Add((prev.AddressId, serviceAddressId, (int)(proposedStartAt - prev.EndAt).TotalMinutes));
+            }
+
+            if (idx < sequence.Count - 1)
+            {
+                // Rule B trailing: gap from proposed end to next task start
+                var next = sequence[idx + 1];
+                pairsToCheck.Add((serviceAddressId, next.AddressId, (int)(next.StartAt - proposedEndAt).TotalMinutes));
+            }
+
+            var fromIds = pairsToCheck.Select(p => p.From).Distinct().ToList();
+            var toIds = pairsToCheck.Select(p => p.To).Distinct().ToList();
+
+            var routes = await _db.TravelRoutes
+                .AsNoTracking()
+                .Where(r => fromIds.Contains(r.FromAddressId) && toIds.Contains(r.ToAddressId))
+                .ToDictionaryAsync(r => (r.FromAddressId, r.ToAddressId), r => r.DurationMinutes, cancellationToken);
+
+            foreach (var (from, to, available) in pairsToCheck)
+            {
+                if (routes.TryGetValue((from, to), out var required) && required > available)
+                {
+                    return $"Nepakanka laiko kelionei: reikia {required} min., galima {available} min.";
+                }
+            }
+
+            return null;
+        }
+
         private async Task TriggerRouteEvaluationSafelyAsync(long technicianId, DateTime day, string action, CancellationToken cancellationToken)
         {
             _logger.LogInformation(
@@ -1406,9 +1520,3 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         }
     }
 }
-
-
-
-
-
-
