@@ -385,7 +385,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             // Preserve existing status - managers cannot change it, system manages status automatically
             var preservedStatus = existing.Status;
 
-            var updated = await _planService.UpdateTaskAsync(id, task =>
+            var updateResult = await _planService.UpdateTaskAsync(id, task =>
             {
                 task.Title = dto.Title;
                 task.StartAt = utcStartAt;
@@ -400,6 +400,19 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 }
             }, dto.TechnicianId, user, dto.TimezoneOffsetMinutes, normalizedObjectName, normalizedObjectAddress, cancellationToken);
 
+            if (!updateResult.Ok)
+            {
+                return updateResult.Error switch
+                {
+                    TaskUpdateError.NotFound => NotFound(new { message = updateResult.Message }),
+                    TaskUpdateError.NotEditable => StatusCode(403, new { message = updateResult.Message }),
+                    TaskUpdateError.TechnicianNotFound => UnprocessableEntity(new { message = updateResult.Message }),
+                    TaskUpdateError.TravelInfeasible => UnprocessableEntity(new { message = updateResult.Message }),
+                    _ => UnprocessableEntity(new { message = updateResult.Message })
+                };
+            }
+
+            var updated = updateResult.Task!;
             var version = await _planService.GetTaskVersionAsync(id, cancellationToken);
 
             var response = new TaskCreatedOrUpdatedResponseDto

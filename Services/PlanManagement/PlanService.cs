@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
@@ -670,12 +671,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .FirstAsync(cancellationToken);
             var taskRegionId = serviceObjectMeta.RegionId;
 
-            var travelError = await CheckTravelGapsAsync(technicianId, validation.StartAt, validation.EndAt, serviceObjectMeta.AddressId, startMinutes, null, cancellationToken);
-            if (travelError != null)
-            {
-                return new TaskCreateResult(TaskCreateError.TravelInfeasible, travelError);
-            }
-
             var task = new TaskEntity
             {
                 PlanId = targetPlan.Id,
@@ -692,16 +687,33 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 CreatedAt = DateTime.UtcNow
             };
 
+            await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
             _db.Tasks.Add(task);
             await _db.SaveChangesAsync(cancellationToken);
 
+            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "create", cancellationToken);
+
+            var travelError = await CheckTravelGapsAsync(task.TechnicianId, task.StartAt, task.EndAt, serviceObjectMeta.AddressId, startMinutes, null, cancellationToken);
+            if (travelError != null)
+            {
+                if (transaction != null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                }
+                return new TaskCreateResult(TaskCreateError.TravelInfeasible, travelError);
+            }
+
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
             var version = _db.Entry(task).Property<uint>("xmin").CurrentValue;
             await _evaluationEngine.RecalculatePlanAsync(targetPlan.Id, cancellationToken);
-            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "create", cancellationToken);
             return new TaskCreateResult(TaskCreateError.None, Task: task, CurrentVersion: version);
         }
 
-        public async Task<TaskEntity> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, long technicianId, UserContext user, int timezoneOffsetMinutes, string? objectName, string? objectAddress, CancellationToken cancellationToken = default)
+        public async Task<TaskUpdateResult> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, long technicianId, UserContext user, int timezoneOffsetMinutes, string? objectName, string? objectAddress, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
                 .Include(t => t.Plan)
@@ -709,20 +721,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (task == null)
             {
-                throw new InvalidOperationException($"Task {taskId} was not found.");
+                return new TaskUpdateResult(TaskUpdateError.NotFound, "Uzduotis nerasta.");
             }
 
             var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffsetMinutes);
             if (!canEdit)
             {
-                throw new InvalidOperationException("Neturite teisiu redaguoti sios uzduoties.");
+                return new TaskUpdateResult(TaskUpdateError.NotEditable, "Neturite teisiu redaguoti sios uzduoties.");
             }
-
-            var oldAddressId = await _db.ServiceObjects
-                .AsNoTracking()
-                .Where(o => o.Id == task.ServiceObjectId)
-                .Select(o => o.AddressId)
-                .FirstOrDefaultAsync(cancellationToken);
 
             if (technicianId != task.TechnicianId)
             {
@@ -733,11 +739,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
                 if (targetTech == null)
                 {
-                    throw new InvalidOperationException("Technikas nerastas.");
+                    return new TaskUpdateResult(TaskUpdateError.TechnicianNotFound, "Technikas nerastas.");
                 }
 
                 task.TechnicianId = targetTech.Id;
             }
+
+            await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
 
             applyChanges(task);
 
@@ -754,11 +762,30 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             await _db.SaveChangesAsync(cancellationToken);
-            var newAddressId = await _db.ServiceObjects
+            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "update", cancellationToken);
+
+            // Resolve final address and check travel feasibility after route evaluation.
+            var finalAddressId = await _db.ServiceObjects
                 .AsNoTracking()
                 .Where(o => o.Id == task.ServiceObjectId)
                 .Select(o => o.AddressId)
-                .FirstOrDefaultAsync(cancellationToken);
+                .FirstAsync(cancellationToken);
+
+            var startMinutesLocal = (int)task.StartAt.AddMinutes(timezoneOffsetMinutes).TimeOfDay.TotalMinutes;
+            var travelError = await CheckTravelGapsAsync(task.TechnicianId, task.StartAt, task.EndAt, finalAddressId, startMinutesLocal, taskId, cancellationToken);
+            if (travelError != null)
+            {
+                if (transaction != null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                }
+                return new TaskUpdateResult(TaskUpdateError.TravelInfeasible, travelError);
+            }
+
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
 
             if (task.PlanId.HasValue)
             {
@@ -766,12 +793,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
             }
 
-            if (oldAddressId != newAddressId)
-            {
-                await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "update-address", cancellationToken);
-            }
-
-            return task;
+            return new TaskUpdateResult(TaskUpdateError.None, Task: task);
         }
 
         public async Task<TaskMoveResult> MoveTaskAsync(long taskId, long targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
@@ -825,17 +847,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 };
             }
 
-            var moveServiceAddressId = await _db.ServiceObjects
-                .Where(o => o.Id == task.ServiceObjectId)
-                .Select(o => o.AddressId)
-                .FirstAsync(cancellationToken);
-
-            var moveTravelError = await CheckTravelGapsAsync(targetTechnicianId, validation.StartAt, validation.EndAt, moveServiceAddressId, targetSlotStartMinutes, taskId, cancellationToken);
-            if (moveTravelError != null)
-            {
-                return new TaskMoveResult(TaskMoveError.TravelInfeasible, moveTravelError);
-            }
-
             var oldTechnicianId = task.TechnicianId;
             var oldDay = task.StartAt.Date;
 
@@ -843,6 +854,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             task.StartAt = validation.StartAt;
             task.EndAt = validation.EndAt;
 
+            await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
             try
             {
                 await _db.SaveChangesAsync(cancellationToken);
@@ -852,15 +864,38 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskMoveResult(TaskMoveError.Stale, "Uzduotis pasikeite (stale). Atnaujinkite lentele ir bandykite dar karta.", CurrentVersion: currentVersion);
             }
 
+            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "move", cancellationToken);
+
+            var moveServiceAddressId = await _db.ServiceObjects
+                .Where(o => o.Id == task.ServiceObjectId)
+                .Select(o => o.AddressId)
+                .FirstAsync(cancellationToken);
+
+            var moveTravelError = await CheckTravelGapsAsync(targetTechnicianId, validation.StartAt, validation.EndAt, moveServiceAddressId, targetSlotStartMinutes, taskId, cancellationToken);
+            if (moveTravelError != null)
+            {
+                if (transaction != null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                }
+                return new TaskMoveResult(TaskMoveError.TravelInfeasible, moveTravelError);
+            }
+
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
             if (task.PlanId.HasValue)
             {
                 await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
                 await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
             }
 
-            await TriggerRouteEvaluationSafelyAsync(oldTechnicianId, oldDay, "move", cancellationToken);
             if (targetTechnicianId != oldTechnicianId || targetDate.Date != oldDay)
-                await TriggerRouteEvaluationSafelyAsync(targetTechnicianId, targetDate.Date, "move", cancellationToken);
+            {
+                await TriggerRouteEvaluationSafelyAsync(oldTechnicianId, oldDay, "move-old-day", cancellationToken);
+            }
 
             return new TaskMoveResult(TaskMoveError.None, Task: task, CurrentVersion: _db.Entry(task).Property<uint>("xmin").CurrentValue);
         }
@@ -917,22 +952,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 };
             }
 
-            var timeServiceAddressId = await _db.ServiceObjects
-                .Where(o => o.Id == task.ServiceObjectId)
-                .Select(o => o.AddressId)
-                .FirstAsync(cancellationToken);
-
-            var timeTravelError = await CheckTravelGapsAsync(task.TechnicianId, validation.StartAt, validation.EndAt, timeServiceAddressId, targetSlotStartMinutes, task.Id, cancellationToken);
-            if (timeTravelError != null)
-            {
-                return new TaskTimeUpdateResult(TaskTimeUpdateError.TravelInfeasible, timeTravelError);
-            }
-
             var oldDay = task.StartAt.Date;
 
             task.StartAt = validation.StartAt;
             task.EndAt = validation.EndAt;
 
+            await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
             try
             {
                 await _db.SaveChangesAsync(cancellationToken);
@@ -942,15 +967,38 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskTimeUpdateResult(TaskTimeUpdateError.Stale, "Uzduotis pasikeite (stale).", CurrentVersion: currentVersion);
             }
 
+            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "reschedule", cancellationToken);
+
+            var timeServiceAddressId = await _db.ServiceObjects
+                .Where(o => o.Id == task.ServiceObjectId)
+                .Select(o => o.AddressId)
+                .FirstAsync(cancellationToken);
+
+            var timeTravelError = await CheckTravelGapsAsync(task.TechnicianId, validation.StartAt, validation.EndAt, timeServiceAddressId, targetSlotStartMinutes, task.Id, cancellationToken);
+            if (timeTravelError != null)
+            {
+                if (transaction != null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                }
+                return new TaskTimeUpdateResult(TaskTimeUpdateError.TravelInfeasible, timeTravelError);
+            }
+
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
             if (task.PlanId.HasValue)
             {
                 await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
                 await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
             }
 
-            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, oldDay, "reschedule", cancellationToken);
             if (targetDate.Date != oldDay)
-                await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, targetDate.Date, "reschedule", cancellationToken);
+            {
+                await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, oldDay, "reschedule-old-day", cancellationToken);
+            }
 
             var newVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
             return new TaskTimeUpdateResult(TaskTimeUpdateError.None, Task: task, CurrentVersion: newVersion);
@@ -1365,6 +1413,16 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     "route.evaluation.trigger.failed action={Action} technicianId={TechnicianId} day={Day:yyyy-MM-dd}",
                     action, technicianId, day);
             }
+        }
+
+        private async Task<IDbContextTransaction?> BeginTransactionIfSupportedAsync(CancellationToken cancellationToken)
+        {
+            if (string.Equals(_db.Database.ProviderName, "Microsoft.EntityFrameworkCore.InMemory", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return await _db.Database.BeginTransactionAsync(cancellationToken);
         }
 
         private async Task<Dictionary<long, int>> BuildTravelMinutesByTaskIdAsync(

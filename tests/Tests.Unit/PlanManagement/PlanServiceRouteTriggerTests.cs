@@ -130,7 +130,7 @@ public class PlanServiceRouteTriggerTests
     }
 
     [Fact]
-    public async Task UpdateTask_AddressUnchanged_DoesNotCallRouteEvaluation()
+    public async Task UpdateTask_AddressUnchanged_CallsRouteEvaluation()
     {
         using var db = CreateContext();
         SeedRegionAddressAndTechnician(db, technicianId: 1, workplaceAddressId: 1);
@@ -149,11 +149,11 @@ public class PlanServiceRouteTriggerTests
             cancellationToken: CancellationToken.None);
 
         updated.Should().NotBeNull();
-        await _routeEvaluation.DidNotReceive().EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await _routeEvaluation.Received(1).EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task UpdateTask_WhenOnlyTitleTimeChanges_DoesNotCallRouteEvaluation()
+    public async Task UpdateTask_WhenOnlyTitleTimeChanges_CallsRouteEvaluation()
     {
         using var db = CreateContext();
         SeedRegionAddressAndTechnician(db, technicianId: 1, workplaceAddressId: 1);
@@ -177,7 +177,7 @@ public class PlanServiceRouteTriggerTests
             cancellationToken: CancellationToken.None);
 
         updated.Should().NotBeNull();
-        await _routeEvaluation.DidNotReceive().EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await _routeEvaluation.Received(1).EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     private PlanService CreateService(ScheduleDbContext db) =>
