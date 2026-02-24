@@ -690,7 +690,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var version = _db.Entry(task).Property<uint>("xmin").CurrentValue;
             await _evaluationEngine.RecalculatePlanAsync(targetPlan.Id, cancellationToken);
-            await TriggerRouteEvaluationSafelyAsync(task.Id, cancellationToken);
+            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "create", cancellationToken);
             return new TaskCreateResult(TaskCreateError.None, Task: task, CurrentVersion: version);
         }
 
@@ -761,7 +761,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (oldAddressId != newAddressId)
             {
-                await TriggerRouteEvaluationSafelyAsync(task.Id, cancellationToken);
+                await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "update-address", cancellationToken);
             }
 
             return task;
@@ -818,6 +818,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 };
             }
 
+            var oldTechnicianId = task.TechnicianId;
+            var oldDay = task.StartAt.Date;
+
             task.TechnicianId = targetTechnicianId;
             task.StartAt = validation.StartAt;
             task.EndAt = validation.EndAt;
@@ -836,6 +839,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
                 await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
             }
+
+            await TriggerRouteEvaluationSafelyAsync(oldTechnicianId, oldDay, "move", cancellationToken);
+            if (targetTechnicianId != oldTechnicianId || targetDate.Date != oldDay)
+                await TriggerRouteEvaluationSafelyAsync(targetTechnicianId, targetDate.Date, "move", cancellationToken);
 
             return new TaskMoveResult(TaskMoveError.None, Task: task, CurrentVersion: _db.Entry(task).Property<uint>("xmin").CurrentValue);
         }
@@ -892,6 +899,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 };
             }
 
+            var oldDay = task.StartAt.Date;
+
             task.StartAt = validation.StartAt;
             task.EndAt = validation.EndAt;
 
@@ -909,6 +918,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
                 await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
             }
+
+            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, oldDay, "reschedule", cancellationToken);
+            if (targetDate.Date != oldDay)
+                await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, targetDate.Date, "reschedule", cancellationToken);
 
             var newVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
             return new TaskTimeUpdateResult(TaskTimeUpdateError.None, Task: task, CurrentVersion: newVersion);
@@ -944,6 +957,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var planId = task.PlanId;
             var plan = task.Plan;
+            var deletedTechnicianId = task.TechnicianId;
+            var deletedDay = task.StartAt.Date;
 
             _db.Tasks.Remove(task);
 
@@ -962,6 +977,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 await AdjustPlanSpanAsync(plan, cancellationToken);
                 await _evaluationEngine.RecalculatePlanAsync(planId.Value, cancellationToken);
             }
+
+            await TriggerRouteEvaluationSafelyAsync(deletedTechnicianId, deletedDay, "delete", cancellationToken);
 
             _logger.LogInformation("svc.task.delete.ok taskId={TaskId}", taskId);
             return new TaskDeleteResult(TaskDeleteError.None, Task: task, CurrentVersion: 0);
@@ -1219,15 +1236,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             return MapToLoadSnapshotDto(technician, snapshot);
         }
 
-        private async Task TriggerRouteEvaluationSafelyAsync(long taskId, CancellationToken cancellationToken)
+        private async Task TriggerRouteEvaluationSafelyAsync(long technicianId, DateTime day, string action, CancellationToken cancellationToken)
         {
+            _logger.LogInformation(
+                "route.evaluation.triggered action={Action} technicianId={TechnicianId} day={Day:yyyy-MM-dd}",
+                action, technicianId, day);
             try
             {
-                await _routeEvaluationService.EvaluateTaskRouteImpactAsync(taskId, cancellationToken);
+                await _routeEvaluationService.EvaluateTechnicianDayAsync(technicianId, day, cancellationToken);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "route.evaluation.trigger.failed taskId={TaskId}", taskId);
+                _logger.LogWarning(ex,
+                    "route.evaluation.trigger.failed action={Action} technicianId={TechnicianId} day={Day:yyyy-MM-dd}",
+                    action, technicianId, day);
             }
         }
 

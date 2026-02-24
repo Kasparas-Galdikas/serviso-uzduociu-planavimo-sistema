@@ -125,39 +125,6 @@ public class RouteEvaluationServiceTests
         routes[0].DurationMinutes.Should().Be(10);
     }
 
-    [Fact]
-    public async Task HandleTaskUpdated_WhenAddressChangedFalse_SkipsEvaluation()
-    {
-        using var db = CreateContext();
-        var taskId = SeedSingleTaskDay(db, hasCoordinates: true, withRoute: false);
-        var service = CreateService(db);
-
-        await service.HandleTaskUpdatedAsync(new RouteEvaluationRequest
-        {
-            TaskId = taskId,
-            AddressChanged = false
-        }, CancellationToken.None);
-
-        await _location.DidNotReceive().GeocodeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _distance.DidNotReceive().GetMatrixAsync(Arg.Any<IReadOnlyList<GeoPoint>>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task HandleTaskUpdated_WhenAddressChangedTrue_TriggersEvaluationPath()
-    {
-        using var db = CreateContext();
-        var taskId = SeedSingleTaskDay(db, hasCoordinates: true, withRoute: false);
-        var service = CreateService(db);
-
-        await service.HandleTaskUpdatedAsync(new RouteEvaluationRequest
-        {
-            TaskId = taskId,
-            AddressChanged = true
-        }, CancellationToken.None);
-
-        await _distance.Received(1).GetMatrixAsync(Arg.Any<IReadOnlyList<GeoPoint>>(), Arg.Any<CancellationToken>());
-    }
-
     private RouteEvaluationService CreateService(ScheduleDbContext db, string apiKey = "test-key")
     {
         var config = new ConfigurationBuilder()

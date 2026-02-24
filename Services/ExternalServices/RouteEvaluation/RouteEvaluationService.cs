@@ -84,6 +84,12 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             var routeAddresses = new List<AddressEntity> { task.Technician.WorkplaceAddress };
             routeAddresses.AddRange(dayTasks.Select(t => t.ServiceObject.Address));
 
+            _logger.LogInformation(
+                "route.evaluation.task-impact.address-chain taskId={TaskId} technicianId={TechnicianId} chain=[{Chain}]",
+                taskId,
+                task.TechnicianId,
+                string.Join(" → ", routeAddresses.Select(a => a.FullAddress)));
+
             await EnsureCoordinatesAsync(routeAddresses, cancellationToken);
 
             var missingPairs = await GetMissingSequentialPairsAsync(routeAddresses, cancellationToken);
@@ -132,23 +138,30 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 technicianId,
                 dayUtc.Date);
 
-            var taskIds = await _db.Tasks
+            var dayTasks = await _db.Tasks
                 .AsNoTracking()
                 .Where(t => t.TechnicianId == technicianId)
                 .Where(t => t.StartAt >= dayUtc.Date && t.StartAt < dayUtc.Date.AddDays(1))
-                .Select(t => t.Id)
+                .OrderBy(t => t.StartAt)
+                .Select(t => new { t.Id, t.StartAt })
                 .ToListAsync(cancellationToken);
 
-            foreach (var taskId in taskIds)
+            _logger.LogInformation(
+                "route.evaluation.technician-day.chain technicianId={TechnicianId} day={Day} chain=[{Chain}]",
+                technicianId,
+                dayUtc.Date,
+                string.Join(" → ", dayTasks.Select(t => $"{t.Id}@{t.StartAt:HH:mm}")));
+
+            foreach (var t in dayTasks)
             {
-                await EvaluateTaskRouteImpactAsync(taskId, cancellationToken);
+                await EvaluateTaskRouteImpactAsync(t.Id, cancellationToken);
             }
 
             _logger.LogInformation(
                 "route.evaluation.technician-day.completed technicianId={TechnicianId} day={Day} tasks={TaskCount}",
                 technicianId,
                 dayUtc.Date,
-                taskIds.Count);
+                dayTasks.Count);
         }
 
         public async Task EvaluatePlanDayAsync(long planId, DateTime dayUtc, CancellationToken cancellationToken = default)
@@ -175,22 +188,6 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             {
                 await EvaluateTechnicianDayAsync(technicianId, dayUtc.Date, cancellationToken);
             }
-        }
-
-        public Task HandleTaskCreatedAsync(RouteEvaluationRequest request, CancellationToken cancellationToken = default)
-        {
-            return EvaluateTaskRouteImpactAsync(request.TaskId, cancellationToken);
-        }
-
-        public Task HandleTaskUpdatedAsync(RouteEvaluationRequest request, CancellationToken cancellationToken = default)
-        {
-            if (!request.AddressChanged)
-            {
-                _logger.LogDebug("route.evaluation.task-updated.skipped taskId={TaskId} reason=address-not-changed", request.TaskId);
-                return Task.CompletedTask;
-            }
-
-            return EvaluateTaskRouteImpactAsync(request.TaskId, cancellationToken);
         }
 
         private bool IsConfigured(long? taskId = null)

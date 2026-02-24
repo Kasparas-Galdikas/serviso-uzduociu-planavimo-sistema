@@ -33,7 +33,7 @@ public class PlanServiceRouteTriggerTests
             .Returns(new PlanningWindow(DateTime.Today, DateTime.Today.AddDays(27), 28, 4, DateTime.Today));
         _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
             .Returns(Task.FromResult(true));
-        _routeEvaluation.EvaluateTaskRouteImpactAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
+        _routeEvaluation.EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         _time.GetUserLocalToday(Arg.Any<int>()).Returns(DateTime.Today);
@@ -72,7 +72,7 @@ public class PlanServiceRouteTriggerTests
             cancellationToken: CancellationToken.None);
 
         result.Ok.Should().BeTrue();
-        await _routeEvaluation.Received(1).EvaluateTaskRouteImpactAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+        await _routeEvaluation.Received(1).EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public class PlanServiceRouteTriggerTests
         using var db = CreateContext();
         SeedRegionAddressAndTechnician(db, technicianId: 1, workplaceAddressId: 1);
         SeedActivePlan(db, DateTime.Today.AddDays(-1), DateTime.Today.AddDays(30));
-        _routeEvaluation.EvaluateTaskRouteImpactAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
+        _routeEvaluation.EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
             .Returns<Task>(_ => throw new InvalidOperationException("boom"));
 
         var service = CreateService(db);
@@ -103,7 +103,7 @@ public class PlanServiceRouteTriggerTests
             cancellationToken: CancellationToken.None);
 
         result.Ok.Should().BeTrue();
-        await _routeEvaluation.Received(1).EvaluateTaskRouteImpactAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+        await _routeEvaluation.Received(1).EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class PlanServiceRouteTriggerTests
             cancellationToken: CancellationToken.None);
 
         updated.Should().NotBeNull();
-        await _routeEvaluation.Received(1).EvaluateTaskRouteImpactAsync(existing.Id, Arg.Any<CancellationToken>());
+        await _routeEvaluation.Received(1).EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public class PlanServiceRouteTriggerTests
             cancellationToken: CancellationToken.None);
 
         updated.Should().NotBeNull();
-        await _routeEvaluation.DidNotReceive().EvaluateTaskRouteImpactAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+        await _routeEvaluation.DidNotReceive().EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -177,7 +177,7 @@ public class PlanServiceRouteTriggerTests
             cancellationToken: CancellationToken.None);
 
         updated.Should().NotBeNull();
-        await _routeEvaluation.DidNotReceive().EvaluateTaskRouteImpactAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+        await _routeEvaluation.DidNotReceive().EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     private PlanService CreateService(ScheduleDbContext db) =>
