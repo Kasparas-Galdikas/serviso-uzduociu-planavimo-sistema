@@ -2,6 +2,25 @@
 
 @{
     var task = Model;
+    if (task.IsTravelBlock)
+    {
+        var travelDurationMinutes = (int)Math.Round((task.End - task.Start).TotalMinutes);
+        <div class="task-card task-travel travel-slot-card read-only"
+             data-tech-id="@task.TechnicianId"
+             data-date="@task.Start.ToString("yyyy-MM-dd")"
+             data-start-minutes="@((int)task.Start.TimeOfDay.TotalMinutes)"
+             data-duration-minutes="@travelDurationMinutes"
+             data-editable="false"
+             data-travel-for-task-id="@task.TravelForTaskId"
+             aria-label="Kelione @task.Start.ToString("HH:mm") - @task.End.ToString("HH:mm")">
+            <div class="travel-slot-icon" aria-hidden="true">
+                <i class="bi bi-car-front-fill"></i>
+            </div>
+            <div class="travel-slot-time">@task.Start.ToString("HH:mm") - @task.End.ToString("HH:mm")</div>
+        </div>
+        return;
+    }
+
     var sourceClass = task.Source switch
     {
         ServiceTaskPlanningSystem.Models.Planning.TaskPlanSource.Draft => "task-draft",
@@ -25,6 +44,7 @@
      data-editable="@task.IsEditable.ToString().ToLowerInvariant()"
      data-task-version="@task.Version"
      data-duration-minutes="@durationMinutes"
+     data-travel-duration-minutes="@((int)Math.Ceiling(task.TravelDurationMinutes ?? 0))"
      data-date="@task.Start.ToString("yyyy-MM-dd")"
      data-start-minutes="@((int)task.Start.TimeOfDay.TotalMinutes)">
     @if (task.IsEditable || task.CanDelete)

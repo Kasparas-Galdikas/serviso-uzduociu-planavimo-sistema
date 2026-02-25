@@ -24,5 +24,6 @@ namespace ServiceTaskPlanningSystem.Models.DTOs.Responses
         public double DailyUtilization { get; set; }
         public double WeeklyUtilization { get; set; }
         public double TravelTimeHours { get; set; }
+        public int? RequiredInboundTravelMinutes { get; set; }
     }
 }

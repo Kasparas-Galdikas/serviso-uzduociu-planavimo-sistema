@@ -28,6 +28,8 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public string LoadStatus { get; set; } = string.Empty;
         public decimal? TravelDurationMinutes { get; set; }
         public decimal? TravelDistanceKm { get; set; }
+        public bool IsTravelBlock { get; set; }
+        public int? TravelForTaskId { get; set; }
     }
 
     public enum TaskPlanSource

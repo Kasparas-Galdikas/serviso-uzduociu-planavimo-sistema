@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ServiceTaskPlanningSystem")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6326044c7e56d24fcd92a21e3f7e86615d8a2b24")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d02433109cb1d404e3e9fece1eb033745abd322a")]
 [assembly: System.Reflection.AssemblyProductAttribute("ServiceTaskPlanningSystem")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ServiceTaskPlanningSystem")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

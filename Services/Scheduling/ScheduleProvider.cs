@@ -152,17 +152,32 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 .ThenBy(t => t.Source == TaskPlanSource.Active ? 0 : t.Source == TaskPlanSource.Draft ? 1 : 2)
                 .ToList();
 
+            if (string.Equals(viewMode, "day", StringComparison.OrdinalIgnoreCase))
+            {
+                var travelBlocks = BuildTravelDisplayBlocks(tasks);
+                if (travelBlocks.Count > 0)
+                {
+                    tasks.AddRange(travelBlocks);
+                    tasks = tasks
+                        .OrderBy(t => t.Start)
+                        .ThenBy(t => t.IsTravelBlock ? 0 : 1)
+                        .ThenBy(t => t.Source == TaskPlanSource.Active ? 0 : t.Source == TaskPlanSource.Draft ? 1 : 2)
+                        .ToList();
+                }
+            }
+
             var availableLocations = technicians
                 .Select(t => t.Location)
                 .Where(l => !string.IsNullOrWhiteSpace(l))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(l => l)
                 .ToList();
-            var availableWorkloadLevels = BuildAvailableWorkloadLevels(tasks);
+            var nonTravelTasks = tasks.Where(t => !t.IsTravelBlock).ToList();
+            var availableWorkloadLevels = BuildAvailableWorkloadLevels(nonTravelTasks);
 
             var summaryTasks = includeCanceled
-                ? tasks.Where(t => !IsCanceledStatus(t.Status)).ToList()
-                : tasks;
+                ? nonTravelTasks.Where(t => !IsCanceledStatus(t.Status)).ToList()
+                : nonTravelTasks;
 
             var issues = BuildIssues(summaryTasks, technicians);
             var summary = BuildSummary(summaryTasks, technicians);
@@ -332,8 +347,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
             // For weekly view: consider whole week window. For daily view: consider only the selected day.
             var tasksForMatching = isDayView
-                ? tasks.Where(t => t.Start.Date == selectedDate.Date).ToList()
-                : tasks;
+                ? tasks.Where(t => !t.IsTravelBlock && t.Start.Date == selectedDate.Date).ToList()
+                : tasks.Where(t => !t.IsTravelBlock).ToList();
 
             // Show technicians who have at least one task in the selected workload bucket (keep their tasks intact).
             var techIdsByWorkload = tasksForMatching
@@ -569,6 +584,108 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             }
 
             return result;
+        }
+
+        private static List<TaskItem> BuildTravelDisplayBlocks(List<TaskItem> tasks)
+        {
+            var blocks = new List<TaskItem>();
+            if (tasks.Count == 0)
+            {
+                return blocks;
+            }
+
+            var grouped = tasks
+                .Where(t => !t.IsTravelBlock)
+                .GroupBy(t => new { t.TechnicianId, Day = t.Start.Date });
+
+            var syntheticId = -1;
+            foreach (var group in grouped)
+            {
+                TaskItem? previous = null;
+                foreach (var task in group.OrderBy(t => t.Start))
+                {
+                    var requiredTravelMinutes = task.TravelDurationMinutes.HasValue
+                        ? (int)Math.Ceiling(task.TravelDurationMinutes.Value)
+                        : 0;
+                    if (requiredTravelMinutes <= 0)
+                    {
+                        previous = task;
+                        continue;
+                    }
+
+                    var taskStartMinutes = (int)task.Start.TimeOfDay.TotalMinutes;
+                    var earliestAllowedStart = previous != null
+                        ? (int)previous.End.TimeOfDay.TotalMinutes
+                        : ScheduleGrid.DayStartMinutes;
+
+                    var availableGap = taskStartMinutes - earliestAllowedStart;
+                    if (availableGap <= 0)
+                    {
+                        previous = task;
+                        continue;
+                    }
+
+                    var displayMinutes = Math.Min(requiredTravelMinutes, availableGap);
+                    var rawStartMinutes = taskStartMinutes - displayMinutes;
+                    var snappedStart = FloorToSlot(rawStartMinutes);
+                    var snappedEnd = CeilingToSlot(taskStartMinutes);
+                    if (snappedStart < earliestAllowedStart)
+                    {
+                        snappedStart = earliestAllowedStart;
+                    }
+
+                    if (snappedEnd <= snappedStart)
+                    {
+                        previous = task;
+                        continue;
+                    }
+
+                    blocks.Add(new TaskItem
+                    {
+                        Id = syntheticId--,
+                        PlanId = task.PlanId,
+                        TechnicianId = task.TechnicianId,
+                        Version = 0,
+                        Title = "Kelione",
+                        Location = string.Empty,
+                        Start = task.Start.Date.AddMinutes(snappedStart),
+                        End = task.Start.Date.AddMinutes(snappedEnd),
+                        PlanStatus = task.PlanStatus,
+                        Priority = string.Empty,
+                        Status = "travel",
+                        IsConflict = false,
+                        IsLoad = false,
+                        IsNewPlan = false,
+                        Source = task.Source,
+                        IsEditable = false,
+                        CanDelete = false,
+                        IsTimeExpired = false,
+                        Risk = null,
+                        OverloadHours = 0,
+                        LoadStatus = string.Empty,
+                        TravelDurationMinutes = displayMinutes,
+                        TravelDistanceKm = task.TravelDistanceKm,
+                        IsTravelBlock = true,
+                        TravelForTaskId = task.Id
+                    });
+
+                    previous = task;
+                }
+            }
+
+            return blocks;
+        }
+
+        private static int FloorToSlot(int minutes)
+        {
+            var slot = ScheduleGrid.SlotSizeMinutes;
+            return (minutes / slot) * slot;
+        }
+
+        private static int CeilingToSlot(int minutes)
+        {
+            var slot = ScheduleGrid.SlotSizeMinutes;
+            return ((minutes + slot - 1) / slot) * slot;
         }
     }
 

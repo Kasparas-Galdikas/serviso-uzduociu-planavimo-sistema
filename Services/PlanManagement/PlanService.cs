@@ -1162,6 +1162,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .AsNoTracking()
                 .Include(t => t.Plan)
                 .Include(t => t.Technician)
+                .Include(t => t.ServiceObject)
                 .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
 
             if (targetTask == null)
@@ -1196,6 +1197,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var scopeTasks = await _db.Tasks
                 .AsNoTracking()
                 .Include(t => t.Technician)
+                .Include(t => t.ServiceObject)
                 .Where(t => t.PlanId == targetTask.PlanId &&
                             t.StartAt < weekEndExclusive &&
                             t.EndAt > weekStart)
@@ -1248,6 +1250,16 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 DraggedTaskId = targetTask.Id
             };
 
+            var travelRoutes = await _db.TravelRoutes
+                .AsNoTracking()
+                .Select(r => new { r.FromAddressId, r.ToAddressId, r.DurationMinutes })
+                .ToListAsync(cancellationToken);
+            var routeLookup = travelRoutes
+                .GroupBy(r => (r.FromAddressId, r.ToAddressId))
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderByDescending(x => x.DurationMinutes).First().DurationMinutes);
+
             foreach (var tech in visibleTechs)
             {
                 var loadSnapshot = BuildLoadSnapshotForSimulation(
@@ -1255,6 +1267,31 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     dayStart,
                     modifiedSim.Tasks.ToList(),
                     modifiedSim.Technicians.ToList());
+
+                var fallbackTravelHours = ComputeTravelHoursForSimulation(
+                    tech.Id,
+                    dayStart,
+                    scopeTasks,
+                    technicians,
+                    routeLookup,
+                    strictRouteCoverage: false);
+
+                var projectedTravelHours = ComputeTravelHoursForSimulation(
+                    tech.Id,
+                    dayStart,
+                    modifiedSim.Tasks.ToList(),
+                    modifiedSim.Technicians.ToList(),
+                    routeLookup,
+                    strictRouteCoverage: true);
+
+                var travelHoursToShow = projectedTravelHours ?? fallbackTravelHours ?? loadSnapshot.TravelTimeHours;
+                var requiredInboundTravelMinutes = ComputeRequiredInboundTravelMinutesForTask(
+                    tech.Id,
+                    dayStart,
+                    targetTask.Id,
+                    modifiedSim.Tasks.ToList(),
+                    modifiedSim.Technicians.ToList(),
+                    routeLookup);
 
                 response.PreviewStates.Add(new Models.DTOs.Responses.DragPreviewStateDto
                 {
@@ -1269,7 +1306,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     WeeklyLimit = loadSnapshot.WeeklyLimit,
                     DailyUtilization = Math.Round(loadSnapshot.DailyUtilization, 2),
                     WeeklyUtilization = Math.Round(loadSnapshot.WeeklyUtilization, 2),
-                    TravelTimeHours = Math.Round(loadSnapshot.TravelTimeHours, 2)
+                    TravelTimeHours = Math.Round(travelHoursToShow, 2),
+                    RequiredInboundTravelMinutes = requiredInboundTravelMinutes
                 });
             }
 
@@ -1311,6 +1349,155 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
             return MapToLoadSnapshotDto(technician, snapshot);
+        }
+
+        private static Dictionary<long, int>? BuildTravelMinutesByTaskIdFromLookup(
+            TechnicianEntity technician,
+            List<TaskEntity> weekTasks,
+            IReadOnlyDictionary<(long From, long To), int> routeLookup,
+            bool strictRouteCoverage)
+        {
+            var result = new Dictionary<long, int>();
+
+            var tasksByDay = weekTasks
+                .OrderBy(t => t.StartAt)
+                .GroupBy(t => t.StartAt.Date)
+                .ToList();
+
+            foreach (var dayGroup in tasksByDay)
+            {
+                TaskEntity? prev = null;
+                foreach (var task in dayGroup.OrderBy(t => t.StartAt))
+                {
+                    var fromAddressId = prev?.ServiceObject?.AddressId ?? technician.WorkplaceAddressId;
+                    var toAddressId = task.ServiceObject?.AddressId ?? 0;
+
+                    if (fromAddressId <= 0 || toAddressId <= 0)
+                    {
+                        if (strictRouteCoverage)
+                        {
+                            return null;
+                        }
+
+                        result[task.Id] = 0;
+                        prev = task;
+                        continue;
+                    }
+
+                    if (routeLookup.TryGetValue((fromAddressId, toAddressId), out var minutes))
+                    {
+                        result[task.Id] = minutes;
+                    }
+                    else
+                    {
+                        if (strictRouteCoverage)
+                        {
+                            return null;
+                        }
+
+                        result[task.Id] = 0;
+                    }
+
+                    prev = task;
+                }
+            }
+
+            return result;
+        }
+
+        private double? ComputeTravelHoursForSimulation(
+            long technicianId,
+            DateTime dayStartUtc,
+            List<TaskEntity> tasks,
+            List<TechnicianEntity> technicians,
+            IReadOnlyDictionary<(long From, long To), int> routeLookup,
+            bool strictRouteCoverage)
+        {
+            var technician = technicians.FirstOrDefault(t => t.Id == technicianId);
+            if (technician == null)
+            {
+                return null;
+            }
+
+            var dayEnd = dayStartUtc.AddDays(1);
+            var weekStart = _timeService.GetWeekStart(dayStartUtc);
+            var weekEnd = weekStart.AddDays(7);
+
+            var dayTasks = tasks
+                .Where(t => t.TechnicianId == technicianId &&
+                            t.StartAt >= dayStartUtc &&
+                            t.StartAt < dayEnd)
+                .OrderBy(t => t.StartAt)
+                .ToList();
+
+            var weekTasks = tasks
+                .Where(t => t.TechnicianId == technicianId &&
+                            t.StartAt >= weekStart &&
+                            t.StartAt < weekEnd)
+                .OrderBy(t => t.StartAt)
+                .ToList();
+
+            var travelMinutesByTaskId = BuildTravelMinutesByTaskIdFromLookup(
+                technician,
+                weekTasks,
+                routeLookup,
+                strictRouteCoverage);
+
+            if (travelMinutesByTaskId == null)
+            {
+                return null;
+            }
+
+            var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks, travelMinutesByTaskId);
+            return snapshot.Context.TravelTimeHours;
+        }
+
+        private static int? ComputeRequiredInboundTravelMinutesForTask(
+            long technicianId,
+            DateTime dayStartUtc,
+            long taskId,
+            List<TaskEntity> tasks,
+            List<TechnicianEntity> technicians,
+            IReadOnlyDictionary<(long From, long To), int> routeLookup)
+        {
+            var technician = technicians.FirstOrDefault(t => t.Id == technicianId);
+            if (technician == null)
+            {
+                return null;
+            }
+
+            var dayEnd = dayStartUtc.AddDays(1);
+            var dayTasks = tasks
+                .Where(t => t.TechnicianId == technicianId &&
+                            t.StartAt >= dayStartUtc &&
+                            t.StartAt < dayEnd)
+                .OrderBy(t => t.StartAt)
+                .ToList();
+
+            var idx = dayTasks.FindIndex(t => t.Id == taskId);
+            if (idx < 0)
+            {
+                return null;
+            }
+
+            var task = dayTasks[idx];
+            var toAddressId = task.ServiceObject?.AddressId ?? 0;
+            if (toAddressId <= 0)
+            {
+                return null;
+            }
+
+            var fromAddressId = idx > 0
+                ? (dayTasks[idx - 1].ServiceObject?.AddressId ?? 0)
+                : technician.WorkplaceAddressId;
+            if (fromAddressId <= 0)
+            {
+                return null;
+            }
+
+            return routeLookup.TryGetValue((fromAddressId, toAddressId), out var minutes)
+                ? minutes
+                : null;
         }
 
         /// <summary>
