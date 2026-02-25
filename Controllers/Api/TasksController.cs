@@ -8,6 +8,7 @@ using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using ServiceTaskPlanningSystem.Services.Scheduling;
+using Microsoft.EntityFrameworkCore;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -20,13 +21,21 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         private readonly ITaskPermissionService _taskPermissionService;
         private readonly IScheduleTimeService _timeService;
         private readonly IUserContextResolver _userContextResolver;
+        private readonly ScheduleDbContext _db;
 
-        public TasksController(IPlanService planService, ITaskPermissionService taskPermissionService, IScheduleTimeService timeService, IUserContextResolver userContextResolver, ILogger<TasksController> logger)
+        public TasksController(
+            IPlanService planService,
+            ITaskPermissionService taskPermissionService,
+            IScheduleTimeService timeService,
+            IUserContextResolver userContextResolver,
+            ScheduleDbContext db,
+            ILogger<TasksController> logger)
         {
             _planService = planService;
             _taskPermissionService = taskPermissionService;
             _timeService = timeService;
             _userContextResolver = userContextResolver;
+            _db = db;
             _logger = logger;
         }
 
@@ -291,6 +300,95 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 DragPreviewError.TechnicianNotFound => UnprocessableEntity(new { message = result.Message }),
                 _ => StatusCode(500)
             };
+        }
+
+        [HttpPost("preview/assignee-travel")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> PreviewAssigneeTravel([FromBody] AssigneeTravelPreviewRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                return ValidationProblem(ModelState);
+            }
+
+            if (!TryParseDate(dto.TargetDate, out var targetDate))
+            {
+                return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
+            }
+
+            if (dto.EndMinutes <= dto.StartMinutes)
+            {
+                return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlesnis už pradžią." });
+            }
+
+            var normalizedAddress = dto.ObjectAddress.Trim();
+            var targetAddressId = await _db.Addresses
+                .AsNoTracking()
+                .Where(a => a.FullAddress == normalizedAddress)
+                .Select(a => (long?)a.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            var result = new AssigneeTravelPreviewResponseDto();
+            var technicians = await _db.Technicians
+                .AsNoTracking()
+                .Select(t => new { t.Id, t.WorkplaceAddressId })
+                .ToListAsync(cancellationToken);
+
+            if (!targetAddressId.HasValue || technicians.Count == 0)
+            {
+                result.Items.AddRange(technicians.Select(t => new AssigneeTravelPreviewItemDto
+                {
+                    TechnicianId = t.Id,
+                    TravelMinutes = null
+                }));
+                return Ok(result);
+            }
+
+            var startAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, dto.StartMinutes, dto.TimezoneOffsetMinutes);
+            var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, 0, dto.TimezoneOffsetMinutes);
+
+            var previousTasks = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                .Where(t => t.EndAt <= startAtUtc && t.EndAt > dayStartUtc)
+                .Select(t => new
+                {
+                    t.TechnicianId,
+                    t.EndAt,
+                    AddressId = t.ServiceObject.AddressId
+                })
+                .ToListAsync(cancellationToken);
+
+            var previousLookup = previousTasks
+                .GroupBy(t => t.TechnicianId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderByDescending(x => x.EndAt).First().AddressId);
+            var fromAddressIds = technicians
+                .Select(t => previousLookup.TryGetValue(t.Id, out var prevAddressId) ? prevAddressId : t.WorkplaceAddressId)
+                .Distinct()
+                .ToList();
+
+            var routes = await _db.TravelRoutes
+                .AsNoTracking()
+                .Where(r => r.ToAddressId == targetAddressId.Value && fromAddressIds.Contains(r.FromAddressId))
+                .ToDictionaryAsync(r => r.FromAddressId, r => r.DurationMinutes, cancellationToken);
+
+            foreach (var tech in technicians)
+            {
+                var fromAddressId = previousLookup.TryGetValue(tech.Id, out var prevAddressId)
+                    ? prevAddressId
+                    : tech.WorkplaceAddressId;
+
+                routes.TryGetValue(fromAddressId, out var minutes);
+                result.Items.Add(new AssigneeTravelPreviewItemDto
+                {
+                    TechnicianId = tech.Id,
+                    TravelMinutes = routes.ContainsKey(fromAddressId) ? minutes : null
+                });
+            }
+
+            return Ok(result);
         }
 
         [HttpPatch("{id:long}")]

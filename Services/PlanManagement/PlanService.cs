@@ -1575,9 +1575,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             foreach (var (from, to, available) in pairsToCheck)
             {
-                if (routes.TryGetValue((from, to), out var required) && required > available)
+                if (routes.TryGetValue((from, to), out var required) &&
+                    required > 0 &&
+                    required > available)
                 {
-                    return $"Nepakanka laiko kelionei: reikia {required} min., galima {available} min.";
+                    var shownAvailable = Math.Max(0, available);
+                    return $"Nepakanka laiko kelionei: reikia {required} min., galima {shownAvailable} min.";
                 }
             }
 

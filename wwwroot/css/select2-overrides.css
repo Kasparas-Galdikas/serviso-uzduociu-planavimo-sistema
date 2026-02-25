@@ -90,6 +90,27 @@ select.form-select-sm + .select2 .select2-selection {
   color: var(--neutral-900);
 }
 
+.tech-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tech-option-name {
+  min-width: 0;
+}
+
+.tech-option-travel {
+  color: var(--neutral-600);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.tech-option-travel i {
+  margin-right: 2px;
+}
+
 .select2-container--bootstrap-5 .select2-selection--multiple .select2-selection__choice {
   background: var(--accent-100);
   border: 1px solid var(--accent-300);

@@ -440,6 +440,41 @@
     }
   };
 
+  /**
+   * Fetch per-technician travel times for current create/update form context.
+   * @param {Object} previewData - { targetDate, startMinutes, endMinutes, objectAddress }
+   * @returns {Promise<{ success: boolean, items?: Array, error?: string }>}
+   */
+  const fetchAssigneeTravelPreview = async (previewData) => {
+    const timezoneOffset = grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+    const body = {
+      targetDate: previewData.targetDate,
+      startMinutes: previewData.startMinutes,
+      endMinutes: previewData.endMinutes,
+      objectAddress: previewData.objectAddress,
+      timezoneOffsetMinutes: timezoneOffset,
+    };
+
+    try {
+      const resp = await (api?.post
+        ? api.post("/api/tasks/preview/assignee-travel", body, {}, { event: "api.assignee.preview" })
+        : fetch("/api/tasks/preview/assignee-travel", {
+            method: "POST",
+            headers: { "X-Requested-With": "XMLHttpRequest", "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          }));
+
+      if (!resp.ok) {
+        return { success: false, error: "Preview failed" };
+      }
+
+      const data = await resp.json();
+      return { success: true, items: Array.isArray(data?.items) ? data.items : [] };
+    } catch (err) {
+      return { success: false, error: err?.message || "Preview failed" };
+    }
+  };
+
   // Private helper to handle update responses
   const handleUpdateResponse = async (resp, taskId) => {
     if (resp.status === 409 || resp.status === 403) {
@@ -478,6 +513,7 @@
     deleteTask,
     moveTask,
     fetchDragPreview,
+    fetchAssigneeTravelPreview,
     fetchTechnicians,
     fetchObjects,
     clearCache,

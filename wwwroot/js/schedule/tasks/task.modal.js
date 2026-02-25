@@ -1,4 +1,4 @@
-/**
+﻿/**
  * task.modal.js
  *
  * Task modal/form population, field restrictions, validation display,
@@ -112,7 +112,7 @@
       language: {
         noResults: () => "Nerasta rezultatų",
         searching: () => "Ieškoma...",
-        inputTooShort: (args) => `Įveskite bent ${args.minimum} simbolius`,
+        inputTooShort: (args) => `įveskite bent ${args.minimum} simbolius`,
       }
     });
   };
@@ -173,6 +173,96 @@
       return [];
     }
     return await resp.json();
+  };
+
+  const formatTravelDuration = (minutes) => {
+    if (minutes == null || Number.isNaN(minutes) || minutes < 0) return "-";
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return mins > 0 ? `${hours} h ${mins} min` : `${hours} h`;
+  };
+
+  const escapeHtml = (value) => String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+  const parseLocalDateTime = (raw) => {
+    if (!raw || !raw.includes("T")) return null;
+    const [datePart, timePart] = raw.split("T");
+    if (!datePart || !timePart) return null;
+    const [hStr, mStr] = timePart.split(":");
+    const h = parseInt(hStr, 10);
+    const m = parseInt(mStr, 10);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return { date: datePart, minutes: h * 60 + m };
+  };
+
+  const collectAssigneePreviewContext = (modalEl) => {
+    const startRaw = modalEl.querySelector("#taskDetailStart")?.value || "";
+    const endRaw = modalEl.querySelector("#taskDetailEnd")?.value || "";
+    const address = (modalEl.querySelector("#taskDetailLocation")?.value || "").trim();
+    const start = parseLocalDateTime(startRaw);
+    const end = parseLocalDateTime(endRaw);
+
+    if (!start || !end || !address || start.date !== end.date || end.minutes <= start.minutes) {
+      return null;
+    }
+
+    return {
+      targetDate: start.date,
+      startMinutes: start.minutes,
+      endMinutes: end.minutes,
+      objectAddress: address,
+    };
+  };
+
+  const initAssigneeSelect2 = (selectEl) => {
+    if (!selectEl || typeof $ === "undefined" || !$.fn.select2) {
+      initSelect2(selectEl, "Pasirinkite darbuotoją...");
+      return;
+    }
+
+    const $select = $(selectEl);
+    if ($select.hasClass("select2-hidden-accessible")) {
+      $select.select2("destroy");
+    }
+
+    const dropdownParent = selectEl.closest(".offcanvas") || document.body;
+    $select.select2({
+      theme: "bootstrap-5",
+      placeholder: "Pasirinkite darbuotoją...",
+      allowClear: false,
+      width: "100%",
+      dropdownParent: $(dropdownParent),
+      escapeMarkup: (markup) => markup,
+      templateResult: (data) => {
+        if (!data?.id || !data.element) return data?.text || "";
+        const minutes = data.element.dataset.travelMinutes;
+        const travelText = formatTravelDuration(minutes ? parseInt(minutes, 10) : null);
+        const name = escapeHtml(data.element.dataset.baseLabel || data.text);
+        return `
+          <div class="tech-option-row">
+            <span class="tech-option-name">${name}</span>
+            <span class="tech-option-travel"><i class="bi bi-car-front-fill" aria-hidden="true"></i> ${escapeHtml(travelText)}</span>
+          </div>`;
+      },
+      templateSelection: (data) => {
+        if (!data?.id || !data.element) return data?.text || "";
+        const minutes = data.element.dataset.travelMinutes;
+        if (!minutes) return escapeHtml(data.element.dataset.baseLabel || data.text);
+        const travelText = formatTravelDuration(parseInt(minutes, 10));
+        const name = escapeHtml(data.element.dataset.baseLabel || data.text);
+        return `${name} <span class="tech-option-travel"><i class="bi bi-car-front-fill" aria-hidden="true"></i> ${escapeHtml(travelText)}</span>`;
+      },
+      language: {
+        noResults: () => "Nerasta rezultatų",
+        searching: () => "Ieškoma...",
+      },
+    });
   };
 
   // ========== Dropdown Population ==========
@@ -268,7 +358,7 @@
     initSelect2(select, "Pasirinkite adresą...");
   };
 
-  const populateTechnicianDropdown = async (modalEl, selectedTechnicianId) => {
+  const populateTechnicianDropdown = async (modalEl, selectedTechnicianId, travelMinutesByTech = null) => {
     const dropdown = modalEl.querySelector("#taskDetailAssignee");
     if (!dropdown) return;
 
@@ -287,17 +377,83 @@
       technicians.forEach((tech) => {
         const option = document.createElement("option");
         option.value = tech.id;
-        option.textContent = tech.region ? `${tech.name} (${tech.region})` : tech.name;
+        const baseLabel = tech.region ? `${tech.name} (${tech.region})` : tech.name;
+        option.textContent = baseLabel;
+        option.dataset.baseLabel = baseLabel;
+        const minutes = travelMinutesByTech instanceof Map ? travelMinutesByTech.get(tech.id) : null;
+        option.dataset.travelMinutes = Number.isFinite(minutes) ? String(minutes) : "";
         if (tech.id === selectedTechnicianId) {
           option.selected = true;
         }
         dropdown.appendChild(option);
       });
 
-      initSelect2(dropdown, "Pasirinkite darbuotoją...");
+      initAssigneeSelect2(dropdown);
     } catch (err) {
       console.error("Error loading technicians:", err);
     }
+  };
+
+  const scheduleAssigneeTravelPreview = (modalEl) => {
+    const dropdown = modalEl.querySelector("#taskDetailAssignee");
+    if (!dropdown) return;
+    if (dropdown.dataset.travelPreviewBound === "1") {
+      if (typeof dropdown._refreshAssigneeTravelPreview === "function") {
+        dropdown._refreshAssigneeTravelPreview();
+      }
+      return;
+    }
+    dropdown.dataset.travelPreviewBound = "1";
+
+    let debounceId = null;
+    let requestSeq = 0;
+
+    const refresh = async () => {
+      const selectedTechnicianId = parseInt(dropdown.value || modalEl.dataset.technicianId || "0", 10);
+      const context = collectAssigneePreviewContext(modalEl);
+
+      if (!context || !taskApi?.fetchAssigneeTravelPreview) {
+        await populateTechnicianDropdown(modalEl, selectedTechnicianId, null);
+        return;
+      }
+
+      const seq = ++requestSeq;
+      const preview = await taskApi.fetchAssigneeTravelPreview(context);
+      if (seq !== requestSeq) return;
+
+      const travelMap = new Map();
+      if (preview?.success && Array.isArray(preview.items)) {
+        preview.items.forEach((item) => {
+          if (item && Number.isFinite(item.technicianId)) {
+            travelMap.set(item.technicianId, Number.isFinite(item.travelMinutes) ? item.travelMinutes : null);
+          }
+        });
+      }
+
+      await populateTechnicianDropdown(modalEl, selectedTechnicianId, travelMap);
+    };
+
+    const scheduleRefresh = () => {
+      if (debounceId) clearTimeout(debounceId);
+      debounceId = setTimeout(refresh, 350);
+    };
+    dropdown._refreshAssigneeTravelPreview = scheduleRefresh;
+
+    const bind = (selector, eventName = "change") => {
+      const el = modalEl.querySelector(selector);
+      if (!el) return;
+      el.addEventListener(eventName, scheduleRefresh);
+      if (typeof $ !== "undefined" && $.fn.select2 && el.tagName === "SELECT") {
+        $(el).on("select2:select select2:clear", scheduleRefresh);
+      }
+    };
+
+    bind("#taskDetailObject");
+    bind("#taskDetailLocation");
+    bind("#taskDetailStart", "input");
+    bind("#taskDetailEnd", "input");
+
+    refresh();
   };
 
   // ========== Object-Address Binding ==========
@@ -377,7 +533,8 @@
     ensureObjectAddressBinding(modalEl);
 
     syncInstructionFields(modalEl, data.instructions);
-    populateTechnicianDropdown(modalEl, data.technicianId);
+    await populateTechnicianDropdown(modalEl, data.technicianId);
+    scheduleAssigneeTravelPreview(modalEl);
 
     modalEl.dataset.mode = "update";
     modalEl.dataset.taskId = data.id;
@@ -428,6 +585,7 @@
     await populateObjectDropdown(modalEl, null, null, null);
     await populateAddressDropdown(modalEl, null);
     await populateTechnicianDropdown(modalEl, technicianId);
+    scheduleAssigneeTravelPreview(modalEl);
     ensureObjectAddressBinding(modalEl);
 
     modalEl.querySelector("#taskDetailLabel").textContent = "Nauja užduotis";
@@ -535,7 +693,7 @@
       if (saveBtn) {
         if (!isOwnTask) {
           saveBtn.setAttribute("disabled", "disabled");
-          saveBtn.title = "Galite redaguoti tik savo užduotis";
+          saveBtn.title = "Galite redaguoti tik savo Užduotis";
         } else if (!editable) {
           saveBtn.setAttribute("disabled", "disabled");
           saveBtn.title = "Užduotis nebegali būti redaguojama";
