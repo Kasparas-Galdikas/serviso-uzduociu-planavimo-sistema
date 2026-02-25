@@ -213,6 +213,10 @@
     }
 
     return {
+      taskId: (() => {
+        const id = parseInt(modalEl.dataset.taskId || "", 10);
+        return Number.isFinite(id) && id > 0 ? id : null;
+      })(),
       targetDate: start.date,
       startMinutes: start.minutes,
       endMinutes: end.minutes,
@@ -242,7 +246,10 @@
       templateResult: (data) => {
         if (!data?.id || !data.element) return data?.text || "";
         const minutes = data.element.dataset.travelMinutes;
-        const travelText = formatTravelDuration(minutes ? parseInt(minutes, 10) : null);
+        const selectable = data.element.dataset.selectable !== "false";
+        const travelText = !selectable
+          ? "X"
+          : formatTravelDuration(minutes ? parseInt(minutes, 10) : null);
         const name = escapeHtml(data.element.dataset.baseLabel || data.text);
         return `
           <div class="tech-option-row">
@@ -252,6 +259,11 @@
       },
       templateSelection: (data) => {
         if (!data?.id || !data.element) return data?.text || "";
+        const selectable = data.element.dataset.selectable !== "false";
+        if (!selectable) {
+          const nameX = escapeHtml(data.element.dataset.baseLabel || data.text);
+          return `${nameX} <span class="tech-option-travel"><i class="bi bi-car-front-fill" aria-hidden="true"></i> X</span>`;
+        }
         const minutes = data.element.dataset.travelMinutes;
         if (!minutes) return escapeHtml(data.element.dataset.baseLabel || data.text);
         const travelText = formatTravelDuration(parseInt(minutes, 10));
@@ -358,7 +370,7 @@
     initSelect2(select, "Pasirinkite adresą...");
   };
 
-  const populateTechnicianDropdown = async (modalEl, selectedTechnicianId, travelMinutesByTech = null) => {
+  const populateTechnicianDropdown = async (modalEl, selectedTechnicianId, travelPreviewByTech = null) => {
     const dropdown = modalEl.querySelector("#taskDetailAssignee");
     if (!dropdown) return;
 
@@ -366,6 +378,22 @@
 
     try {
       const technicians = await loadTechnicians();
+      const sortedTechnicians = [...technicians].sort((a, b) => {
+        const pa = travelPreviewByTech instanceof Map ? travelPreviewByTech.get(a.id) : null;
+        const pb = travelPreviewByTech instanceof Map ? travelPreviewByTech.get(b.id) : null;
+        const sa = pa == null ? true : pa.isSelectable !== false;
+        const sb = pb == null ? true : pb.isSelectable !== false;
+
+        if (sa !== sb) return sa ? -1 : 1;
+
+        const ma = pa && Number.isFinite(pa.travelMinutes) ? pa.travelMinutes : Number.POSITIVE_INFINITY;
+        const mb = pb && Number.isFinite(pb.travelMinutes) ? pb.travelMinutes : Number.POSITIVE_INFINITY;
+        if (ma !== mb) return ma - mb;
+
+        const na = (a?.name || "").toString();
+        const nb = (b?.name || "").toString();
+        return na.localeCompare(nb, "lt");
+      });
 
       dropdown.innerHTML = "";
 
@@ -374,15 +402,20 @@
       placeholder.textContent = "";
       dropdown.appendChild(placeholder);
 
-      technicians.forEach((tech) => {
+      sortedTechnicians.forEach((tech) => {
         const option = document.createElement("option");
         option.value = tech.id;
         const baseLabel = tech.region ? `${tech.name} (${tech.region})` : tech.name;
         option.textContent = baseLabel;
         option.dataset.baseLabel = baseLabel;
-        const minutes = travelMinutesByTech instanceof Map ? travelMinutesByTech.get(tech.id) : null;
+        const preview = travelPreviewByTech instanceof Map ? travelPreviewByTech.get(tech.id) : null;
+        const minutes = preview && Number.isFinite(preview.travelMinutes) ? preview.travelMinutes : null;
+        const selectable = preview == null ? true : preview.isSelectable !== false;
         option.dataset.travelMinutes = Number.isFinite(minutes) ? String(minutes) : "";
-        if (tech.id === selectedTechnicianId) {
+        option.dataset.selectable = selectable ? "true" : "false";
+        const isSelectedTech = tech.id === selectedTechnicianId;
+        option.disabled = !selectable && !isSelectedTech;
+        if (isSelectedTech) {
           option.selected = true;
         }
         dropdown.appendChild(option);
@@ -425,7 +458,10 @@
       if (preview?.success && Array.isArray(preview.items)) {
         preview.items.forEach((item) => {
           if (item && Number.isFinite(item.technicianId)) {
-            travelMap.set(item.technicianId, Number.isFinite(item.travelMinutes) ? item.travelMinutes : null);
+            travelMap.set(item.technicianId, {
+              travelMinutes: Number.isFinite(item.travelMinutes) ? item.travelMinutes : null,
+              isSelectable: item.isSelectable !== false,
+            });
           }
         });
       }

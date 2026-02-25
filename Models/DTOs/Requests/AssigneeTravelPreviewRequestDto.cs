@@ -4,6 +4,8 @@ namespace ServiceTaskPlanningSystem.Models.DTOs.Requests
 {
     public class AssigneeTravelPreviewRequestDto
     {
+        public long? TaskId { get; set; }
+
         [Required]
         [RegularExpression(@"^\d{4}-\d{2}-\d{2}$")]
         public string TargetDate { get; set; } = string.Empty;

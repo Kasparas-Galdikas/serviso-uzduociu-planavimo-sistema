@@ -11,5 +11,6 @@ namespace ServiceTaskPlanningSystem.Models.DTOs.Responses
     {
         public long TechnicianId { get; set; }
         public int? TravelMinutes { get; set; }
+        public bool IsSelectable { get; set; } = true;
     }
 }

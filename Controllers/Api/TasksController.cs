@@ -9,6 +9,8 @@ using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using Microsoft.EntityFrameworkCore;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
+using ServiceTaskPlanningSystem.Services.Travel;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -16,12 +18,17 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
     [Route("api/tasks")]
     public class TasksController : ControllerBase
     {
+        private sealed record PreviewTaskRow(long TechnicianId, DateTime StartAt, DateTime EndAt, long AddressId);
+
         private readonly IPlanService _planService;
         private readonly ILogger<TasksController> _logger;
         private readonly ITaskPermissionService _taskPermissionService;
         private readonly IScheduleTimeService _timeService;
         private readonly IUserContextResolver _userContextResolver;
         private readonly ScheduleDbContext _db;
+        private readonly ILocationApiClient _locationApiClient;
+        private readonly IDistanceApiClient _distanceApiClient;
+        private readonly ITaskTravelFeasibilityService _travelFeasibilityService;
 
         public TasksController(
             IPlanService planService,
@@ -29,6 +36,9 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             IScheduleTimeService timeService,
             IUserContextResolver userContextResolver,
             ScheduleDbContext db,
+            ILocationApiClient locationApiClient,
+            IDistanceApiClient distanceApiClient,
+            ITaskTravelFeasibilityService travelFeasibilityService,
             ILogger<TasksController> logger)
         {
             _planService = planService;
@@ -36,6 +46,9 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             _timeService = timeService;
             _userContextResolver = userContextResolver;
             _db = db;
+            _locationApiClient = locationApiClient;
+            _distanceApiClient = distanceApiClient;
+            _travelFeasibilityService = travelFeasibilityService;
             _logger = logger;
         }
 
@@ -339,56 +352,195 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 result.Items.AddRange(technicians.Select(t => new AssigneeTravelPreviewItemDto
                 {
                     TechnicianId = t.Id,
-                    TravelMinutes = null
+                    TravelMinutes = null,
+                    IsSelectable = true
                 }));
                 return Ok(result);
             }
 
             var startAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, dto.StartMinutes, dto.TimezoneOffsetMinutes);
+            var endAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, dto.EndMinutes, dto.TimezoneOffsetMinutes);
             var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, 0, dto.TimezoneOffsetMinutes);
+            var dayEndUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate.AddDays(1), 0, dto.TimezoneOffsetMinutes);
+            long? scopedPlanId = null;
+            if (dto.TaskId.HasValue)
+            {
+                scopedPlanId = await _db.Tasks
+                    .AsNoTracking()
+                    .Where(t => t.Id == dto.TaskId.Value)
+                    .Select(t => t.PlanId)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
 
-            var previousTasks = await _db.Tasks
+            var dayTasks = await _db.Tasks
                 .AsNoTracking()
                 .Where(t => t.Status != ScheduleTaskStatus.Canceled)
-                .Where(t => t.EndAt <= startAtUtc && t.EndAt > dayStartUtc)
-                .Select(t => new
-                {
+                .Where(t => dto.TaskId == null || t.Id != dto.TaskId.Value)
+                .Where(t => scopedPlanId == null || t.PlanId == scopedPlanId)
+                .Where(t => t.StartAt < dayEndUtc && t.EndAt > dayStartUtc)
+                .Select(t => new PreviewTaskRow(
                     t.TechnicianId,
+                    t.StartAt,
                     t.EndAt,
-                    AddressId = t.ServiceObject.AddressId
-                })
+                    t.ServiceObject.AddressId))
                 .ToListAsync(cancellationToken);
 
-            var previousLookup = previousTasks
+            var tasksByTech = dayTasks
                 .GroupBy(t => t.TechnicianId)
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.OrderByDescending(x => x.EndAt).First().AddressId);
-            var fromAddressIds = technicians
-                .Select(t => previousLookup.TryGetValue(t.Id, out var prevAddressId) ? prevAddressId : t.WorkplaceAddressId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.StartAt).ToList());
+
+            var candidates = new List<(long TechnicianId, long FromAddressId)>();
+            foreach (var tech in technicians)
+            {
+                var techTasks = tasksByTech.TryGetValue(tech.Id, out var list)
+                    ? list
+                    : new List<PreviewTaskRow>();
+
+                var prevTask = techTasks
+                    .Where(t => t.EndAt <= startAtUtc)
+                    .OrderByDescending(t => t.EndAt)
+                    .FirstOrDefault();
+
+                var fromAddressId = prevTask != null ? (long)prevTask.AddressId : tech.WorkplaceAddressId;
+                candidates.Add((tech.Id, fromAddressId));
+            }
+
+            var requiredPairs = candidates
+                .Select(c => (FromAddressId: c.FromAddressId, ToAddressId: targetAddressId.Value))
                 .Distinct()
                 .ToList();
 
-            var routes = await _db.TravelRoutes
-                .AsNoTracking()
-                .Where(r => r.ToAddressId == targetAddressId.Value && fromAddressIds.Contains(r.FromAddressId))
-                .ToDictionaryAsync(r => r.FromAddressId, r => r.DurationMinutes, cancellationToken);
+            await WarmupMissingRoutesAsync(requiredPairs, cancellationToken);
 
-            foreach (var tech in technicians)
+            foreach (var c in candidates)
             {
-                var fromAddressId = previousLookup.TryGetValue(tech.Id, out var prevAddressId)
-                    ? prevAddressId
-                    : tech.WorkplaceAddressId;
+                var feasibility = await _travelFeasibilityService.EvaluatePlacementAsync(
+                    c.TechnicianId,
+                    startAtUtc,
+                    endAtUtc,
+                    targetAddressId.Value,
+                    dto.StartMinutes,
+                    dto.TaskId,
+                    checkOverlap: true,
+                    cancellationToken);
 
-                routes.TryGetValue(fromAddressId, out var minutes);
                 result.Items.Add(new AssigneeTravelPreviewItemDto
                 {
-                    TechnicianId = tech.Id,
-                    TravelMinutes = routes.ContainsKey(fromAddressId) ? minutes : null
+                    TechnicianId = c.TechnicianId,
+                    TravelMinutes = feasibility.InboundTravelMinutes,
+                    IsSelectable = feasibility.IsFeasible
                 });
             }
 
             return Ok(result);
+        }
+
+        private async Task WarmupMissingRoutesAsync(
+            IReadOnlyCollection<(long FromAddressId, long ToAddressId)> pairs,
+            CancellationToken cancellationToken)
+        {
+            if (pairs.Count == 0)
+            {
+                return;
+            }
+
+            var fromIds = pairs.Select(p => p.FromAddressId).Distinct().ToList();
+            var toIds = pairs.Select(p => p.ToAddressId).Distinct().ToList();
+            var existingPairs = await _db.TravelRoutes
+                .AsNoTracking()
+                .Where(r => fromIds.Contains(r.FromAddressId) && toIds.Contains(r.ToAddressId))
+                .Select(r => new { r.FromAddressId, r.ToAddressId })
+                .ToListAsync(cancellationToken);
+            var existingLookup = existingPairs
+                .Select(p => (p.FromAddressId, p.ToAddressId))
+                .ToHashSet();
+
+            var missingPairs = pairs
+                .Where(p => !existingLookup.Contains((p.FromAddressId, p.ToAddressId)))
+                .Distinct()
+                .ToList();
+            if (missingPairs.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var addressIds = missingPairs
+                    .SelectMany(p => new[] { p.FromAddressId, p.ToAddressId })
+                    .Distinct()
+                    .ToList();
+                var addresses = await _db.Addresses
+                    .Where(a => addressIds.Contains(a.Id))
+                    .ToListAsync(cancellationToken);
+                var byId = addresses.ToDictionary(a => a.Id);
+
+                var coordsUpdated = false;
+                foreach (var address in addresses)
+                {
+                    if (address.Latitude.HasValue && address.Longitude.HasValue)
+                    {
+                        continue;
+                    }
+
+                    var coords = await _locationApiClient.GeocodeAsync(address.FullAddress, cancellationToken);
+                    address.Latitude = coords.Latitude;
+                    address.Longitude = coords.Longitude;
+                    coordsUpdated = true;
+                }
+
+                if (coordsUpdated)
+                {
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
+
+                var matrixAddressIds = addresses
+                    .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
+                    .Select(a => a.Id)
+                    .Distinct()
+                    .ToList();
+                if (matrixAddressIds.Count < 2)
+                {
+                    return;
+                }
+
+                var matrixAddresses = matrixAddressIds
+                    .Select(id => byId[id])
+                    .ToList();
+                var indexByAddressId = matrixAddresses
+                    .Select((address, idx) => new { address.Id, idx })
+                    .ToDictionary(x => x.Id, x => x.idx);
+                var points = matrixAddresses
+                    .Select(a => new GeoPoint(a.Latitude!.Value, a.Longitude!.Value))
+                    .ToList();
+                var matrix = await _distanceApiClient.GetMatrixAsync(points, cancellationToken);
+
+                foreach (var pair in missingPairs)
+                {
+                    if (!indexByAddressId.TryGetValue(pair.FromAddressId, out var fromIdx) ||
+                        !indexByAddressId.TryGetValue(pair.ToAddressId, out var toIdx))
+                    {
+                        continue;
+                    }
+
+                    var distanceMeters = matrix.DistancesMeters[fromIdx][toIdx];
+                    var durationSeconds = matrix.DurationsSeconds[fromIdx][toIdx];
+                    _db.TravelRoutes.Add(new TravelRouteEntity
+                    {
+                        FromAddressId = pair.FromAddressId,
+                        ToAddressId = pair.ToAddressId,
+                        DistanceKm = Math.Round((decimal)(distanceMeters / 1000d), 2),
+                        DurationMinutes = (int)Math.Ceiling(durationSeconds / 60d),
+                        CalculatedAt = DateTime.UtcNow
+                    });
+                }
+
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "api.task.preview.assignee-travel.warmup.failed");
+            }
         }
 
         [HttpPatch("{id:long}")]

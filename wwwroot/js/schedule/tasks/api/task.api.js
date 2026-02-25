@@ -448,6 +448,7 @@
   const fetchAssigneeTravelPreview = async (previewData) => {
     const timezoneOffset = grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
     const body = {
+      taskId: Number.isFinite(previewData.taskId) ? previewData.taskId : null,
       targetDate: previewData.targetDate,
       startMinutes: previewData.startMinutes,
       endMinutes: previewData.endMinutes,
