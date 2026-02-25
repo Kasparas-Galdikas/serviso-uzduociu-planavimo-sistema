@@ -9,7 +9,6 @@ namespace ServiceTaskPlanningSystem.Data
         public long TechnicianId { get; set; }
         public long ServiceObjectId { get; set; }
         public string Title { get; set; } = string.Empty;
-        public long RegionId { get; set; }
         public DateTime StartAt { get; set; }
         public DateTime EndAt { get; set; }
         public TaskPriority Priority { get; set; }
@@ -22,7 +21,6 @@ namespace ServiceTaskPlanningSystem.Data
 
         public PlanEntity? Plan { get; set; }
         public TechnicianEntity Technician { get; set; } = default!;
-        public RegionEntity Region { get; set; } = default!;
         public ServiceObjectEntity ServiceObject { get; set; } = default!;
         public TaskEvaluationEntity? Evaluation { get; set; }
         public TaskEntity? PreviousTask { get; set; }

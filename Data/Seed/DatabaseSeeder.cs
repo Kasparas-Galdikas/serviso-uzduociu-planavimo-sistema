@@ -50,14 +50,11 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                 // Seed Users
                 var userLookup = await SeedUsersAsync();
 
-                // Seed Regions
-                var regionLookup = await SeedRegionsAsync();
-
                 // Seed Technicians
-                var technicianLookup = await SeedTechniciansAsync(userLookup, regionLookup, addressLookup);
+                var technicianLookup = await SeedTechniciansAsync(userLookup, addressLookup);
 
                 // Seed Service Objects
-                var serviceObjectLookup = await SeedServiceObjectsAsync(regionLookup, addressLookup);
+                var serviceObjectLookup = await SeedServiceObjectsAsync(addressLookup);
 
                 // Seed Plan and Tasks
                 // Build address ID lookup for tasks
@@ -123,35 +120,8 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             return userLookup.ToDictionary(kv => kv.Value.Name, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
         }
 
-        private async Task<Dictionary<string, RegionEntity>> SeedRegionsAsync()
-        {
-            var mockRegions = MockSeedData.GetRegions();
-            var existingRegions = await _db.Regions.ToListAsync();
-            var regionLookup = existingRegions.ToDictionary(r => r.Name, StringComparer.OrdinalIgnoreCase);
-
-            foreach (var mockRegion in mockRegions)
-            {
-                if (regionLookup.ContainsKey(mockRegion.Name)) continue;
-
-                var region = new RegionEntity
-                {
-                    Name = mockRegion.Name,
-                    Country = mockRegion.Country,
-                    PriorityWeight = mockRegion.PriorityWeight,
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                _db.Regions.Add(region);
-                regionLookup[mockRegion.Name] = region;
-            }
-
-            await _db.SaveChangesAsync();
-            return regionLookup;
-        }
-
         private async Task<Dictionary<string, TechnicianEntity>> SeedTechniciansAsync(
             Dictionary<string, UserEntity> userLookup,
-            Dictionary<string, RegionEntity> regionLookup,
             Dictionary<string, AddressEntity> addressLookup)
         {
             var mockTechnicians = MockSeedData.GetTechnicians();
@@ -169,17 +139,11 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                     continue; // Skip if user not found
                 }
 
-                if (!regionLookup.TryGetValue(mockTech.RegionName, out var region))
-                {
-                    continue;
-                }
-
-                var address = await EnsureAddressAsync(mockTech.WorkplaceAddress, region.Id, addressLookup);
+                var address = await EnsureAddressAsync(mockTech.WorkplaceAddress, mockTech.City, addressLookup);
 
                 var technician = new TechnicianEntity
                 {
                     UserId = user.Id,
-                    RegionId = region.Id,
                     WorkplaceAddressId = address.Id,
                     DailyLimit = mockTech.DailyLimit,
                     WeeklyLimit = mockTech.WeeklyLimit,
@@ -198,7 +162,7 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
         private async Task<AddressEntity> EnsureAddressAsync(
             string fullAddress,
-            long regionId,
+            string city,
             Dictionary<string, AddressEntity> addressLookup)
         {
             if (addressLookup.TryGetValue(fullAddress, out var existing))
@@ -207,9 +171,14 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             }
 
             var street = ParseStreet(fullAddress);
+            var normalizedCity = string.IsNullOrWhiteSpace(city) ? ParseCity(fullAddress) : city.Trim();
+            if (string.IsNullOrWhiteSpace(normalizedCity))
+            {
+                normalizedCity = "Nezinomas";
+            }
             var address = new AddressEntity
             {
-                RegionId = regionId,
+                City = normalizedCity,
                 Street = street,
                 FullAddress = fullAddress,
                 CreatedAt = DateTime.UtcNow
@@ -221,7 +190,6 @@ namespace ServiceTaskPlanningSystem.Data.Seed
         }
 
         private async Task<Dictionary<string, ServiceObjectEntity>> SeedServiceObjectsAsync(
-            Dictionary<string, RegionEntity> regionLookup,
             Dictionary<string, AddressEntity> addressLookup)
         {
             var mockObjects = MockSeedData.GetObjects();
@@ -232,12 +200,7 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             {
                 if (objectLookup.ContainsKey(mockObject.Name)) continue;
 
-                if (!regionLookup.TryGetValue(mockObject.RegionName, out var region))
-                {
-                    continue;
-                }
-
-                var addr = await EnsureAddressAsync(mockObject.Address, region.Id, addressLookup);
+                var addr = await EnsureAddressAsync(mockObject.Address, mockObject.City, addressLookup);
 
                 var obj = new ServiceObjectEntity
                 {
@@ -315,21 +278,12 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                     continue;
                 }
 
-                var taskRegionId = addressById.TryGetValue(serviceObject.AddressId, out var serviceAddress)
-                    ? serviceAddress.RegionId
-                    : technician.RegionId ?? 0;
-                if (taskRegionId == 0)
-                {
-                    continue;
-                }
-
                 var taskEntity = new TaskEntity
                 {
                     PlanId = activePlan.Id,
                     TechnicianId = technician.Id,
                     ServiceObjectId = serviceObject.Id,
                     Title = mockTask.Title,
-                    RegionId = taskRegionId,
                     StartAt = startUtc,
                     EndAt = endUtc,
                     Priority = mockTask.Priority,
@@ -411,6 +365,17 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             }
 
             return firstPart.Trim();
+        }
+
+        private static string ParseCity(string fullAddress)
+        {
+            if (string.IsNullOrWhiteSpace(fullAddress))
+            {
+                return string.Empty;
+            }
+
+            var parts = fullAddress.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length >= 2 ? parts[^1] : string.Empty;
         }
 
     }

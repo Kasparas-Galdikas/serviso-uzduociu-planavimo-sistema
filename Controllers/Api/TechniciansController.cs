@@ -30,7 +30,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var technicians = await _db.Technicians
                 .AsNoTracking()
                 .Include(t => t.User)
-                .Include(t => t.Region)
+                .Include(t => t.WorkplaceAddress)
                 .OrderBy(t => t.User != null ? t.User.Name : t.Id.ToString())
                 .Select(t => new
                 {
@@ -38,7 +38,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     name = t.User != null
                         ? (!string.IsNullOrWhiteSpace(t.User.Name) ? t.User.Name : t.User.Email)
                         : $"Technician #{t.Id}",
-                    region = t.Region != null ? t.Region.Name : null
+                    city = t.WorkplaceAddress.City,
+                    region = t.WorkplaceAddress.City
                 })
                 .ToListAsync(cancellationToken);
 

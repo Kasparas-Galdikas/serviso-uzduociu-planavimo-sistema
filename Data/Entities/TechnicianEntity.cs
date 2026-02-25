@@ -7,7 +7,6 @@ namespace ServiceTaskPlanningSystem.Data
     {
         public long Id { get; set; }
         public long? UserId { get; set; }
-        public long? RegionId { get; set; }
         public long WorkplaceAddressId { get; set; }
         public AddressEntity WorkplaceAddress { get; set; } = default!;
         public decimal DailyLimit { get; set; }
@@ -17,7 +16,6 @@ namespace ServiceTaskPlanningSystem.Data
         public DateTime CreatedAt { get; set; }
 
         public UserEntity? User { get; set; }
-        public RegionEntity? Region { get; set; }
         public ICollection<TaskEntity> Tasks { get; set; } = new List<TaskEntity>();
     }
 }

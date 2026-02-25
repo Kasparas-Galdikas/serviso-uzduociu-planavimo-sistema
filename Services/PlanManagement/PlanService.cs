@@ -51,7 +51,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private static WorkingWindow GetWorkingWindow(long technicianId, DateTime date) =>
             new WorkingWindow(ScheduleGrid.DayStartMinutes, ScheduleGrid.DayEndMinutes);
 
-        private async Task<long> FindOrCreateServiceObjectAsync(string? objectName, string? objectAddress, long? regionId, CancellationToken cancellationToken = default)
+        private async Task<long> FindOrCreateServiceObjectAsync(string? objectName, string? objectAddress, string city, CancellationToken cancellationToken = default)
         {
             var normalizedName = string.IsNullOrWhiteSpace(objectName) ? null : objectName.Trim();
             var normalizedAddress = string.IsNullOrWhiteSpace(objectAddress) ? null : objectAddress.Trim();
@@ -71,15 +71,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             {
                 normalizedAddress = "Nežinomas adresas";
             }
-
-            if (!regionId.HasValue)
+            var normalizedCity = string.IsNullOrWhiteSpace(city) ? ParseCity(normalizedAddress) : city.Trim();
+            if (string.IsNullOrWhiteSpace(normalizedCity))
             {
-                throw new InvalidOperationException("Region is required to create or locate an address.");
+                normalizedCity = "Nezinomas";
             }
 
             var street = ParseStreet(normalizedAddress);
             // Prefer exact full-address reuse globally to avoid duplicate address rows
-            // when region inference differs between operations.
+            // when city inference differs between operations.
             var existingAddress = await _db.Addresses
                 .FirstOrDefaultAsync(a => a.FullAddress == normalizedAddress, cancellationToken);
 
@@ -87,7 +87,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             {
                 existingAddress = await _db.Addresses
                     .FirstOrDefaultAsync(a =>
-                        a.RegionId == regionId.Value &&
+                        a.City == normalizedCity &&
                         a.Street == street,
                         cancellationToken);
             }
@@ -96,7 +96,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             {
                 existingAddress = new AddressEntity
                 {
-                    RegionId = regionId.Value,
+                    City = normalizedCity,
                     Street = street,
                     FullAddress = normalizedAddress,
                     CreatedAt = DateTime.UtcNow
@@ -144,6 +144,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             return firstPart.Trim();
         }
 
+        private static string ParseCity(string fullAddress)
+        {
+            if (string.IsNullOrWhiteSpace(fullAddress))
+            {
+                return string.Empty;
+            }
+
+            var parts = fullAddress.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length >= 2 ? parts[^1] : string.Empty;
+        }
+
         private enum PlacementError
         {
             None,
@@ -153,7 +164,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             NotEditable
         }
 
-        private async Task<(PlacementError Error, string Message, DateTime StartAt, DateTime EndAt, long? RegionId)> ValidatePlacementAsync(
+        private async Task<(PlacementError Error, string Message, DateTime StartAt, DateTime EndAt, string City)> ValidatePlacementAsync(
             long? ignoreTaskId,
             long targetTechnicianId,
             DateTime targetDate,
@@ -168,28 +179,28 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         {
             if (startMinutes < 0 || startMinutes >= 24 * 60 || endMinutes <= 0 || endMinutes > 24 * 60 || endMinutes <= startMinutes)
             {
-                return (PlacementError.InvalidWindow, "Netinkamas laiko langas.", default, default, null);
+                return (PlacementError.InvalidWindow, "Netinkamas laiko langas.", default, default, string.Empty);
             }
 
             if (startMinutes % ScheduleGrid.SlotSizeMinutes != 0)
             {
-                return (PlacementError.InvalidWindow, "Laikas turi atitikti grafiko zingsni.", default, default, null);
+                return (PlacementError.InvalidWindow, "Laikas turi atitikti grafiko zingsni.", default, default, string.Empty);
             }
 
             if (requireEndAligned && (endMinutes % ScheduleGrid.SlotSizeMinutes != 0))
             {
-                return (PlacementError.InvalidWindow, "Pabaigos laikas turi atitikti grafiko zingsni.", default, default, null);
+                return (PlacementError.InvalidWindow, "Pabaigos laikas turi atitikti grafiko zingsni.", default, default, string.Empty);
             }
 
             var window = GetWorkingWindow(targetTechnicianId, targetDate);
             if (startMinutes < window.StartMinutes)
             {
-                return (PlacementError.InvalidWindow, "Per ankstyvas laikas.", default, default, null);
+                return (PlacementError.InvalidWindow, "Per ankstyvas laikas.", default, default, string.Empty);
             }
 
             if (endMinutes > window.EndMinutes)
             {
-                return (PlacementError.InvalidWindow, "Uzduotis netelpa i darbo laika.", default, default, null);
+                return (PlacementError.InvalidWindow, "Uzduotis netelpa i darbo laika.", default, default, string.Empty);
             }
 
             // Convert local time to UTC for storage
@@ -198,12 +209,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var targetTech = await _db.Technicians
                 .AsNoTracking()
-                .Select(t => new { t.Id, t.RegionId })
+                .Include(t => t.WorkplaceAddress)
+                .Select(t => new { t.Id, City = t.WorkplaceAddress.City })
                 .FirstOrDefaultAsync(t => t.Id == targetTechnicianId, cancellationToken);
 
             if (targetTech == null)
             {
-                return (PlacementError.TechnicianNotFound, "Technikas nerastas.", default, default, null);
+                return (PlacementError.TechnicianNotFound, "Technikas nerastas.", default, default, string.Empty);
             }
 
             var permissionProbe = new TaskEntity
@@ -212,7 +224,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 PlanId = plan?.Id,
                 Plan = plan,
                 TechnicianId = targetTech.Id,
-                RegionId = targetTech.RegionId ?? 0,
                 StartAt = startAt,
                 EndAt = endAt,
                 Status = status
@@ -221,13 +232,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var canEdit = await _taskPermissionService.CanEditTaskAsync(permissionProbe, user, timezoneOffsetMinutes);
             if (!canEdit)
             {
-                return (PlacementError.NotEditable, "Neturite teisiu atlikti sio veiksmo.", default, default, null);
+                return (PlacementError.NotEditable, "Neturite teisiu atlikti sio veiksmo.", default, default, string.Empty);
             }
 
             // Prevent placing tasks with start time in the past
             if (!_timeService.IsTaskStillEditable(startAt))
             {
-                return (PlacementError.InvalidWindow, "Negalima nustatyti pradÅ¾ios laiko praeityje.", default, default, null);
+                return (PlacementError.InvalidWindow, "Negalima nustatyti pradÅ¾ios laiko praeityje.", default, default, string.Empty);
             }
 
             var hasOverlap = await _db.Tasks
@@ -240,10 +251,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (hasOverlap)
             {
-                return (PlacementError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).", default, default, null);
+                return (PlacementError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).", default, default, string.Empty);
             }
 
-            return (PlacementError.None, string.Empty, startAt, endAt, targetTech.RegionId);
+            return (PlacementError.None, string.Empty, startAt, endAt, targetTech.City ?? string.Empty);
         }
 
         public Task<PlanEntity?> GetActivePlanAsync(CancellationToken cancellationToken = default) =>
@@ -445,9 +456,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 throw new InvalidOperationException("No active plan found to clone.");
             }
 
-            var technicians = await _db.Technicians
-                .Include(t => t.Region)
-                .ToListAsync(cancellationToken);
+            var technicians = await _db.Technicians.ToListAsync(cancellationToken);
 
             var fallbackWeeks = activePlan.Weeks > 0 ? activePlan.Weeks : 4;
             var window = await _planningCalendar.BuildWindowAsync(requestedStart, requestedEnd, requestedWeeks, fallbackWeeks, cancellationToken);
@@ -658,24 +667,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 };
             }
 
-            if (!validation.RegionId.HasValue)
-            {
-                return new TaskCreateResult(TaskCreateError.InvalidWindow, "Techniko regionas nenustatytas.");
-            }
-
             // Find or create service object
-            var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, validation.RegionId, cancellationToken);
+            var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, validation.City, cancellationToken);
             var serviceObjectMeta = await _db.ServiceObjects
                 .Where(o => o.Id == serviceObjectId)
-                .Select(o => new { o.AddressId, RegionId = o.Address.RegionId })
+                .Select(o => new { o.AddressId })
                 .FirstAsync(cancellationToken);
-            var taskRegionId = serviceObjectMeta.RegionId;
 
             var task = new TaskEntity
             {
                 PlanId = targetPlan.Id,
                 TechnicianId = technicianId,
-                RegionId = taskRegionId,
                 ServiceObjectId = serviceObjectId,
                 Title = normalizedTitle,
                 SkillLevel = normalizedSkill,
@@ -752,13 +754,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             // Find or create service object if objectName/objectAddress provided
             if (!string.IsNullOrWhiteSpace(objectName) || !string.IsNullOrWhiteSpace(objectAddress))
             {
-                var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, task.RegionId, cancellationToken);
-                var taskRegionId = await _db.ServiceObjects
-                    .Where(o => o.Id == serviceObjectId)
-                    .Select(o => o.Address.RegionId)
+                var city = await _db.Technicians
+                    .Where(t => t.Id == task.TechnicianId)
+                    .Select(t => t.WorkplaceAddress.City)
                     .FirstAsync(cancellationToken);
+                var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, city, cancellationToken);
                 task.ServiceObjectId = serviceObjectId;
-                task.RegionId = taskRegionId;
             }
 
             await _db.SaveChangesAsync(cancellationToken);
@@ -1221,7 +1222,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                         PlanId = targetTask.PlanId,
                         TechnicianId = targetTechnicianId,
                         Title = targetTask.Title,
-                        RegionId = targetTask.RegionId,
                         StartAt = targetStartAt,
                         EndAt = targetEndAt,
                         Priority = targetTask.Priority,
@@ -1229,7 +1229,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                         CreatedAt = targetTask.CreatedAt,
                         Plan = targetTask.Plan,
                         Technician = targetTask.Technician,
-                        Region = targetTask.Region,
                         Evaluation = targetTask.Evaluation,
                         ServiceObject = targetTask.ServiceObject,
                         ServiceObjectId = targetTask.ServiceObjectId,
@@ -1674,7 +1673,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             // Load active plan tasks with all relationships
             var activeTasks = await _db.Tasks
                 .Include(t => t.ServiceObject)
-                .Include(t => t.Region)
                 .Where(t => t.PlanId == activePlan.Id)
                 .OrderBy(t => t.StartAt)
                 .ToListAsync(cancellationToken);
@@ -1741,7 +1739,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                         PlanId = draftPlanId,
                         TechnicianId = sourceTask.TechnicianId,
                         ServiceObjectId = sourceTask.ServiceObjectId, // Preserve service object reference
-                        RegionId = sourceTask.RegionId,
                         Title = sourceTask.Title,
                         StartAt = DateTime.SpecifyKind(targetDate.Add(timeOfDay), DateTimeKind.Utc),
                         EndAt = DateTime.SpecifyKind(targetDate.Add(timeOfDay).Add(duration), DateTimeKind.Utc),

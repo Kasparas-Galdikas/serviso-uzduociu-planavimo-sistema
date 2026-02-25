@@ -55,7 +55,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
             var technicians = await _db.Technicians
                 .AsNoTracking()
-                .Include(t => t.Region)
+                .Include(t => t.WorkplaceAddress)
                 .Include(t => t.User)
                 .Select(t => new Technician
                 {
@@ -63,7 +63,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                     Name = t.User != null
                         ? (!string.IsNullOrWhiteSpace(t.User.Name) ? t.User.Name : t.User.Email)
                         : string.Empty,
-                    Location = t.Region != null ? t.Region.Name : string.Empty,
+                    Location = t.WorkplaceAddress.City,
                     RulesSummary = t.RulesSummary ?? string.Empty,
                     WeeklyHours = 0,
                     WeeklyLimit = (int)t.WeeklyLimit,
@@ -316,7 +316,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 return (technicians, tasks);
             }
 
-            // Use technician region (Location) as the source of truth for region filtering.
+            // Use technician city (Location) as the source of truth for location filtering.
             var techById = technicians.ToDictionary(t => t.Id);
             var filteredTasks = tasks
                 .Where(t => techById.TryGetValue(t.TechnicianId, out var tech) &&
@@ -712,6 +712,5 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             return false;
         }
     }
-
 }
 

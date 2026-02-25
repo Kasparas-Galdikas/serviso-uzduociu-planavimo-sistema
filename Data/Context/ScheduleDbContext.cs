@@ -10,7 +10,6 @@ namespace ServiceTaskPlanningSystem.Data
         }
 
         public DbSet<UserEntity> Users => Set<UserEntity>();
-        public DbSet<RegionEntity> Regions => Set<RegionEntity>();
         public DbSet<TechnicianEntity> Technicians => Set<TechnicianEntity>();
         public DbSet<PlanEntity> Plans => Set<PlanEntity>();
         public DbSet<ServiceObjectEntity> ServiceObjects => Set<ServiceObjectEntity>();
@@ -31,7 +30,6 @@ namespace ServiceTaskPlanningSystem.Data
             modelBuilder.HasPostgresEnum<LoadState>();
             ConfigureAddresses(modelBuilder);
             ConfigureUsers(modelBuilder);
-            ConfigureRegions(modelBuilder);
             ConfigureTechnicians(modelBuilder);
             ConfigurePlans(modelBuilder);
             ConfigureServiceObjects(modelBuilder);
@@ -48,6 +46,9 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.Street)
                 .IsRequired()
                 .HasMaxLength(300);
+            entity.Property(e => e.City)
+                .IsRequired()
+                .HasMaxLength(150);
             entity.Property(e => e.FullAddress)
                 .IsRequired()
                 .HasMaxLength(500);
@@ -58,11 +59,7 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.CreatedAt)
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");
-            entity.HasOne(e => e.Region)
-                .WithMany(r => r.Addresses)
-                .HasForeignKey(e => e.RegionId)
-                .OnDelete(DeleteBehavior.Restrict);
-            entity.HasIndex(e => new { e.RegionId, e.Street })
+            entity.HasIndex(e => new { e.City, e.Street })
                 .IsUnique();
         }
 
@@ -85,29 +82,6 @@ namespace ServiceTaskPlanningSystem.Data
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");
             entity.HasIndex(e => e.Email)
-                .IsUnique();
-        }
-
-        private static void ConfigureRegions(ModelBuilder modelBuilder)
-        {
-            var entity = modelBuilder.Entity<RegionEntity>();
-            entity.ToTable("regions");
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Name)
-                .IsRequired();
-            entity.Property(e => e.Country)
-                .IsRequired()
-                .HasMaxLength(100);
-            entity.Property(e => e.Latitude)
-                .HasColumnType("numeric(9,6)");
-            entity.Property(e => e.Longitude)
-                .HasColumnType("numeric(9,6)");
-            entity.Property(e => e.PriorityWeight)
-                .HasDefaultValue(0);
-            entity.Property(e => e.CreatedAt)
-                .HasColumnType("timestamptz")
-                .HasDefaultValueSql("NOW()");
-            entity.HasIndex(e => new { e.Name, e.Country })
                 .IsUnique();
         }
 
@@ -143,11 +117,6 @@ namespace ServiceTaskPlanningSystem.Data
             entity.HasOne(e => e.User)
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasOne(e => e.Region)
-                .WithMany(r => r.Technicians)
-                .HasForeignKey(e => e.RegionId)
                 .OnDelete(DeleteBehavior.SetNull);
         }
 
@@ -265,11 +234,6 @@ namespace ServiceTaskPlanningSystem.Data
                 .WithMany(t => t.Tasks)
                 .HasForeignKey(e => e.TechnicianId)
                 .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.Region)
-                .WithMany()
-                .HasForeignKey(e => e.RegionId)
-                .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasOne(e => e.ServiceObject)
                 .WithMany(o => o.Tasks)

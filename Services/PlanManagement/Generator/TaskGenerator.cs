@@ -194,7 +194,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                             PlanId = targetTask.PlanId,
                             TechnicianId = targetTask.TechnicianId,
                             Title = targetTask.Title,
-                            RegionId = targetTask.RegionId,
                             ServiceObjectId = targetTask.ServiceObjectId,
                             StartAt = newStart,
                             EndAt = newEnd,
@@ -203,7 +202,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                             CreatedAt = targetTask.CreatedAt,
                             Plan = targetTask.Plan,
                             Technician = targetTask.Technician,
-                            Region = targetTask.Region,
                             Evaluation = targetTask.Evaluation
                         };
                     }
@@ -282,7 +280,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                             PlanId = targetTask.PlanId,
                             TechnicianId = tech.Id,  // Changed technician
                             Title = targetTask.Title,
-                            RegionId = targetTask.RegionId,
                             ServiceObjectId = targetTask.ServiceObjectId,
                             StartAt = targetTask.StartAt,
                             EndAt = targetTask.EndAt,
@@ -291,7 +288,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                             CreatedAt = targetTask.CreatedAt,
                             Plan = targetTask.Plan,
                             Technician = tech,
-                            Region = targetTask.Region,
                             Evaluation = targetTask.Evaluation
                         };
                     }
@@ -365,7 +361,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                             PlanId = targetTask.PlanId,
                             TechnicianId = targetTask.TechnicianId,
                             Title = targetTask.Title,
-                            RegionId = targetTask.RegionId,
                             ServiceObjectId = targetTask.ServiceObjectId,
                             StartAt = newStart,  // Changed day
                             EndAt = newEnd,      // Changed day
@@ -374,7 +369,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                             CreatedAt = targetTask.CreatedAt,
                             Plan = targetTask.Plan,
                             Technician = targetTask.Technician,
-                            Region = targetTask.Region,
                             Evaluation = targetTask.Evaluation
                         };
                     }

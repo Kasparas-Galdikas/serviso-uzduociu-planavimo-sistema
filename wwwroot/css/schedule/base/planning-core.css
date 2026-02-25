@@ -9,6 +9,7 @@ body { background: var(--neutral-50); color: var(--neutral-900); }
 .bg-load { background: var(--warning-100); border: 1px solid var(--warning-500); }
 .bg-conflict { background: var(--danger-100); border: 1px solid var(--danger-500); }
 .bg-travel { background: #d9dde2; border: 1px solid #8f99a3; }
+.legend-icon-travel { color: #7f8892; margin-right: 6px; font-size: 0.9rem; vertical-align: -1px; }
 .bg-status-inprogress { background: var(--success-500); border: 1px solid var(--success-700); }
 .bg-status-completed { background: var(--success-600, var(--success-500)); border: 1px solid var(--success-700, var(--success-500)); }
 .bg-status-conflict { background: var(--warning-500); border: 1px solid var(--warning-700, var(--warning-500)); }
