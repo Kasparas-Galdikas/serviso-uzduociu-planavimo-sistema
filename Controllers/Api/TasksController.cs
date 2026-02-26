@@ -733,6 +733,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 TaskMoveError.InvalidWindow => UnprocessableEntity(new { message = result.Message }),
                 TaskMoveError.NotEditable => StatusCode(403, new { message = result.Message }),
                 TaskMoveError.Overlap => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                TaskMoveError.TravelInfeasible => UnprocessableEntity(new { message = result.Message }),
                 TaskMoveError.Stale => Conflict(new { message = result.Message, version = result.CurrentVersion }),
                 _ => StatusCode(500, new { message = result.Message ?? "Unknown error" })
             };
