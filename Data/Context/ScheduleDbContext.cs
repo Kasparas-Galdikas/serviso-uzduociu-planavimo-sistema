@@ -92,7 +92,6 @@ namespace ServiceTaskPlanningSystem.Data
             {
                 table.HasCheckConstraint("ck_technicians_daily_limit_positive", "daily_limit > 0");
                 table.HasCheckConstraint("ck_technicians_weekly_limit_positive", "weekly_limit > 0");
-                table.HasCheckConstraint("ck_technicians_travel_switch_non_negative", "travel_switch_limit >= 0");
             });
             entity.HasKey(e => e.Id);
             entity.HasOne(e => e.WorkplaceAddress)
@@ -108,8 +107,6 @@ namespace ServiceTaskPlanningSystem.Data
                 .HasColumnType("numeric(6,2)")
                 .HasDefaultValue(40)
                 .IsRequired();
-            entity.Property(e => e.TravelSwitchLimit)
-                .HasDefaultValue(0);
             entity.Property(e => e.CreatedAt)
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");

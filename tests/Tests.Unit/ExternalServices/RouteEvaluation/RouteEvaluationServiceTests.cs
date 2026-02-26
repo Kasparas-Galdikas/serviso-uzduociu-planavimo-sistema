@@ -178,7 +178,6 @@ public class RouteEvaluationServiceTests
             WorkplaceAddressId = 1,
             DailyLimit = 8,
             WeeklyLimit = 40,
-            TravelSwitchLimit = 0
         });
 
         db.ServiceObjects.Add(new ServiceObjectEntity
@@ -220,3 +219,4 @@ public class RouteEvaluationServiceTests
         return 30;
     }
 }
+

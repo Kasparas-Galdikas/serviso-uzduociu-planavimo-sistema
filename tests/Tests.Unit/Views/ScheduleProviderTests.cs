@@ -170,7 +170,6 @@ public class ScheduleProviderTests
             WorkplaceAddressId = 1,
             DailyLimit = 8,
             WeeklyLimit = 40,
-            TravelSwitchLimit = 1
         };
 
         db.Users.Add(user);
@@ -222,3 +221,4 @@ public class ScheduleProviderTests
         db.Tasks.Add(task);
     }
 }
+

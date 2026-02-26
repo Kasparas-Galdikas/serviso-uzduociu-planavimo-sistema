@@ -5,19 +5,22 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 
 namespace ServiceTaskPlanningSystem.Services.Travel
 {
     public sealed class TaskTravelFeasibilityService : ITaskTravelFeasibilityService
     {
-        private sealed record DaySlot(DateTime StartAt, DateTime EndAt, long AddressId, bool IsProposed);
-
         private readonly ScheduleDbContext _db;
+        private readonly IRouteChainBuilder _routeChainBuilder;
 
-        public TaskTravelFeasibilityService(ScheduleDbContext db)
+        public TaskTravelFeasibilityService(
+            ScheduleDbContext db,
+            IRouteChainBuilder routeChainBuilder)
         {
             _db = db;
+            _routeChainBuilder = routeChainBuilder;
         }
 
         public async Task<TravelFeasibilityResult> EvaluatePlacementAsync(
@@ -30,26 +33,30 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             bool checkOverlap,
             CancellationToken cancellationToken = default)
         {
-            var workplaceAddressId = await _db.Technicians
-                .Where(t => t.Id == technicianId)
-                .Select(t => t.WorkplaceAddressId)
-                .FirstOrDefaultAsync(cancellationToken);
-            if (workplaceAddressId <= 0)
+            var chain = await _routeChainBuilder.BuildDayChainAsync(
+                new RouteChainRequest
+                {
+                    TechnicianId = technicianId,
+                    DayUtc = proposedStartAt.Date,
+                    IncludeCanceled = false,
+                    FilterByPlanId = false,
+                    ExcludeTaskId = excludeTaskId,
+                    ProposedStop = new ProposedRouteStop
+                    {
+                        StartAt = proposedStartAt,
+                        EndAt = proposedEndAt,
+                        AddressId = serviceAddressId
+                    }
+                },
+                cancellationToken);
+            if (chain == null || chain.WorkplaceAddressId <= 0)
             {
                 return new TravelFeasibilityResult { IsFeasible = false, Message = "Techniko darbo vietos adresas nerastas." };
             }
 
-            var dayStart = proposedStartAt.Date;
-            var dayEnd = dayStart.AddDays(1);
-            var daySlots = await _db.Tasks
-                .AsNoTracking()
-                .Where(t => t.TechnicianId == technicianId)
-                .Where(t => t.StartAt >= dayStart && t.StartAt < dayEnd)
-                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
-                .Where(t => excludeTaskId == null || t.Id != excludeTaskId.Value)
-                .OrderBy(t => t.StartAt)
-                .Select(t => new DaySlot(t.StartAt, t.EndAt, t.ServiceObject.AddressId, false))
-                .ToListAsync(cancellationToken);
+            var daySlots = chain.Stops
+                .Where(s => !s.IsProposed)
+                .ToList();
 
             if (checkOverlap && daySlots.Any(t => t.StartAt < proposedEndAt && t.EndAt > proposedStartAt))
             {
@@ -61,11 +68,7 @@ namespace ServiceTaskPlanningSystem.Services.Travel
                 };
             }
 
-            var sequence = daySlots
-                .Append(new DaySlot(proposedStartAt, proposedEndAt, serviceAddressId, true))
-                .OrderBy(t => t.StartAt)
-                .ThenBy(t => t.IsProposed ? 1 : 0)
-                .ToList();
+            var sequence = chain.Stops;
             var idx = sequence.FindIndex(t => t.IsProposed);
             if (idx < 0)
             {
@@ -76,7 +79,7 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             if (idx == 0)
             {
                 var available = proposedStartMinutesLocal - ScheduleGrid.DayStartMinutes;
-                pairsToCheck.Add((workplaceAddressId, serviceAddressId, available, true, false));
+                pairsToCheck.Add((chain.WorkplaceAddressId, serviceAddressId, available, true, false));
             }
             else
             {

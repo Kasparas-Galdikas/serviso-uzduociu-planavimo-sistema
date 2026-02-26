@@ -479,7 +479,6 @@ public sealed class RouteEvaluationWorkflowTests
             WorkplaceAddressId = workplaceAddress.Id,
             DailyLimit = 8,
             WeeklyLimit = 40,
-            TravelSwitchLimit = 0,
             CreatedAt = DateTime.UtcNow
         };
         db.Technicians.Add(technician);
@@ -556,3 +555,4 @@ public sealed class RouteEvaluationWorkflowTests
         public void Reset() => Interlocked.Exchange(ref _callCount, 0);
     }
 }
+

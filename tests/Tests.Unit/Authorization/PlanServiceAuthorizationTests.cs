@@ -156,7 +156,6 @@ public class PlanServiceAuthorizationTests
             WorkplaceAddressId = 1,
             DailyLimit = 8,
             WeeklyLimit = 40,
-            TravelSwitchLimit = 0
         });
         db.SaveChanges();
     }
@@ -216,3 +215,4 @@ public class PlanServiceAuthorizationTests
         entry.CurrentValue = version;
     }
 }
+

@@ -283,7 +283,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (dto.TargetEndAt <= dto.TargetStartAt)
             {
-                return UnprocessableEntity(new { message = "Pabaigos laikas turi bÅ«ti vÄ—lesnis uÅ¾ pradÅ¾iÄ…." });
+                return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlesnis už pradžia." });
             }
 
             var timezoneOffset = _timeService.GetBrowserTimezoneOffset(Request);
@@ -554,7 +554,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (dto.EndAt <= dto.StartAt)
             {
-                return UnprocessableEntity(new { message = "Pabaigos laikas turi b?ti v?lesnis u? prad?i?." });
+                return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlenis už pradžia." });
             }
 
             if (string.IsNullOrWhiteSpace(dto.SkillLevel) ||

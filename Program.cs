@@ -13,6 +13,7 @@ using ServiceTaskPlanningSystem.Services.ExternalServices.ExternalApis;
 using ServiceTaskPlanningSystem.Services.ExternalServices.Common;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
+using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Authorization;
@@ -79,6 +80,7 @@ builder.Services.AddControllersWithViews(options =>
 builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
 builder.Services.AddScoped<IPlanService, PlanService>();
 builder.Services.AddScoped<ITaskTravelFeasibilityService, TaskTravelFeasibilityService>();
+builder.Services.AddScoped<IRouteChainBuilder, RouteChainBuilder>();
 builder.Services.AddScoped<IEvaluationEngine, TaskEvaluationEngine>();
 builder.Services.AddScoped<IPlanningCalendar, PlanningCalendar>();
 builder.Services.AddScoped<ITaskPermissionService, TaskPermissionService>();

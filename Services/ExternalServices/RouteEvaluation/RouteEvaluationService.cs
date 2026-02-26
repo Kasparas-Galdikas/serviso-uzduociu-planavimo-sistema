@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 
 namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
 {
@@ -18,6 +19,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
         private readonly ILogger<RouteEvaluationService> _logger;
         private readonly ILocationApiClient _locationApiClient;
         private readonly IDistanceApiClient _distanceApiClient;
+        private readonly IRouteChainBuilder _routeChainBuilder;
         private readonly string _heigitApiKey;
 
         public RouteEvaluationService(
@@ -26,13 +28,15 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             ILogger<RouteEvaluationService> logger,
             IConfiguration configuration,
             ILocationApiClient locationApiClient,
-            IDistanceApiClient distanceApiClient)
+            IDistanceApiClient distanceApiClient,
+            IRouteChainBuilder routeChainBuilder)
         {
             _db = db;
             _evaluationEngine = evaluationEngine;
             _logger = logger;
             _locationApiClient = locationApiClient;
             _distanceApiClient = distanceApiClient;
+            _routeChainBuilder = routeChainBuilder;
             _heigitApiKey = configuration["HEIGIT_API_KEY"] ?? string.Empty;
         }
 
@@ -63,32 +67,29 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
 
             _logger.LogInformation("route.evaluation.task-impact.started taskId={TaskId}", taskId);
 
-            var dayStart = task.StartAt.Date;
-            var dayEnd = dayStart.AddDays(1);
-            var dayTasks = await _db.Tasks
-                .Include(t => t.ServiceObject)
-                    .ThenInclude(o => o.Address)
-                .Where(t => t.TechnicianId == task.TechnicianId)
-                .Where(t => t.StartAt >= dayStart && t.StartAt < dayEnd)
-                .Where(t => task.PlanId == null ? t.PlanId == null : t.PlanId == task.PlanId)
-                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
-                .OrderBy(t => t.StartAt)
-                .ToListAsync(cancellationToken);
-
-            if (dayTasks.Count == 0)
+            var chain = await _routeChainBuilder.BuildDayChainAsync(
+                new RouteChainRequest
+                {
+                    TechnicianId = task.TechnicianId,
+                    DayUtc = task.StartAt.Date,
+                    IncludeCanceled = false,
+                    FilterByPlanId = true,
+                    PlanId = task.PlanId
+                },
+                cancellationToken);
+            if (chain == null || chain.Stops.Count == 0)
             {
                 _logger.LogInformation("route.evaluation.task-impact.skipped taskId={TaskId} reason=no-day-tasks", taskId);
                 return;
             }
 
-            var routeAddresses = new List<AddressEntity> { task.Technician.WorkplaceAddress };
-            routeAddresses.AddRange(dayTasks.Select(t => t.ServiceObject.Address));
+            var routeAddresses = await LoadAddressPathAsync(chain, cancellationToken);
 
             _logger.LogInformation(
                 "route.evaluation.task-impact.address-chain taskId={TaskId} technicianId={TechnicianId} chain=[{Chain}]",
                 taskId,
                 task.TechnicianId,
-                string.Join(" → ", routeAddresses.Select(a => a.FullAddress)));
+                string.Join(" -> ", routeAddresses.Select(a => a.FullAddress)));
 
             await EnsureCoordinatesAsync(routeAddresses, cancellationToken);
 
@@ -102,7 +103,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 }
                 else
                 {
-                    await _evaluationEngine.RecalculateTasksAsync(dayTasks.Select(t => t.Id), cancellationToken);
+                    await _evaluationEngine.RecalculateTasksAsync(chain.Stops.Where(s => s.TaskId.HasValue).Select(s => s.TaskId!.Value), cancellationToken);
                 }
                 return;
             }
@@ -120,7 +121,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             }
             else
             {
-                await _evaluationEngine.RecalculateTasksAsync(dayTasks.Select(t => t.Id), cancellationToken);
+                await _evaluationEngine.RecalculateTasksAsync(chain.Stops.Where(s => s.TaskId.HasValue).Select(s => s.TaskId!.Value), cancellationToken);
             }
 
             _logger.LogInformation("route.evaluation.task-impact.completed taskId={TaskId}", taskId);
@@ -142,19 +143,83 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 .AsNoTracking()
                 .Where(t => t.TechnicianId == technicianId)
                 .Where(t => t.StartAt >= dayUtc.Date && t.StartAt < dayUtc.Date.AddDays(1))
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
                 .OrderBy(t => t.StartAt)
-                .Select(t => new { t.Id, t.StartAt })
+                .Select(t => new { t.Id, t.StartAt, t.PlanId })
                 .ToListAsync(cancellationToken);
 
             _logger.LogInformation(
                 "route.evaluation.technician-day.chain technicianId={TechnicianId} day={Day} chain=[{Chain}]",
                 technicianId,
                 dayUtc.Date,
-                string.Join(" → ", dayTasks.Select(t => $"{t.Id}@{t.StartAt:HH:mm}")));
+                string.Join(" -> ", dayTasks.Select(t => $"{t.Id}@{t.StartAt:HH:mm}")));
 
-            foreach (var t in dayTasks)
+            if (dayTasks.Count == 0)
             {
-                await EvaluateTaskRouteImpactAsync(t.Id, cancellationToken);
+                _logger.LogInformation(
+                    "route.evaluation.technician-day.completed technicianId={TechnicianId} day={Day} tasks=0",
+                    technicianId,
+                    dayUtc.Date);
+                return;
+            }
+
+            var planIds = dayTasks
+                .Select(t => t.PlanId)
+                .Distinct()
+                .ToList();
+
+            foreach (var planId in planIds)
+            {
+                var chain = await _routeChainBuilder.BuildDayChainAsync(
+                    new RouteChainRequest
+                    {
+                        TechnicianId = technicianId,
+                        DayUtc = dayUtc.Date,
+                        IncludeCanceled = false,
+                        FilterByPlanId = true,
+                        PlanId = planId
+                    },
+                    cancellationToken);
+                if (chain == null || chain.Stops.Count == 0)
+                {
+                    continue;
+                }
+
+                var routeAddresses = await LoadAddressPathAsync(chain, cancellationToken);
+
+                await EnsureCoordinatesAsync(routeAddresses, cancellationToken);
+
+                var missingPairs = await GetMissingSequentialPairsAsync(routeAddresses, cancellationToken);
+                if (missingPairs.Count == 0)
+                {
+                    continue;
+                }
+
+                var points = routeAddresses
+                    .Select(a => new GeoPoint(a.Latitude ?? 0m, a.Longitude ?? 0m))
+                    .ToList();
+                var matrix = await _distanceApiClient.GetMatrixAsync(points, cancellationToken);
+                await UpsertSequentialRoutesAsync(routeAddresses, matrix, missingPairs, cancellationToken);
+            }
+
+            var affectedPlanIds = planIds
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .Distinct()
+                .ToList();
+            foreach (var planId in affectedPlanIds)
+            {
+                await _evaluationEngine.RecalculatePlanAsync(planId, cancellationToken);
+            }
+
+            var unplannedTaskIds = dayTasks
+                .Where(t => !t.PlanId.HasValue)
+                .Select(t => t.Id)
+                .Distinct()
+                .ToList();
+            if (unplannedTaskIds.Count > 0)
+            {
+                await _evaluationEngine.RecalculateTasksAsync(unplannedTaskIds, cancellationToken);
             }
 
             _logger.LogInformation(
@@ -188,6 +253,19 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             {
                 await EvaluateTechnicianDayAsync(technicianId, dayUtc.Date, cancellationToken);
             }
+        }
+
+        private async Task<List<AddressEntity>> LoadAddressPathAsync(RouteChain chain, CancellationToken cancellationToken)
+        {
+            var addressPathIds = chain.BuildAddressPathIds();
+            var addressLookup = await _db.Addresses
+                .Where(a => addressPathIds.Contains(a.Id))
+                .ToDictionaryAsync(a => a.Id, cancellationToken);
+
+            return addressPathIds
+                .Where(id => addressLookup.ContainsKey(id))
+                .Select(id => addressLookup[id])
+                .ToList();
         }
 
         private bool IsConfigured(long? taskId = null)

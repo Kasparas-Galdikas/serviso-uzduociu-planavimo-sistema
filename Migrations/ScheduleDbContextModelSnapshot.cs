@@ -396,12 +396,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("text")
                         .HasColumnName("rules_summary");
 
-                    b.Property<int>("TravelSwitchLimit")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("travel_switch_limit");
-
                     b.Property<long?>("UserId")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
@@ -428,8 +422,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.ToTable("technicians", null, t =>
                         {
                             t.HasCheckConstraint("ck_technicians_daily_limit_positive", "daily_limit > 0");
-
-                            t.HasCheckConstraint("ck_technicians_travel_switch_non_negative", "travel_switch_limit >= 0");
 
                             t.HasCheckConstraint("ck_technicians_weekly_limit_positive", "weekly_limit > 0");
                         });

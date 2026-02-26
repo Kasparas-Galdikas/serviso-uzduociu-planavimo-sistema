@@ -212,7 +212,6 @@ public class PlanServiceRouteTriggerTests
             WorkplaceAddressId = workplaceAddressId,
             DailyLimit = 8,
             WeeklyLimit = 40,
-            TravelSwitchLimit = 0
         });
         db.SaveChanges();
     }
@@ -276,3 +275,4 @@ public class PlanServiceRouteTriggerTests
         return task;
     }
 }
+

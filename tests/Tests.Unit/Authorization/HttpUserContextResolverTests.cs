@@ -219,7 +219,6 @@ public class HttpUserContextResolverTests
             WorkplaceAddressId = 1,
             DailyLimit = 8,
             WeeklyLimit = 40,
-            TravelSwitchLimit = 0
         });
         db.SaveChanges();
     }
@@ -231,3 +230,4 @@ public class HttpUserContextResolverTests
         user.TechnicianId.Should().BeNull();
     }
 }
+

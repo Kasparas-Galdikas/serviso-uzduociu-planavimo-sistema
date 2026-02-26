@@ -147,7 +147,6 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                     WorkplaceAddressId = address.Id,
                     DailyLimit = mockTech.DailyLimit,
                     WeeklyLimit = mockTech.WeeklyLimit,
-                    TravelSwitchLimit = mockTech.TravelSwitchLimit,
                     RulesSummary = mockTech.RulesSummary,
                     CreatedAt = DateTime.UtcNow
                 };
