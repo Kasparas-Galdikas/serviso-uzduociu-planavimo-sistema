@@ -376,6 +376,22 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .AnyAsync(cancellationToken);
         }
 
+        private async Task<bool> HasTaskOverlapExcludingAsync(
+            IReadOnlyCollection<long> excludeTaskIds,
+            long technicianId,
+            DateTime startUtc,
+            DateTime endUtc,
+            CancellationToken cancellationToken = default)
+        {
+            return await _db.Tasks
+                .AsNoTracking()
+                .Where(t => !excludeTaskIds.Contains(t.Id))
+                .Where(t => t.TechnicianId == technicianId)
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                .Where(t => t.StartAt < endUtc && t.EndAt > startUtc)
+                .AnyAsync(cancellationToken);
+        }
+
         public async Task<TechnicianUpdateResult> TechnicianUpdateTaskAsync(
             long taskId,
             ScheduleTaskStatus status,
@@ -927,6 +943,217 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             return new TaskMoveResult(TaskMoveError.None, Task: task, CurrentVersion: _db.Entry(task).Property<uint>("xmin").CurrentValue);
+        }
+
+        public async Task<TaskSwapResult> SwapTasksAsync(
+            long sourceTaskId,
+            long targetTaskId,
+            uint sourceExpectedVersion,
+            uint targetExpectedVersion,
+            UserContext user,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default)
+        {
+            if (sourceTaskId == targetTaskId)
+            {
+                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Negalima sukeisti uzduoties su pacia savimi.");
+            }
+
+            var source = await _db.Tasks
+                .Include(t => t.Plan)
+                .FirstOrDefaultAsync(t => t.Id == sourceTaskId, cancellationToken);
+            if (source == null)
+            {
+                return new TaskSwapResult(TaskSwapError.NotFound, $"Task {sourceTaskId} was not found.");
+            }
+
+            var target = await _db.Tasks
+                .Include(t => t.Plan)
+                .FirstOrDefaultAsync(t => t.Id == targetTaskId, cancellationToken);
+            if (target == null)
+            {
+                return new TaskSwapResult(TaskSwapError.TargetNotFound, $"Task {targetTaskId} was not found.");
+            }
+
+            var sourceCurrentVersion = _db.Entry(source).Property<uint>("xmin").CurrentValue;
+            var targetCurrentVersion = _db.Entry(target).Property<uint>("xmin").CurrentValue;
+            if (sourceExpectedVersion == 0 || sourceExpectedVersion != sourceCurrentVersion ||
+                targetExpectedVersion == 0 || targetExpectedVersion != targetCurrentVersion)
+            {
+                return new TaskSwapResult(
+                    TaskSwapError.Stale,
+                    "Uzduotis pasikeite (stale). Atnaujinkite lentele ir bandykite dar karta.",
+                    CurrentSourceVersion: sourceCurrentVersion,
+                    CurrentTargetVersion: targetCurrentVersion);
+            }
+
+            var canEditSource = await _taskPermissionService.CanEditTaskAsync(source, user, timezoneOffsetMinutes);
+            var canEditTarget = await _taskPermissionService.CanEditTaskAsync(target, user, timezoneOffsetMinutes);
+            if (!canEditSource || !canEditTarget)
+            {
+                return new TaskSwapResult(TaskSwapError.NotEditable, "Neturite teisiu sukeisti siu uzduociu.");
+            }
+
+            if (source.TechnicianId != target.TechnicianId)
+            {
+                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Sukeitimas galimas tik to paties techniko uzduotims.");
+            }
+
+            if (source.StartAt.Date != target.StartAt.Date)
+            {
+                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Sukeitimas galimas tik tame paciame dienos grafike.");
+            }
+
+            if (source.PlanId != target.PlanId)
+            {
+                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Sukeitimas galimas tik to paties plano viduje.");
+            }
+
+            if (source.Status == ScheduleTaskStatus.Canceled || target.Status == ScheduleTaskStatus.Canceled)
+            {
+                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Atsauktu uzduociu sukeisti negalima.");
+            }
+
+            var sourceDuration = source.EndAt - source.StartAt;
+            var targetDuration = target.EndAt - target.StartAt;
+            if (sourceDuration <= TimeSpan.Zero || targetDuration <= TimeSpan.Zero)
+            {
+                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Netinkama uzduoties trukme.");
+            }
+
+            var sourceNewStartAt = target.StartAt;
+            var sourceNewEndAt = sourceNewStartAt + sourceDuration;
+            var targetNewStartAt = source.StartAt;
+            var targetNewEndAt = targetNewStartAt + targetDuration;
+
+            var sourceNewStartLocal = sourceNewStartAt.AddMinutes(timezoneOffsetMinutes);
+            var sourceNewEndLocal = sourceNewEndAt.AddMinutes(timezoneOffsetMinutes);
+            var targetNewStartLocal = targetNewStartAt.AddMinutes(timezoneOffsetMinutes);
+            var targetNewEndLocal = targetNewEndAt.AddMinutes(timezoneOffsetMinutes);
+
+            if (sourceNewStartLocal.Date != sourceNewEndLocal.Date || targetNewStartLocal.Date != targetNewEndLocal.Date)
+            {
+                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Uzduotis turi tilpti viena diena.");
+            }
+
+            var sourceStartMinutes = (int)sourceNewStartLocal.TimeOfDay.TotalMinutes;
+            var sourceEndMinutes = (int)sourceNewEndLocal.TimeOfDay.TotalMinutes;
+            var targetStartMinutes = (int)targetNewStartLocal.TimeOfDay.TotalMinutes;
+            var targetEndMinutes = (int)targetNewEndLocal.TimeOfDay.TotalMinutes;
+
+            var window = GetWorkingWindow(source.TechnicianId, sourceNewStartLocal.Date);
+            if (sourceStartMinutes < window.StartMinutes || sourceEndMinutes > window.EndMinutes ||
+                targetStartMinutes < window.StartMinutes || targetEndMinutes > window.EndMinutes)
+            {
+                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Uzduotis netelpa i darbo laika.");
+            }
+
+            var excludedTaskIds = new[] { source.Id, target.Id };
+            var sourceHasOverlap = await HasTaskOverlapExcludingAsync(
+                excludedTaskIds,
+                source.TechnicianId,
+                sourceNewStartAt,
+                sourceNewEndAt,
+                cancellationToken);
+            if (sourceHasOverlap)
+            {
+                return new TaskSwapResult(TaskSwapError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).");
+            }
+
+            var targetHasOverlap = await HasTaskOverlapExcludingAsync(
+                excludedTaskIds,
+                target.TechnicianId,
+                targetNewStartAt,
+                targetNewEndAt,
+                cancellationToken);
+            if (targetHasOverlap)
+            {
+                return new TaskSwapResult(TaskSwapError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).");
+            }
+
+            source.StartAt = sourceNewStartAt;
+            source.EndAt = sourceNewEndAt;
+            target.StartAt = targetNewStartAt;
+            target.EndAt = targetNewEndAt;
+
+            await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return new TaskSwapResult(
+                    TaskSwapError.Stale,
+                    "Uzduotis pasikeite (stale). Atnaujinkite lentele ir bandykite dar karta.",
+                    CurrentSourceVersion: sourceCurrentVersion,
+                    CurrentTargetVersion: targetCurrentVersion);
+            }
+
+            await TriggerRouteEvaluationSafelyAsync(source.TechnicianId, source.StartAt.Date, "swap", cancellationToken);
+
+            var addressIds = await _db.ServiceObjects
+                .AsNoTracking()
+                .Where(o => o.Id == source.ServiceObjectId || o.Id == target.ServiceObjectId)
+                .ToDictionaryAsync(o => o.Id, o => o.AddressId, cancellationToken);
+
+            var sourceAddressId = addressIds[source.ServiceObjectId];
+            var sourceTravelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
+                source.TechnicianId,
+                source.StartAt,
+                source.EndAt,
+                sourceAddressId,
+                sourceStartMinutes,
+                source.Id,
+                checkOverlap: false,
+                cancellationToken);
+            if (!sourceTravelCheck.IsFeasible)
+            {
+                if (transaction != null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                }
+
+                return new TaskSwapResult(TaskSwapError.TravelInfeasible, sourceTravelCheck.Message ?? "Nepakanka laiko kelionei.");
+            }
+
+            var targetAddressId = addressIds[target.ServiceObjectId];
+            var targetTravelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
+                target.TechnicianId,
+                target.StartAt,
+                target.EndAt,
+                targetAddressId,
+                targetStartMinutes,
+                target.Id,
+                checkOverlap: false,
+                cancellationToken);
+            if (!targetTravelCheck.IsFeasible)
+            {
+                if (transaction != null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                }
+
+                return new TaskSwapResult(TaskSwapError.TravelInfeasible, targetTravelCheck.Message ?? "Nepakanka laiko kelionei.");
+            }
+
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
+            if (source.PlanId.HasValue && source.Plan != null)
+            {
+                await AdjustPlanSpanAsync(source.Plan, cancellationToken);
+                await _evaluationEngine.RecalculatePlanAsync(source.PlanId.Value, cancellationToken);
+            }
+
+            return new TaskSwapResult(
+                TaskSwapError.None,
+                SourceTask: source,
+                TargetTask: target,
+                CurrentSourceVersion: _db.Entry(source).Property<uint>("xmin").CurrentValue,
+                CurrentTargetVersion: _db.Entry(target).Property<uint>("xmin").CurrentValue);
         }
 
         public async Task<TaskTimeUpdateResult> UpdateTaskTimeAsync(long taskId, DateTime targetDate, int targetSlotStartMinutes, int targetSlotEndMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)

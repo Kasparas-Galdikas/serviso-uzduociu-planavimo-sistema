@@ -739,6 +739,68 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             };
         }
 
+        [HttpPatch("{id:long}/swap")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> SwapTask(long id, [FromBody] SwapTaskRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                return ValidationProblem(ModelState);
+            }
+
+            var user = _userContextResolver.GetCurrentUser();
+            var result = await _planService.SwapTasksAsync(
+                id,
+                dto.TargetTaskId,
+                dto.SourceVersion,
+                dto.TargetVersion,
+                user,
+                dto.TimezoneOffsetMinutes,
+                cancellationToken);
+
+            if (result.Ok && result.SourceTask != null && result.TargetTask != null)
+            {
+                var sourceLocalStart = _timeService.ConvertUtcToLocal(result.SourceTask.StartAt, dto.TimezoneOffsetMinutes);
+                var sourceLocalEnd = _timeService.ConvertUtcToLocal(result.SourceTask.EndAt, dto.TimezoneOffsetMinutes);
+                var targetLocalStart = _timeService.ConvertUtcToLocal(result.TargetTask.StartAt, dto.TimezoneOffsetMinutes);
+                var targetLocalEnd = _timeService.ConvertUtcToLocal(result.TargetTask.EndAt, dto.TimezoneOffsetMinutes);
+
+                return Ok(new TaskSwappedResponseDto
+                {
+                    SourceTaskId = result.SourceTask.Id,
+                    SourceVersion = result.CurrentSourceVersion ?? 0,
+                    SourceStartAt = sourceLocalStart,
+                    SourceEndAt = sourceLocalEnd,
+                    TargetTaskId = result.TargetTask.Id,
+                    TargetVersion = result.CurrentTargetVersion ?? 0,
+                    TargetStartAt = targetLocalStart,
+                    TargetEndAt = targetLocalEnd,
+                    TechnicianId = result.SourceTask.TechnicianId,
+                    Load = await _planService.GetWorkloadSnapshotAsync(
+                        result.SourceTask.TechnicianId,
+                        result.SourceTask.StartAt.Date,
+                        cancellationToken)
+                });
+            }
+
+            return result.Error switch
+            {
+                TaskSwapError.NotFound => NotFound(new { message = result.Message }),
+                TaskSwapError.TargetNotFound => NotFound(new { message = result.Message }),
+                TaskSwapError.NotEditable => StatusCode(403, new { message = result.Message }),
+                TaskSwapError.Stale => Conflict(new
+                {
+                    message = result.Message,
+                    sourceVersion = result.CurrentSourceVersion,
+                    targetVersion = result.CurrentTargetVersion
+                }),
+                TaskSwapError.InvalidSwap => UnprocessableEntity(new { message = result.Message }),
+                TaskSwapError.Overlap => Conflict(new { message = result.Message }),
+                TaskSwapError.TravelInfeasible => UnprocessableEntity(new { message = result.Message }),
+                _ => StatusCode(500, new { message = result.Message ?? "Unknown error" })
+            };
+        }
+
         [HttpPatch("{id:long}/technician-update")]
         [Authorize] // Allow any authenticated user (not just managers)
         public async Task<IActionResult> TechnicianUpdateTask(long id, [FromBody] TechnicianUpdateTaskRequestDto dto, CancellationToken cancellationToken)

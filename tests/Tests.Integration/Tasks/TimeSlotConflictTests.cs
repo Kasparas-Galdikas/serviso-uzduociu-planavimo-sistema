@@ -301,6 +301,53 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    [Fact]
+    public async Task SwapTask_SameTechnician_FreeSwap_Succeeds()
+    {
+        var techId = await GetTechnicianIdAsync("technician@test.com");
+        var client = CreateClient("manager@test.com");
+        var targetDate = GetFutureDate(14);
+
+        var first = await CreateTaskAsync(client, techId, targetDate, 9 * 60, 10 * 60, "Task A");
+        var second = await CreateTaskAsync(client, techId, targetDate, 11 * 60, 12 * 60, "Task B");
+        var firstVersion = await GetTaskVersionAsync(first.Id);
+        var secondVersion = await GetTaskVersionAsync(second.Id);
+
+        var response = await client.PatchAsJsonAsync($"/api/tasks/{first.Id}/swap", new SwapTaskRequestDto
+        {
+            TargetTaskId = second.Id,
+            SourceVersion = firstVersion,
+            TargetVersion = secondVersion,
+            TimezoneOffsetMinutes = 0
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task SwapTask_DifferentTechnician_Returns422()
+    {
+        var techId = await GetTechnicianIdAsync("technician@test.com");
+        var otherTechId = await GetTechnicianIdAsync("austeja.j@test.com");
+        var client = CreateClient("manager@test.com");
+        var targetDate = GetFutureDate(14);
+
+        var first = await CreateTaskAsync(client, techId, targetDate, 9 * 60, 10 * 60, "Task A");
+        var second = await CreateTaskAsync(client, otherTechId, targetDate, 11 * 60, 12 * 60, "Task B");
+        var firstVersion = await GetTaskVersionAsync(first.Id);
+        var secondVersion = await GetTaskVersionAsync(second.Id);
+
+        var response = await client.PatchAsJsonAsync($"/api/tasks/{first.Id}/swap", new SwapTaskRequestDto
+        {
+            TargetTaskId = second.Id,
+            SourceVersion = firstVersion,
+            TargetVersion = secondVersion,
+            TimezoneOffsetMinutes = 0
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+    }
+
     #endregion
 
     #region Task Update Conflicts

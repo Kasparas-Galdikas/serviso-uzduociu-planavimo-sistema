@@ -398,6 +398,61 @@
   };
 
   /**
+   * Swap two tasks on the same technician/day lane.
+   * @param {string|number} sourceTaskId - Dragged task ID
+   * @param {string|number} targetTaskId - Target task ID
+   * @param {number} sourceVersion - Source task version
+   * @param {number} targetVersion - Target task version
+   * @returns {Promise<{ success: boolean, error?: string, sourceVersion?: number, targetVersion?: number }>}
+   */
+  const swapTask = async (sourceTaskId, targetTaskId, sourceVersion, targetVersion) => {
+    const timezoneOffset = grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+    const body = {
+      targetTaskId: parseInt(targetTaskId) || 0,
+      sourceVersion: parseInt(sourceVersion) || 0,
+      targetVersion: parseInt(targetVersion) || 0,
+      timezoneOffsetMinutes: timezoneOffset,
+    };
+
+    try {
+      const resp = await (api?.patch
+        ? api.patch(`/api/tasks/${sourceTaskId}/swap`, body, {}, { event: "api.task.swap", sourceTaskId, targetTaskId })
+        : fetch(`/api/tasks/${sourceTaskId}/swap`, {
+            method: "PATCH",
+            headers: { "X-Requested-With": "XMLHttpRequest", "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          }));
+
+      if (resp.status === 409 || resp.status === 422 || resp.status === 403 || resp.status === 404) {
+        const data = await resp.json().catch(() => ({}));
+        return {
+          success: false,
+          error: data.message || "Nepavyko sukeisti uzduociu.",
+          sourceVersion: data.sourceVersion,
+          targetVersion: data.targetVersion,
+          errorType: resp.status === 409 ? "conflict" : resp.status === 403 ? "forbidden" : resp.status === 404 ? "not_found" : "unprocessable"
+        };
+      }
+
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        return { success: false, error: data.message || "Nepavyko sukeisti uzduociu.", errorType: "unknown" };
+      }
+
+      const data = await resp.json().catch(() => null);
+      logEvent("api.task.swap.ok", { sourceTaskId, targetTaskId });
+      return {
+        success: true,
+        sourceVersion: data?.sourceVersion,
+        targetVersion: data?.targetVersion
+      };
+    } catch (err) {
+      logEvent("api.task.swap.error", { sourceTaskId, targetTaskId, error: err?.message }, "error");
+      return { success: false, error: err?.message || "Nepavyko sukeisti uzduociu.", errorType: "exception" };
+    }
+  };
+
+  /**
    * Fetch drag preview (workload states).
    * @param {Object} previewData - Preview request data
    * @returns {Promise<{ success: boolean, previewStates?: Array, error?: string }>}
@@ -513,6 +568,7 @@
     updateTaskTime,
     deleteTask,
     moveTask,
+    swapTask,
     fetchDragPreview,
     fetchAssigneeTravelPreview,
     fetchTechnicians,

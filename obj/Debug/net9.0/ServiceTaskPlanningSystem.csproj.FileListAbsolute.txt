@@ -2,7 +2,6 @@ C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\appsettings.json
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\ServiceTaskPlanningSystem.staticwebassets.runtime.json
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\ServiceTaskPlanningSystem.staticwebassets.endpoints.json
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\ServiceTaskPlanningSystem.exe
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\ServiceTaskPlanningSystem.deps.json
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\ServiceTaskPlanningSystem.runtimeconfig.json
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\ServiceTaskPlanningSystem.dll
@@ -219,8 +218,6 @@ C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\tr\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.resources.dll
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\zh-Hans\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.resources.dll
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\zh-Hant\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.resources.dll
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\4s2dy8ui6k-8rl31klv9h.gz
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\pdy608vbsx-3myzjd6tbs.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\vtbvp0gqgj-tfdiv5chpg.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\ts9dj7efm3-1w77nbyoto.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\verify-build\appsettings.Development.json
@@ -329,5 +326,8 @@ C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\verify
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\verify-build\tr\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.resources.dll
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\verify-build\zh-Hans\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.resources.dll
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\verify-build\zh-Hant\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.resources.dll
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\fn2ryxs3a4-y8rj62s6ah.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\davj9wrwfo-qr8liittwg.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\ServiceTaskPlanningSystem.exe
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\4s2dy8ui6k-cfk3fwojwe.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\pdy608vbsx-nt7dgydehx.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\fn2ryxs3a4-znfj43i279.gz

@@ -110,6 +110,45 @@ public class PlanServiceAuthorizationTests
     }
 
     [Fact]
+    public async Task SwapTasks_PermissionDenied_ReturnsNotEditable()
+    {
+        using var db = CreateContext();
+        var plan = SeedPlan(db);
+        SeedTechnician(db, 1);
+        var first = SeedTask(db, plan.Id, technicianId: 1);
+        var second = SeedTask(db, plan.Id, technicianId: 1, startOffsetHours: 2);
+        SetVersion(db, first, 1);
+        SetVersion(db, second, 2);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(false));
+
+        var service = CreateService(db);
+        var result = await service.SwapTasksAsync(first.Id, second.Id, 1, 2, Manager(), 0, CancellationToken.None);
+
+        result.Error.Should().Be(TaskSwapError.NotEditable);
+    }
+
+    [Fact]
+    public async Task SwapTasks_DifferentTechnicians_ReturnsInvalidSwap()
+    {
+        using var db = CreateContext();
+        var plan = SeedPlan(db);
+        SeedTechnician(db, 1);
+        SeedTechnician(db, 2);
+        var first = SeedTask(db, plan.Id, technicianId: 1);
+        var second = SeedTask(db, plan.Id, technicianId: 2, startOffsetHours: 2);
+        SetVersion(db, first, 1);
+        SetVersion(db, second, 2);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+
+        var service = CreateService(db);
+        var result = await service.SwapTasksAsync(first.Id, second.Id, 1, 2, Manager(), 0, CancellationToken.None);
+
+        result.Error.Should().Be(TaskSwapError.InvalidSwap);
+    }
+
+    [Fact]
     public async Task UpdateTask_PermissionDenied_ReturnsNotEditable()
     {
         using var db = CreateContext();
@@ -181,9 +220,9 @@ public class PlanServiceAuthorizationTests
         return plan;
     }
 
-    private static TaskEntity SeedTask(ScheduleDbContext db, long planId, long technicianId)
+    private static TaskEntity SeedTask(ScheduleDbContext db, long planId, long technicianId, int startOffsetHours = 0)
     {
-        var start = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddHours(10), DateTimeKind.Utc);
+        var start = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddHours(10 + startOffsetHours), DateTimeKind.Utc);
         if (!db.Addresses.AnyAsync().GetAwaiter().GetResult())
         {
             db.Addresses.Add(new AddressEntity { Id = 1, City = "City", Street = "Main", FullAddress = "Main 1, City" });

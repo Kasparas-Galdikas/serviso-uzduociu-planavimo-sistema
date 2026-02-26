@@ -663,7 +663,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                         Risk = null,
                         OverloadHours = 0,
                         LoadStatus = string.Empty,
-                        TravelDurationMinutes = displayMinutes,
+                        // Keep evaluated duration visible in UI; block width may still be clamped by free gap.
+                        TravelDurationMinutes = requiredTravelMinutes,
                         TravelDistanceKm = task.TravelDistanceKm,
                         IsTravelBlock = true,
                         TravelForTaskId = task.Id

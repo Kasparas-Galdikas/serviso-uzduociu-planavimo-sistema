@@ -339,6 +339,39 @@ td.is-drag-origin .task-card.is-dragging {
     var(--shadow-md);
 }
 
+.task-card.swap-preview-source,
+.task-card.swap-preview-target {
+  z-index: 12;
+  box-shadow:
+    0 0 0 2px rgba(13, 110, 253, 0.28),
+    var(--shadow-md);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.task-card.swap-preview-source::after,
+.task-card.swap-preview-target::after {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(13, 110, 253, 0.9);
+}
+
+.task-card.swap-preview-source::after {
+  content: "->";
+}
+
+.task-card.swap-preview-target::after {
+  content: "<-";
+}
+
+.task-card.swap-preview-invalid {
+  box-shadow:
+    0 0 0 2px rgba(220, 53, 69, 0.35),
+    var(--shadow-md) !important;
+}
+
 
 .task-card::before {
   content: "";
@@ -525,11 +558,31 @@ td.is-drag-origin .task-card.is-dragging {
   font-size: 1rem;
 }
 
-.travel-slot-time {
-  font-size: 0.72rem;
-  font-weight: 500;
+.travel-slot-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  color: #495057;
+  font-weight: 600;
   line-height: 1.1;
-  text-align: center;
+}
+
+.travel-slot-approx {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.travel-slot-range {
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: #5d6670;
+  white-space: nowrap;
 }
 
 .task-resize-bar .slot-selection-hit {

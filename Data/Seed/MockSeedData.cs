@@ -107,7 +107,11 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             var tasks = new List<MockTask>();
             var technicians = GetTechnicians();
             var objects = GetObjects();
+            var objectsByCity = objects
+                .GroupBy(o => o.City, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
             var durationOptions = new[] { 1.5, 2.0, 2.5, 3.0 };
+            var foreignAssignmentsRemaining = 2;
 
             var generatedDays = 0;
             var currentDate = startDate.Date;
@@ -132,7 +136,25 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
                         if (endHour > 18.0) break;
 
-                        var mockObject = objects[(techIndex + taskIndex) % objects.Count];
+                        var cityObjects = objectsByCity.TryGetValue(technician.City, out var matched)
+                            ? matched
+                            : objects;
+
+                        var mockObject = cityObjects[(techIndex + generatedDays + taskIndex) % cityObjects.Count];
+
+                        // Keep most seeded travel realistic (same-city),
+                        // with only two controlled cross-city assignments.
+                        if (foreignAssignmentsRemaining > 0 && generatedDays == 0 && taskIndex == 0)
+                        {
+                            var foreignCandidates = objects.Where(o =>
+                                !string.Equals(o.City, technician.City, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                            if (foreignCandidates.Count > 0)
+                            {
+                                mockObject = foreignCandidates[(techIndex + generatedDays) % foreignCandidates.Count];
+                                foreignAssignmentsRemaining--;
+                            }
+                        }
 
                         tasks.Add(new MockTask
                         {
