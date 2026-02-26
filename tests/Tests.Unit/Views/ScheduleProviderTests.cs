@@ -22,9 +22,10 @@ public class ScheduleProviderTests
     public async Task Filters_Tasks_By_Week_And_Location()
     {
         using var db = CreateContext();
-        SeedAddress(db, 1, regionId: 1);
-        var north = SeedTechnician(db, 1, "North");
-        var south = SeedTechnician(db, 2, "South");
+        SeedAddress(db, 1, city: "North");
+        SeedAddress(db, 2, city: "South");
+        var north = SeedTechnician(db, 1, workplaceAddressId: 1);
+        var south = SeedTechnician(db, 2, workplaceAddressId: 2);
         var plan = SeedPlan(db, 1);
 
         var inWeek = new DateTime(2026, 1, 20, 10, 0, 0, DateTimeKind.Utc);
@@ -62,8 +63,8 @@ public class ScheduleProviderTests
     public async Task Maps_Task_Flags_And_Object_Address()
     {
         using var db = CreateContext();
-        SeedAddress(db, 1, regionId: 1);
-        var tech = SeedTechnician(db, 1, "North");
+        SeedAddress(db, 1, city: "North");
+        var tech = SeedTechnician(db, 1, workplaceAddressId: 1);
         var plan = SeedPlan(db, 1);
         var startUtc = new DateTime(2026, 1, 20, 8, 0, 0, DateTimeKind.Utc);
 
@@ -78,13 +79,12 @@ public class ScheduleProviderTests
             Status = ScheduleTaskStatus.InProgress,
             Priority = TaskPriority.High,
             ServiceObjectId = 100,
-            RegionId = 1,
             ServiceObject = new ServiceObjectEntity
             {
                 Id = 100,
                 Name = "Obj",
                 AddressId = 2,
-                Address = new AddressEntity { Id = 2, RegionId = 1, Street = "Obj", FullAddress = "Obj address" }
+                Address = new AddressEntity { Id = 2, City = "North", Street = "Obj", FullAddress = "Obj address" }
             },
             Evaluation = new TaskEvaluationEntity
             {
@@ -143,12 +143,12 @@ public class ScheduleProviderTests
         return new ScheduleDbContext(options);
     }
 
-    private static void SeedAddress(ScheduleDbContext db, long id, long regionId)
+    private static void SeedAddress(ScheduleDbContext db, long id, string city)
     {
-        db.Addresses.Add(new AddressEntity { Id = id, RegionId = regionId, Street = "Addr", FullAddress = "Addr" });
+        db.Addresses.Add(new AddressEntity { Id = id, City = city, Street = $"Addr{id}", FullAddress = $"Addr{id}, {city}" });
     }
 
-    private static TechnicianEntity SeedTechnician(ScheduleDbContext db, long id, string location)
+    private static TechnicianEntity SeedTechnician(ScheduleDbContext db, long id, long workplaceAddressId)
     {
         var user = new UserEntity
         {
@@ -158,22 +158,18 @@ public class ScheduleProviderTests
             Role = UserRole.Technician,
             IsActive = true
         };
-        var region = new RegionEntity { Id = id, Name = location, Country = "LT", CreatedAt = DateTime.UtcNow };
 
         var tech = new TechnicianEntity
         {
             Id = id,
             UserId = user.Id,
             User = user,
-            RegionId = region.Id,
-            Region = region,
-            WorkplaceAddressId = 1,
+            WorkplaceAddressId = workplaceAddressId,
             DailyLimit = 8,
             WeeklyLimit = 40,
         };
 
         db.Users.Add(user);
-        db.Regions.Add(region);
         db.Technicians.Add(tech);
         return tech;
     }
@@ -197,7 +193,7 @@ public class ScheduleProviderTests
     {
         if (!db.Addresses.Local.Any(a => a.Id == 1) && !db.Addresses.Any(a => a.Id == 1))
         {
-            db.Addresses.Add(new AddressEntity { Id = 1, RegionId = 1, Street = "Addr", FullAddress = "Addr" });
+            db.Addresses.Add(new AddressEntity { Id = 1, City = "North", Street = "Addr", FullAddress = "Addr, North" });
         }
         if (!db.ServiceObjects.Local.Any(s => s.Id == 1) && !db.ServiceObjects.Any(s => s.Id == 1))
         {
@@ -210,7 +206,6 @@ public class ScheduleProviderTests
             PlanId = planId,
             TechnicianId = techId,
             ServiceObjectId = 1,
-            RegionId = 1,
             StartAt = startUtc,
             EndAt = endUtc,
             Title = $"Task {id}",

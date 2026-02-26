@@ -33,6 +33,8 @@ public sealed class RouteEvaluationWorkflowTests
         var fakeDistance = new FakeDistanceApiClient();
         using var factory = CreateFactory(fakeLocation, fakeDistance, apiKey: "test-key");
         await ResetAndReseedAsync(factory);
+        fakeLocation.Reset();
+        fakeDistance.Reset();
 
         var techId = await GetTechnicianIdAsync(factory, "technician@test.com");
         var workplaceAddressId = await GetWorkplaceAddressIdAsync(factory, techId);
@@ -67,6 +69,8 @@ public sealed class RouteEvaluationWorkflowTests
         var fakeDistance = new FakeDistanceApiClient();
         using var factory = CreateFactory(fakeLocation, fakeDistance, apiKey: "test-key");
         await ResetAndReseedAsync(factory);
+        fakeLocation.Reset();
+        fakeDistance.Reset();
 
         var techId = await GetTechnicianIdAsync(factory, "technician@test.com");
         var workplaceAddressId = await GetWorkplaceAddressIdAsync(factory, techId);
@@ -116,6 +120,8 @@ public sealed class RouteEvaluationWorkflowTests
         var fakeDistance = new FakeDistanceApiClient();
         using var factory = CreateFactory(fakeLocation, fakeDistance, apiKey: "test-key");
         await ResetAndReseedAsync(factory);
+        fakeLocation.Reset();
+        fakeDistance.Reset();
 
         var isolated = await EnsureIsolatedTechnicianAsync(factory);
         var techId = isolated.TechnicianId;
@@ -150,6 +156,8 @@ public sealed class RouteEvaluationWorkflowTests
         var fakeDistance = new FakeDistanceApiClient();
         using var factory = CreateFactory(fakeLocation, fakeDistance, apiKey: "test-key");
         await ResetAndReseedAsync(factory);
+        fakeLocation.Reset();
+        fakeDistance.Reset();
 
         var techId = await GetTechnicianIdAsync(factory, "technician@test.com");
         var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(43)).ToString("yyyy-MM-dd");
@@ -195,6 +203,8 @@ public sealed class RouteEvaluationWorkflowTests
         var fakeDistance = new FakeDistanceApiClient();
         using var factory = CreateFactory(fakeLocation, fakeDistance, apiKey: "__PLACEHOLDER__");
         await ResetAndReseedAsync(factory);
+        fakeLocation.Reset();
+        fakeDistance.Reset();
 
         var techId = await GetTechnicianIdAsync(factory, "technician@test.com");
         var workplaceAddressId = await GetWorkplaceAddressIdAsync(factory, techId);
@@ -225,6 +235,8 @@ public sealed class RouteEvaluationWorkflowTests
         var fakeDistance = new FakeDistanceApiClient();
         using var factory = CreateFactory(fakeLocation, fakeDistance, apiKey: "test-key");
         await ResetAndReseedAsync(factory);
+        fakeLocation.Reset();
+        fakeDistance.Reset();
 
         var techId = await GetTechnicianIdAsync(factory, "technician@test.com");
         var workplaceAddressId = await GetWorkplaceAddressIdAsync(factory, techId);
@@ -256,6 +268,8 @@ public sealed class RouteEvaluationWorkflowTests
         var fakeDistance = new FakeDistanceApiClient { ThrowOnCall = true };
         using var factory = CreateFactory(fakeLocation, fakeDistance, apiKey: "test-key");
         await ResetAndReseedAsync(factory);
+        fakeLocation.Reset();
+        fakeDistance.Reset();
 
         var techId = await GetTechnicianIdAsync(factory, "technician@test.com");
         var workplaceAddressId = await GetWorkplaceAddressIdAsync(factory, techId);
@@ -387,15 +401,15 @@ public sealed class RouteEvaluationWorkflowTests
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
 
-        var regionId = await db.Regions.Select(r => r.Id).FirstAsync();
         var street = fullAddress.Split(',', 2, StringSplitOptions.TrimEntries)[0].Trim();
+        const string city = "City";
 
-        var address = await db.Addresses.FirstOrDefaultAsync(a => a.RegionId == regionId && a.Street == street);
+        var address = await db.Addresses.FirstOrDefaultAsync(a => a.City == city && a.Street == street);
         if (address == null)
         {
             address = new AddressEntity
             {
-                RegionId = regionId,
+                City = city,
                 Street = street,
                 FullAddress = fullAddress,
                 Latitude = lat,
@@ -459,11 +473,9 @@ public sealed class RouteEvaluationWorkflowTests
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
 
-        var regionId = await db.Regions.Select(r => r.Id).FirstAsync();
-
         var workplaceAddress = new AddressEntity
         {
-            RegionId = regionId,
+            City = "City",
             Street = "Isolated HQ",
             FullAddress = $"Isolated HQ {Guid.NewGuid():N}, City",
             Latitude = 54.70m,
@@ -475,7 +487,6 @@ public sealed class RouteEvaluationWorkflowTests
 
         var technician = new TechnicianEntity
         {
-            RegionId = regionId,
             WorkplaceAddressId = workplaceAddress.Id,
             DailyLimit = 8,
             WeeklyLimit = 40,
@@ -555,4 +566,5 @@ public sealed class RouteEvaluationWorkflowTests
         public void Reset() => Interlocked.Exchange(ref _callCount, 0);
     }
 }
+
 

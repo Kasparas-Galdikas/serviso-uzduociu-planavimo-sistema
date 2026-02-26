@@ -13,6 +13,7 @@ using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.Travel;
 using Xunit;
 
 namespace Tests.Unit.PlanManagement;
@@ -24,6 +25,7 @@ public class PlanServiceRouteTriggerTests
     private readonly ITaskPermissionService _permission = Substitute.For<ITaskPermissionService>();
     private readonly IScheduleTimeService _time = Substitute.For<IScheduleTimeService>();
     private readonly IRouteEvaluationService _routeEvaluation = Substitute.For<IRouteEvaluationService>();
+    private readonly ITaskTravelFeasibilityService _travelFeasibility = Substitute.For<ITaskTravelFeasibilityService>();
     private readonly ILogger<PlanService> _logger = Substitute.For<ILogger<PlanService>>();
 
     public PlanServiceRouteTriggerTests()
@@ -45,6 +47,16 @@ public class PlanServiceRouteTriggerTests
                 return DateTime.SpecifyKind(date.AddMinutes(minutes), DateTimeKind.Utc);
             });
         _time.IsTaskStillEditable(Arg.Any<DateTime>()).Returns(true);
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult { IsFeasible = true });
     }
 
     [Fact]
@@ -181,7 +193,7 @@ public class PlanServiceRouteTriggerTests
     }
 
     private PlanService CreateService(ScheduleDbContext db) =>
-        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _logger);
+        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _logger);
 
     private static ScheduleDbContext CreateContext()
     {
@@ -195,11 +207,10 @@ public class PlanServiceRouteTriggerTests
 
     private static void SeedRegionAddressAndTechnician(ScheduleDbContext db, long technicianId, long workplaceAddressId)
     {
-        db.Regions.Add(new RegionEntity { Id = 1, Name = "Region", Country = "LT" });
         db.Addresses.Add(new AddressEntity
         {
             Id = workplaceAddressId,
-            RegionId = 1,
+            City = "City",
             Street = "HQ",
             FullAddress = "HQ 1, City",
             Latitude = 54.6872m,
@@ -208,7 +219,6 @@ public class PlanServiceRouteTriggerTests
         db.Technicians.Add(new TechnicianEntity
         {
             Id = technicianId,
-            RegionId = 1,
             WorkplaceAddressId = workplaceAddressId,
             DailyLimit = 8,
             WeeklyLimit = 40,
@@ -232,15 +242,10 @@ public class PlanServiceRouteTriggerTests
 
     private static TaskEntity SeedTaskWithObject(ScheduleDbContext db, long technicianId, long objectAddressId, string objectName)
     {
-        if (!db.Regions.Any())
-        {
-            db.Regions.Add(new RegionEntity { Id = 1, Name = "Region", Country = "LT" });
-        }
-
         db.Addresses.Add(new AddressEntity
         {
             Id = objectAddressId,
-            RegionId = 1,
+            City = "City",
             Street = "Obj St",
             FullAddress = "Obj St, City",
             Latitude = 54.7m,
@@ -262,7 +267,6 @@ public class PlanServiceRouteTriggerTests
             Id = 200,
             TechnicianId = technicianId,
             ServiceObjectId = serviceObject.Id,
-            RegionId = 1,
             StartAt = now,
             EndAt = now.AddHours(1),
             Title = "Task",

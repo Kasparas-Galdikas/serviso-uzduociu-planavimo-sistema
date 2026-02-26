@@ -11,6 +11,7 @@ using NSubstitute;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Xunit;
 
 namespace Tests.Unit.ExternalServices.RouteEvaluation;
@@ -135,7 +136,8 @@ public class RouteEvaluationServiceTests
             })
             .Build();
 
-        return new RouteEvaluationService(db, _evaluation, _logger, config, _location, _distance);
+        var routeChainBuilder = new RouteChainBuilder(db);
+        return new RouteEvaluationService(db, _evaluation, _logger, config, _location, _distance, routeChainBuilder);
     }
 
     private static ScheduleDbContext CreateContext()
@@ -150,12 +152,10 @@ public class RouteEvaluationServiceTests
     {
         var baseDay = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddDays(1).AddHours(9), DateTimeKind.Utc);
 
-        db.Regions.Add(new RegionEntity { Id = 1, Name = "Region", Country = "LT" });
-
         db.Addresses.Add(new AddressEntity
         {
             Id = 1,
-            RegionId = 1,
+            City = "City",
             Street = "HQ",
             FullAddress = "HQ 1, City",
             Latitude = hasCoordinates ? 54.6872m : null,
@@ -164,7 +164,7 @@ public class RouteEvaluationServiceTests
         db.Addresses.Add(new AddressEntity
         {
             Id = 2,
-            RegionId = 1,
+            City = "City",
             Street = "Obj",
             FullAddress = "Obj 1, City",
             Latitude = hasCoordinates ? 54.6900m : null,
@@ -174,7 +174,6 @@ public class RouteEvaluationServiceTests
         db.Technicians.Add(new TechnicianEntity
         {
             Id = 10,
-            RegionId = 1,
             WorkplaceAddressId = 1,
             DailyLimit = 8,
             WeeklyLimit = 40,
@@ -193,7 +192,6 @@ public class RouteEvaluationServiceTests
             Id = 30,
             TechnicianId = 10,
             ServiceObjectId = 20,
-            RegionId = 1,
             Title = "Task",
             StartAt = baseDay,
             EndAt = baseDay.AddHours(1),
