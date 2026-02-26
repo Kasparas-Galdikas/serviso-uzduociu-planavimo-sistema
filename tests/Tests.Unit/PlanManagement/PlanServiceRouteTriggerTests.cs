@@ -85,6 +85,15 @@ public class PlanServiceRouteTriggerTests
 
         result.Ok.Should().BeTrue();
         await _routeEvaluation.Received(1).EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await _travelFeasibility.Received(1).EvaluatePlacementAsync(
+            Arg.Any<long>(),
+            Arg.Any<DateTime>(),
+            Arg.Any<DateTime>(),
+            Arg.Any<long>(),
+            Arg.Any<int>(),
+            Arg.Is<long?>(x => x.HasValue && x.Value > 0),
+            false,
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

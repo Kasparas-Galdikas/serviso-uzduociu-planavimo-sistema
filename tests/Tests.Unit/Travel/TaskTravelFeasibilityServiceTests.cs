@@ -101,7 +101,7 @@ public sealed class TaskTravelFeasibilityServiceTests
     }
 
     [Fact]
-    public async Task EvaluatePlacement_WhenRoutesMissing_DoesNotBlockPlacement()
+    public async Task EvaluatePlacement_WhenRoutesMissing_ReturnsInfeasible()
     {
         using var db = CreateContext();
         SeedTechnician(db, technicianId: 1, workplaceAddressId: 1);
@@ -120,9 +120,59 @@ public sealed class TaskTravelFeasibilityServiceTests
             checkOverlap: true,
             cancellationToken: CancellationToken.None);
 
-        result.IsFeasible.Should().BeTrue();
+        result.IsFeasible.Should().BeFalse();
         result.InboundTravelMinutes.Should().BeNull();
         result.OutboundTravelMinutes.Should().BeNull();
+        result.Message.Should().Contain("truksta marsruto");
+    }
+
+    [Fact]
+    public async Task EvaluatePlacement_WhenFromAndToSameAddress_MissingRoute_DoesNotBlockPlacement()
+    {
+        using var db = CreateContext();
+        SeedTechnician(db, technicianId: 1, workplaceAddressId: 1);
+
+        var sut = new TaskTravelFeasibilityService(db, new RouteChainBuilder(db));
+        var day = DateTime.UtcNow.Date.AddDays(1);
+
+        var result = await sut.EvaluatePlacementAsync(
+            technicianId: 1,
+            proposedStartAt: day.AddHours(10),
+            proposedEndAt: day.AddHours(11),
+            serviceAddressId: 1,
+            proposedStartMinutesLocal: 10 * 60,
+            excludeTaskId: null,
+            checkOverlap: true,
+            cancellationToken: CancellationToken.None);
+
+        result.IsFeasible.Should().BeTrue();
+        result.InboundTravelMinutes.Should().Be(0);
+        result.OutboundTravelMinutes.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task EvaluatePlacement_WhenRouteDurationIsZero_ForDifferentAddresses_ReturnsInfeasible()
+    {
+        using var db = CreateContext();
+        SeedTechnician(db, technicianId: 1, workplaceAddressId: 1);
+        SeedAddress(db, 2, "Target Zero, City");
+        SeedRoute(db, from: 1, to: 2, minutes: 0);
+
+        var sut = new TaskTravelFeasibilityService(db, new RouteChainBuilder(db));
+        var day = DateTime.UtcNow.Date.AddDays(1);
+
+        var result = await sut.EvaluatePlacementAsync(
+            technicianId: 1,
+            proposedStartAt: day.AddHours(8),
+            proposedEndAt: day.AddHours(9),
+            serviceAddressId: 2,
+            proposedStartMinutesLocal: 8 * 60,
+            excludeTaskId: null,
+            checkOverlap: true,
+            cancellationToken: CancellationToken.None);
+
+        result.IsFeasible.Should().BeFalse();
+        result.Message.Should().Contain("netinkama marsruto trukme");
     }
 
     private static ScheduleDbContext CreateContext()

@@ -28,7 +28,7 @@ public sealed class TaskLifecycleTravelChainTests : IAsyncLifetime
     public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
-    public async Task CreateTask_FirstSlot_Path_Succeeds_AndReturnsLoad()
+    public async Task CreateTask_FirstSlot_WithRequiredInboundTravel_Returns422()
     {
         await ResetAndReseedAsync();
         var client = CreateClient();
@@ -46,11 +46,10 @@ public sealed class TaskLifecycleTravelChainTests : IAsyncLifetime
                 .WithObjectAddress(address)
                 .Build());
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var payload = await response.Content.ReadFromJsonAsync<TaskCreatedOrUpdatedResponseDto>();
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        var payload = await response.Content.ReadFromJsonAsync<MessageOnly>();
         payload.Should().NotBeNull();
-        payload!.Id.Should().BeGreaterThan(0);
-        payload.Load.Should().NotBeNull();
+        payload!.Message.Should().Contain("Nepakanka laiko kelionei");
     }
 
     [Fact]

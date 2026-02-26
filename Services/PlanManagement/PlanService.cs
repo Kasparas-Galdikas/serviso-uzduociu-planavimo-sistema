@@ -721,7 +721,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 task.EndAt,
                 serviceObjectMeta.AddressId,
                 startMinutes,
-                null,
+                task.Id,
                 checkOverlap: false,
                 cancellationToken);
             if (!travelCheck.IsFeasible)

@@ -108,11 +108,38 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             {
                 if (!routes.TryGetValue((from, to), out var required))
                 {
-                    continue;
+                    // Same-address movement is always zero travel even without a stored route row.
+                    if (from == to)
+                    {
+                        required = 0;
+                    }
+                    else
+                    {
+                        return new TravelFeasibilityResult
+                        {
+                            IsFeasible = false,
+                            HasOverlap = false,
+                            InboundTravelMinutes = inbound,
+                            OutboundTravelMinutes = outbound,
+                            Message = "Nepavyko ivertinti keliones (truksta marsruto duomenu)."
+                        };
+                    }
                 }
 
                 if (isInbound) inbound = required;
                 if (isOutbound) outbound = required;
+
+                if (from != to && required <= 0)
+                {
+                    return new TravelFeasibilityResult
+                    {
+                        IsFeasible = false,
+                        HasOverlap = false,
+                        InboundTravelMinutes = inbound,
+                        OutboundTravelMinutes = outbound,
+                        Message = "Nepavyko ivertinti keliones (netinkama marsruto trukme)."
+                    };
+                }
 
                 if (required > 0 && required > available)
                 {
