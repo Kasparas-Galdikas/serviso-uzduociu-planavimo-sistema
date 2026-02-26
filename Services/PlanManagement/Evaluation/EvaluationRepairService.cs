@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -30,6 +32,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 try
                 {
                     await RepairAsync(stoppingToken);
+                    await RepairMissingRoutesAsync(stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -38,6 +41,69 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "EvaluationRepairService encountered an error.");
+                }
+            }
+        }
+
+        private async Task RepairMissingRoutesAsync(CancellationToken cancellationToken)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+            var routeService = scope.ServiceProvider.GetRequiredService<IRouteEvaluationService>();
+
+            var tasks = await db.Tasks
+                .AsNoTracking()
+                .Where(t => t.PlanId != null && t.Status != ScheduleTaskStatus.Canceled)
+                .Select(t => new
+                {
+                    t.TechnicianId,
+                    t.StartAt,
+                    WorkplaceAddressId = t.Technician.WorkplaceAddressId,
+                    ServiceAddressId = t.ServiceObject.AddressId
+                })
+                .ToListAsync(cancellationToken);
+
+            if (tasks.Count == 0)
+            {
+                return;
+            }
+
+            var existingRoutes = await db.TravelRoutes
+                .AsNoTracking()
+                .Select(r => new { r.FromAddressId, r.ToAddressId })
+                .ToListAsync(cancellationToken);
+            var routeSet = existingRoutes
+                .Select(r => (r.FromAddressId, r.ToAddressId))
+                .ToHashSet();
+
+            var techDaysToRepair = new HashSet<(long TechnicianId, DateTime Day)>();
+            foreach (var group in tasks.GroupBy(t => (t.TechnicianId, t.StartAt.Date)))
+            {
+                var ordered = group.OrderBy(t => t.StartAt).ToList();
+                long? prevAddressId = null;
+                foreach (var task in ordered)
+                {
+                    var fromId = prevAddressId ?? task.WorkplaceAddressId;
+                    var toId = task.ServiceAddressId;
+                    if (fromId != toId && !routeSet.Contains((fromId, toId)))
+                    {
+                        techDaysToRepair.Add((group.Key.TechnicianId, group.Key.Date));
+                        break;
+                    }
+                    prevAddressId = task.ServiceAddressId;
+                }
+            }
+
+            foreach (var (technicianId, day) in techDaysToRepair)
+            {
+                try
+                {
+                    _logger.LogInformation("svc.eval.repair.routes technicianId={TechnicianId} day={Day}", technicianId, day);
+                    await routeService.EvaluateTechnicianDayAsync(technicianId, day, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to repair missing routes for technician {TechnicianId} on {Day}.", technicianId, day);
                 }
             }
         }
