@@ -12,58 +12,25 @@ namespace ServiceTaskPlanningSystem.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "fk_addresses_regions_region_id",
-                table: "addresses");
+            migrationBuilder.Sql(@"ALTER TABLE addresses DROP CONSTRAINT IF EXISTS fk_addresses_regions_region_id;");
+            migrationBuilder.Sql(@"ALTER TABLE tasks DROP CONSTRAINT IF EXISTS fk_tasks_regions_region_id;");
+            migrationBuilder.Sql(@"ALTER TABLE technicians DROP CONSTRAINT IF EXISTS fk_technicians_regions_region_id;");
 
-            migrationBuilder.DropForeignKey(
-                name: "fk_tasks_regions_region_id",
-                table: "tasks");
+            migrationBuilder.Sql(@"DROP INDEX IF EXISTS ix_technicians_region_id;");
+            migrationBuilder.Sql(@"DROP INDEX IF EXISTS ix_tasks_region_id;");
+            migrationBuilder.Sql(@"DROP INDEX IF EXISTS ix_addresses_region_id_street;");
 
-            migrationBuilder.DropForeignKey(
-                name: "fk_technicians_regions_region_id",
-                table: "technicians");
+            migrationBuilder.Sql(@"ALTER TABLE technicians DROP COLUMN IF EXISTS region_id;");
+            migrationBuilder.Sql(@"ALTER TABLE tasks DROP COLUMN IF EXISTS region_id;");
+            migrationBuilder.Sql(@"ALTER TABLE addresses DROP COLUMN IF EXISTS region_id;");
 
-            migrationBuilder.DropTable(
-                name: "regions");
+            migrationBuilder.Sql(
+                @"ALTER TABLE addresses ADD COLUMN IF NOT EXISTS city character varying(150) NOT NULL DEFAULT '';");
 
-            migrationBuilder.DropIndex(
-                name: "ix_technicians_region_id",
-                table: "technicians");
+            migrationBuilder.Sql(
+                @"CREATE UNIQUE INDEX IF NOT EXISTS ix_addresses_city_street ON addresses (city, street);");
 
-            migrationBuilder.DropIndex(
-                name: "ix_tasks_region_id",
-                table: "tasks");
-
-            migrationBuilder.DropIndex(
-                name: "ix_addresses_region_id_street",
-                table: "addresses");
-
-            migrationBuilder.DropColumn(
-                name: "region_id",
-                table: "technicians");
-
-            migrationBuilder.DropColumn(
-                name: "region_id",
-                table: "tasks");
-
-            migrationBuilder.DropColumn(
-                name: "region_id",
-                table: "addresses");
-
-            migrationBuilder.AddColumn<string>(
-                name: "city",
-                table: "addresses",
-                type: "character varying(150)",
-                maxLength: 150,
-                nullable: false,
-                defaultValue: "");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_addresses_city_street",
-                table: "addresses",
-                columns: new[] { "city", "street" },
-                unique: true);
+            migrationBuilder.Sql(@"DROP TABLE IF EXISTS regions;");
         }
 
         /// <inheritdoc />
