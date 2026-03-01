@@ -158,36 +158,25 @@ app.MapControllerRoute(
 
 using (var scope = app.Services.CreateScope())
 {
-    var runMigrationsOnStartup = migrateOnly || configuration.GetValue(
-        "Database:RunMigrationsOnStartup",
-        app.Environment.IsDevelopment());
-
-    if (!runMigrationsOnStartup)
+    try
     {
-        Console.WriteLine("Skipping startup DB migration and seed (Database:RunMigrationsOnStartup=false).");
+        Console.WriteLine("Starting database migration...");
+        var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+        await db.Database.MigrateAsync();
+        Console.WriteLine("Database migration completed");
+
+        Console.WriteLine("Starting database seeding...");
+        var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+        await seeder.SeedAsync();
+        Console.WriteLine("Database seeding completed");
     }
-    else
+    catch (Exception ex)
     {
-        try
-        {
-            Console.WriteLine("Starting database migration...");
-            var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
-            await db.Database.MigrateAsync();
-            Console.WriteLine("Database migration completed");
-
-            Console.WriteLine("Starting database seeding...");
-            var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
-            await seeder.SeedAsync();
-            Console.WriteLine("Database seeding completed");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine("DATABASE STARTUP FAILURE");
-            Console.WriteLine(ex.GetType().FullName);
-            Console.WriteLine(ex.Message);
-            Console.WriteLine(ex.StackTrace);
-            throw;
-        }
+        Console.WriteLine("DATABASE STARTUP FAILURE");
+        Console.WriteLine(ex.GetType().FullName);
+        Console.WriteLine(ex.Message);
+        Console.WriteLine(ex.StackTrace);
+        throw;
     }
 }
 
