@@ -25,9 +25,19 @@ var migrateOnly = args.Contains("--migrate-only", StringComparer.OrdinalIgnoreCa
 var configuration = ConfigurationLoader.Build(builder.Environment.ContentRootPath, builder.Environment.EnvironmentName);
 builder.Configuration.AddConfiguration(configuration);
 
-var connectionString = ConfigurationLoader.GetRequiredConnectionString(configuration);
+var rawConnectionString = ConfigurationLoader.GetRequiredConnectionString(configuration);
+var csb = new NpgsqlConnectionStringBuilder(rawConnectionString);
+if (!string.IsNullOrWhiteSpace(csb.Host) &&
+    csb.Host.EndsWith(".proxy.rlwy.net", StringComparison.OrdinalIgnoreCase))
+{
+    // Railway proxy requires TLS; force safe defaults even if env var is set to Prefer.
+    if (csb.SslMode is SslMode.Disable or SslMode.Allow or SslMode.Prefer)
+    {
+        csb.SslMode = SslMode.Require;
+    }
+}
 
-var csb = new NpgsqlConnectionStringBuilder(connectionString);
+var connectionString = csb.ConnectionString;
 // SAFE logging (no password)
 Console.WriteLine("=== DATABASE CONFIG CHECK ===");
 Console.WriteLine($"Host: {csb.Host}");
