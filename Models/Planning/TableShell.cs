@@ -20,14 +20,37 @@ namespace ServiceTaskPlanningSystem.Models.Planning
 
     public class TableRow
     {
+        /// <summary>
+        /// Structured data for technician header. When set, partials use this instead of HeaderHtml.
+        /// </summary>
+        public TechnicianHeaderInfo? TechnicianInfo { get; set; }
+
+        /// <summary>
+        /// Legacy HTML content for header. Used only when TechnicianInfo is null.
+        /// </summary>
         public string HeaderHtml { get; set; } = string.Empty;
+
         public IEnumerable<TableCell> Cells { get; set; } = new List<TableCell>();
     }
 
     public class TableCell
     {
+        /// <summary>
+        /// Legacy HTML content. Used only when DailyData and WeeklyData are null.
+        /// </summary>
         public string ContentHtml { get; set; } = string.Empty;
+
         public string CssClass { get; set; } = "schedule-cell";
         public int ColSpan { get; set; } = 1;
+
+        /// <summary>
+        /// Structured data for daily schedule cells. When set, partials render this.
+        /// </summary>
+        public DailyCellData? DailyData { get; set; }
+
+        /// <summary>
+        /// Structured data for weekly summary cells. When set, partials render this.
+        /// </summary>
+        public WeeklyCellData? WeeklyData { get; set; }
     }
 }

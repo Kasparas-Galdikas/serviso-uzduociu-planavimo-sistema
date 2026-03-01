@@ -29,7 +29,12 @@
   const dragState = {
     taskId: null,
     version: null,
+    sourceTechId: null,
+    sourceDate: null,
+    sourceCard: null,
     durationSlots: null,
+    travelSlots: 0,
+    baseTravelSlots: 0,
     lastPreviewOk: false,
     busy: false,
     originTd: null,
@@ -39,7 +44,10 @@
     lastPreviewSlot: null,
     lastPreviewMinutes: null,
     lastPreviewRow: null,
+    swapCandidate: null,
+    swapPreviewActive: false,
     highlightedCells: [],
+    highlightedTravelCells: [],
     scroll: {
       container: null,
       rafId: null,
@@ -61,12 +69,52 @@
     });
   };
 
+  const clearTravelPreview = () => {
+    for (const td of dragState.highlightedTravelCells) {
+      td.classList.remove("is-drop-travel", "is-drop-travel-invalid", "is-drop-travel-start");
+    }
+    dragState.highlightedTravelCells = [];
+
+    document
+      .querySelectorAll("td.is-drop-travel, td.is-drop-travel-invalid, td.is-drop-travel-start")
+      .forEach((td) => td.classList.remove("is-drop-travel", "is-drop-travel-invalid", "is-drop-travel-start"));
+  };
+
   const clearPreviewColors = () => {
     document.querySelectorAll(".task-card.preview-normal, .task-card.preview-load, .task-card.preview-conflict").forEach((card) => {
       card.classList.remove("preview-normal");
       card.classList.remove("preview-load");
       card.classList.remove("preview-conflict");
     });
+  };
+
+  const clearSwapPreview = () => {
+    document.querySelectorAll(".task-card.swap-preview-source, .task-card.swap-preview-target, .task-card.swap-preview-invalid").forEach((card) => {
+      card.classList.remove("swap-preview-source", "swap-preview-target", "swap-preview-invalid");
+      card.style.transform = "";
+    });
+    dragState.swapPreviewActive = false;
+  };
+
+  const applySwapPreview = (sourceCard, targetCard, isValid) => {
+    clearSwapPreview();
+    if (!sourceCard || !targetCard) return;
+
+    sourceCard.classList.add("swap-preview-source");
+    targetCard.classList.add("swap-preview-target");
+    if (!isValid) {
+      sourceCard.classList.add("swap-preview-invalid");
+      targetCard.classList.add("swap-preview-invalid");
+      return;
+    }
+
+    const sourceRect = sourceCard.getBoundingClientRect();
+    const targetRect = targetCard.getBoundingClientRect();
+    const sourceDx = targetRect.left - sourceRect.left;
+    const targetDx = sourceRect.left - targetRect.left;
+    sourceCard.style.transform = `translateX(${sourceDx}px)`;
+    targetCard.style.transform = `translateX(${targetDx}px)`;
+    dragState.swapPreviewActive = true;
   };
 
   const applyPreviewCardColors = (previewData) => {
@@ -122,13 +170,8 @@
     });
   };
 
-  const fetchDragPreview = async (slot) => {
-    if (!slot || !dragState.taskId) return;
-
-    const technicianId = parseIntSafe(slot.dataset.techId);
-    const startMinutes = parseIntSafe(slot.dataset.slotStartMinutes);
-    const targetDate = slot.dataset.date || "";
-
+  const fetchDragPreview = async ({ technicianId, startMinutes, targetDate, row }) => {
+    if (!dragState.taskId) return;
     if (!technicianId || startMinutes == null || !targetDate) return;
 
     // Use task.api module if available
@@ -144,6 +187,24 @@
       if (result.success && result.previewStates) {
         dragState.previewData = { previewStates: result.previewStates };
         applyPreviewCardColors(dragState.previewData);
+
+        const state = result.previewStates.find((s) => Number(s.technicianId) === Number(technicianId));
+        if (state && Number.isFinite(state.requiredInboundTravelMinutes)) {
+          dragState.travelSlots = Math.max(1, Math.ceil(Number(state.requiredInboundTravelMinutes) / 30));
+        } else {
+          dragState.travelSlots = dragState.baseTravelSlots || 0;
+        }
+
+        if (row) {
+          applyTravelPreviewRangeByMinutes(
+            row,
+            startMinutes,
+            dragState.travelSlots || 0,
+            dragState.taskId,
+            technicianId,
+            targetDate
+          );
+        }
       }
       return;
     }
@@ -187,6 +248,25 @@
         const data = await resp.json();
         dragState.previewData = data;
         applyPreviewCardColors(data);
+
+        const states = Array.isArray(data?.previewStates) ? data.previewStates : [];
+        const state = states.find((s) => Number(s.technicianId) === Number(technicianId));
+        if (state && Number.isFinite(state.requiredInboundTravelMinutes)) {
+          dragState.travelSlots = Math.max(1, Math.ceil(Number(state.requiredInboundTravelMinutes) / 30));
+        } else {
+          dragState.travelSlots = dragState.baseTravelSlots || 0;
+        }
+
+        if (row) {
+          applyTravelPreviewRangeByMinutes(
+            row,
+            startMinutes,
+            dragState.travelSlots || 0,
+            dragState.taskId,
+            technicianId,
+            targetDate
+          );
+        }
       } else {
         logEvent("ui.drag.preview.error", { status: resp.status }, "warn");
       }
@@ -195,18 +275,19 @@
     }
   };
 
-  const scheduleDragPreview = (slot) => {
-    if (!slot || dragState.busy) return;
+  const scheduleDragPreview = ({ technicianId, startMinutes, targetDate, row }) => {
+    if (dragState.busy) return;
 
-    if (dragState.lastPreviewSlot === slot) return;
-    dragState.lastPreviewSlot = slot;
+    const cacheKey = `${technicianId}|${targetDate}|${startMinutes}`;
+    if (dragState.lastPreviewSlot === cacheKey) return;
+    dragState.lastPreviewSlot = cacheKey;
 
     if (dragState.previewDebounceTimer) {
       clearTimeout(dragState.previewDebounceTimer);
     }
 
     dragState.previewDebounceTimer = setTimeout(() => {
-      fetchDragPreview(slot);
+      fetchDragPreview({ technicianId, startMinutes, targetDate, row });
       dragState.previewDebounceTimer = null;
     }, 150);
   };
@@ -284,7 +365,12 @@
   const clearDragState = () => {
     dragState.taskId = null;
     dragState.version = null;
+    dragState.sourceTechId = null;
+    dragState.sourceDate = null;
+    dragState.sourceCard = null;
     dragState.durationSlots = null;
+    dragState.travelSlots = 0;
+    dragState.baseTravelSlots = 0;
     dragState.lastPreviewOk = false;
     dragState.busy = false;
     dragState.originTd?.classList?.remove?.("is-drag-origin");
@@ -294,6 +380,8 @@
     dragState.lastPreviewSlot = null;
     dragState.lastPreviewMinutes = null;
     dragState.lastPreviewRow = null;
+    dragState.swapCandidate = null;
+    dragState.swapPreviewActive = false;
     if (dragState.previewDebounceTimer) {
       clearTimeout(dragState.previewDebounceTimer);
       dragState.previewDebounceTimer = null;
@@ -302,8 +390,11 @@
     document.querySelectorAll(".task-card.is-dragging").forEach((el) => el.classList.remove("is-dragging"));
     document.querySelectorAll(".schedule-slot.is-over").forEach((el) => el.classList.remove("is-over"));
     clearPreview();
+    clearTravelPreview();
     clearPreviewColors();
+    clearSwapPreview();
     dragState.highlightedCells = [];
+    dragState.highlightedTravelCells = [];
   };
 
   // Use shared grid utility (with fallback)
@@ -311,6 +402,99 @@
     if (grid?.parseIntSafe) return grid.parseIntSafe(val);
     const n = Number.parseInt(String(val || ""), 10);
     return Number.isFinite(n) ? n : null;
+  };
+
+  const getCardMeta = (card) => {
+    if (!card) return null;
+    const taskId = card.getAttribute("data-task-id");
+    const version = parseIntSafe(card.getAttribute("data-task-version"));
+    const startMinutes = parseIntSafe(card.getAttribute("data-start-minutes"));
+    const durationMinutes = parseIntSafe(card.getAttribute("data-duration-minutes"));
+    const travelMinutes = parseIntSafe(card.getAttribute("data-travel-duration-minutes")) || 0;
+    const techId = card.getAttribute("data-tech-id");
+    const date = card.getAttribute("data-date");
+
+    if (!taskId || startMinutes == null || !durationMinutes || !techId || !date) return null;
+    return {
+      taskId,
+      version,
+      techId,
+      date,
+      startMinutes,
+      durationSlots: Math.max(1, Math.ceil(durationMinutes / 30)),
+      travelSlots: travelMinutes > 0 ? Math.max(1, Math.ceil(travelMinutes / 30)) : 0,
+      editable: (card.getAttribute("data-editable") || "") === "true",
+      card,
+    };
+  };
+
+  const isMinuteCoveredByTaskOrTravel = (row, minute, taskId) => {
+    const taskCard = row.querySelector(`.task-card[data-task-id="${taskId}"]`);
+    if (taskCard) {
+      const taskStart = parseIntSafe(taskCard.getAttribute("data-start-minutes"));
+      const taskDuration = parseIntSafe(taskCard.getAttribute("data-duration-minutes"));
+      if (taskStart != null && taskDuration != null) {
+        const taskEnd = taskStart + taskDuration;
+        if (minute >= taskStart && minute < taskEnd) return true;
+      }
+    }
+
+    const travelCards = row.querySelectorAll(`.travel-slot-card[data-travel-for-task-id="${taskId}"]`);
+    for (const travelCard of travelCards) {
+      const travelStart = parseIntSafe(travelCard.getAttribute("data-start-minutes"));
+      const travelDuration = parseIntSafe(travelCard.getAttribute("data-duration-minutes"));
+      if (travelStart == null || travelDuration == null) continue;
+      const travelEnd = travelStart + travelDuration;
+      if (minute >= travelStart && minute < travelEnd) return true;
+    }
+
+    return false;
+  };
+
+  const canFitTaskRange = (row, startMinutes, durationSlots, techId, date, allowedTaskIds) => {
+    const allowIds = new Set((allowedTaskIds || []).map((id) => String(id)));
+    for (let i = 0; i < durationSlots; i++) {
+      const minute = startMinutes + i * 30;
+      const slot = row.querySelector(
+        `.schedule-slot[data-tech-id="${techId}"][data-date="${date}"][data-slot-start-minutes="${minute}"]`
+      );
+      if (slot) continue;
+
+      let covered = false;
+      for (const id of allowIds) {
+        if (isMinuteCoveredByTaskOrTravel(row, minute, id)) {
+          covered = true;
+          break;
+        }
+      }
+      if (!covered) return false;
+    }
+    return true;
+  };
+
+  const canFitTravelRange = (row, taskStartMinutes, travelSlots, techId, date, allowedTaskIds) => {
+    if (!travelSlots || travelSlots <= 0) return true;
+    const allowIds = new Set((allowedTaskIds || []).map((id) => String(id)));
+    const travelStartMinutes = taskStartMinutes - travelSlots * 30;
+
+    for (let i = 0; i < travelSlots; i++) {
+      const minute = travelStartMinutes + i * 30;
+      const slot = row.querySelector(
+        `.schedule-slot[data-tech-id="${techId}"][data-date="${date}"][data-slot-start-minutes="${minute}"]`
+      );
+      if (slot) continue;
+
+      let covered = false;
+      for (const id of allowIds) {
+        if (isMinuteCoveredByTaskOrTravel(row, minute, id)) {
+          covered = true;
+          break;
+        }
+      }
+      if (!covered) return false;
+    }
+
+    return true;
   };
 
   const getSlotMinutesFromX = (row, clientX, techId, date) => {
@@ -415,6 +599,30 @@
             }
           }
         }
+
+        // Also allow occupying travel blocks reserved for this same task.
+        const ownTravelCards = row.querySelectorAll(`.travel-slot-card[data-travel-for-task-id="${taskId}"]`);
+        if (ownTravelCards && ownTravelCards.length > 0) {
+          let coveredByOwnTravel = false;
+          for (const travelCard of ownTravelCards) {
+            const travelStart = parseIntSafe(travelCard.dataset.startMinutes);
+            const travelDuration = parseIntSafe(travelCard.dataset.durationMinutes);
+            if (travelStart == null || travelDuration == null) continue;
+            const travelEnd = travelStart + travelDuration;
+            if (targetMinutes >= travelStart && targetMinutes < travelEnd) {
+              const td = travelCard.closest("td");
+              if (td && !newTouched.includes(td)) {
+                newTouched.push(td);
+              }
+              coveredByOwnTravel = true;
+              break;
+            }
+          }
+          if (coveredByOwnTravel) {
+            continue;
+          }
+        }
+
         // Time slot is occupied by another task
         ok = false;
       }
@@ -446,6 +654,76 @@
     return ok;
   };
 
+  const applyTravelPreviewRangeByMinutes = (row, taskStartMinutes, travelSlots, taskId, techId, date) => {
+    clearTravelPreview();
+    if (!row || !Number.isFinite(taskStartMinutes) || !travelSlots || travelSlots <= 0) {
+      return true;
+    }
+
+    const touched = [];
+    let ok = true;
+    const travelStartMinutes = taskStartMinutes - (travelSlots * 30);
+
+    for (let i = 0; i < travelSlots; i++) {
+      const minute = travelStartMinutes + (i * 30);
+
+      const slot = row.querySelector(
+        `.schedule-slot[data-tech-id="${techId}"][data-date="${date}"][data-slot-start-minutes="${minute}"]`
+      );
+
+      if (slot) {
+        const td = slot.closest("td");
+        if (td && !touched.includes(td)) touched.push(td);
+        continue;
+      }
+
+      const ownTaskCard = row.querySelector(`.task-card[data-task-id="${taskId}"]`);
+      if (ownTaskCard) {
+        const cardStart = parseIntSafe(ownTaskCard.dataset.startMinutes);
+        const cardDuration = parseIntSafe(ownTaskCard.dataset.durationMinutes);
+        if (cardStart != null && cardDuration != null) {
+          const cardEnd = cardStart + cardDuration;
+          if (minute >= cardStart && minute < cardEnd) {
+            const td = ownTaskCard.closest("td");
+            if (td && !touched.includes(td)) touched.push(td);
+            continue;
+          }
+        }
+      }
+
+      const ownTravelCards = row.querySelectorAll(`.travel-slot-card[data-travel-for-task-id="${taskId}"]`);
+      let coveredByOwnTravel = false;
+      for (const travelCard of ownTravelCards) {
+        const travelStart = parseIntSafe(travelCard.dataset.startMinutes);
+        const travelDuration = parseIntSafe(travelCard.dataset.durationMinutes);
+        if (travelStart == null || travelDuration == null) continue;
+        const travelEnd = travelStart + travelDuration;
+        if (minute >= travelStart && minute < travelEnd) {
+          const td = travelCard.closest("td");
+          if (td && !touched.includes(td)) touched.push(td);
+          coveredByOwnTravel = true;
+          break;
+        }
+      }
+      if (coveredByOwnTravel) {
+        continue;
+      }
+
+      ok = false;
+    }
+
+    const className = ok ? "is-drop-travel" : "is-drop-travel-invalid";
+    touched.forEach((td, idx) => {
+      td.classList.add(className);
+      if (idx === touched.length - 1) {
+        td.classList.add("is-drop-travel-start");
+      }
+    });
+
+    dragState.highlightedTravelCells = touched;
+    return ok;
+  };
+
   const initOnce = () => {
     if (document.documentElement.dataset.scheduleDragDropInit === "1") return;
     document.documentElement.dataset.scheduleDragDropInit = "1";
@@ -471,14 +749,22 @@
       const taskId = card.getAttribute("data-task-id");
       const version = card.getAttribute("data-task-version");
       const durationMinutes = parseIntSafe(card.getAttribute("data-duration-minutes"));
+      const travelDurationMinutes = parseIntSafe(card.getAttribute("data-travel-duration-minutes")) || 0;
       if (!taskId || !version) return;
 
       dragState.taskId = taskId;
       dragState.version = version;
+      dragState.sourceTechId = card.getAttribute("data-tech-id");
+      dragState.sourceDate = card.getAttribute("data-date");
+      dragState.sourceCard = card;
       dragState.durationSlots =
         durationMinutes && durationMinutes > 0
           ? Math.max(1, Math.ceil(durationMinutes / 30))
           : 1;
+      dragState.travelSlots = travelDurationMinutes > 0
+        ? Math.max(1, Math.ceil(travelDurationMinutes / 30))
+        : 0;
+      dragState.baseTravelSlots = dragState.travelSlots;
       dragState.originStartMinutes = parseIntSafe(card.getAttribute("data-start-minutes"));
       dragState.busy = false;
       dragState.lastPreviewOk = false;
@@ -524,13 +810,77 @@
 
       // Get techId and date from slot or task card in this row
       const slot = cell.querySelector(".schedule-slot");
-      const card = cell.querySelector(".task-card");
+      const card = cell.querySelector(".task-card[data-task-id]");
       const refEl = slot || card;
       if (!refEl) return;
 
       const techId = refEl.dataset.techId;
       const date = refEl.dataset.date || slot?.dataset?.date;
       if (!techId || !date) return;
+
+      const hoveredTaskCard = el?.closest?.(".task-card[data-task-id]:not(.task-travel)");
+      const draggedId = String(dragState.taskId || "");
+
+      if (hoveredTaskCard) {
+        const targetMeta = getCardMeta(hoveredTaskCard);
+        if (
+          targetMeta &&
+          String(targetMeta.taskId) !== draggedId &&
+          targetMeta.techId === dragState.sourceTechId &&
+          targetMeta.date === dragState.sourceDate &&
+          targetMeta.editable
+        ) {
+          const sourceMeta = getCardMeta(dragState.sourceCard);
+          if (!sourceMeta) return;
+
+          const travelDiff = Math.abs((sourceMeta.travelSlots || 0) - (targetMeta.travelSlots || 0));
+          const travelSimilar = travelDiff <= 1;
+          const swapEligible = travelSimilar;
+          dragState.swapCandidate = {
+            targetTaskId: targetMeta.taskId,
+            targetVersion: targetMeta.version,
+            targetStartMinutes: targetMeta.startMinutes,
+            targetTechId: targetMeta.techId,
+            targetDate: targetMeta.date,
+            eligible: swapEligible,
+            reason: swapEligible ? "" : "Keliones skirtumas didesnis nei 30 min.",
+          };
+
+          applySwapPreview(dragState.sourceCard, hoveredTaskCard, swapEligible);
+          applyPreviewRangeByMinutes(
+            row,
+            sourceNewStart,
+            dragState.durationSlots || 1,
+            dragState.taskId,
+            techId,
+            date
+          );
+          applyTravelPreviewRangeByMinutes(
+            row,
+            sourceNewStart,
+            dragState.travelSlots || 0,
+            dragState.taskId,
+            techId,
+            date
+          );
+
+          scheduleDragPreview({
+            technicianId: parseIntSafe(techId),
+            startMinutes: sourceNewStart,
+            targetDate: date,
+            row,
+          });
+          return;
+        }
+      }
+
+      // Keep last valid swap candidate while still in same lane to avoid losing it
+      // when cursor sits on slot edges between cards during drag.
+      const sameLaneAsSource = techId === dragState.sourceTechId && date === dragState.sourceDate;
+      if (!sameLaneAsSource) {
+        dragState.swapCandidate = null;
+        clearSwapPreview();
+      }
 
       // Calculate slot minutes based on cursor X position
       const slotMinutes = getSlotMinutesFromX(row, evt.clientX, techId, date);
@@ -542,12 +892,14 @@
       dragState.lastPreviewMinutes = slotMinutes;
 
       applyPreviewRangeByMinutes(row, slotMinutes, dragState.durationSlots || 1, dragState.taskId, techId, date);
+      applyTravelPreviewRangeByMinutes(row, slotMinutes, dragState.travelSlots || 0, dragState.taskId, techId, date);
 
-      // Schedule API preview call
-      const previewSlot = row.querySelector(`.schedule-slot[data-tech-id="${techId}"][data-date="${date}"][data-slot-start-minutes="${slotMinutes}"]`);
-      if (previewSlot) {
-        scheduleDragPreview(previewSlot);
-      }
+      scheduleDragPreview({
+        technicianId: parseIntSafe(techId),
+        startMinutes: slotMinutes,
+        targetDate: date,
+        row,
+      });
     });
 
     tables.addEventListener("dragenter", (evt) => {
@@ -652,10 +1004,150 @@
         return;
       }
 
+      const dropCard = el?.closest?.(".task-card[data-task-id]:not(.task-travel)");
+      const draggedTaskId = String(dragState.taskId || "");
+      const targetMeta = dropCard ? getCardMeta(dropCard) : null;
+      const canSwapFromCard =
+        targetMeta &&
+        String(targetMeta.taskId) !== draggedTaskId &&
+        dragState.swapCandidate &&
+        String(dragState.swapCandidate.targetTaskId) === String(targetMeta.taskId) &&
+        dragState.swapCandidate.eligible &&
+        Number.isFinite(dragState.swapCandidate.targetVersion);
+      const canSwapFromCandidate =
+        !targetMeta &&
+        dragState.swapCandidate &&
+        dragState.swapCandidate.eligible &&
+        Number.isFinite(dragState.swapCandidate.targetVersion) &&
+        String(dragState.swapCandidate.targetTechId) === String(technicianId) &&
+        String(dragState.swapCandidate.targetDate) === String(targetDate);
+      const canSwap = canSwapFromCard || canSwapFromCandidate;
+
+      if (canSwap) {
+        const taskId = dragState.taskId;
+        const expectedVersion = parseIntSafe(dragState.version);
+        const targetVersion = parseIntSafe(dragState.swapCandidate.targetVersion);
+        if (!taskId || !expectedVersion || !targetVersion) {
+          clearDragState();
+          return;
+        }
+
+        dragState.busy = true;
+        logEvent("ui.drag.drop.swap", {
+          taskId,
+          targetTaskId: dragState.swapCandidate.targetTaskId,
+        });
+
+        try {
+          if (taskApi?.swapTask) {
+            const result = await taskApi.swapTask(
+              taskId,
+              dragState.swapCandidate.targetTaskId,
+              expectedVersion,
+              targetVersion
+            );
+            if (!result.success) {
+              alert(result.error || "Nepavyko sukeisti uzduociu.");
+            } else {
+              const query =
+                state?.getQuery?.() ||
+                new URLSearchParams(window.location.search || "");
+              if (!query.has("view")) query.set("view", "day");
+
+              await table?.fetchAndRender?.(query, {
+                updateUrl: false,
+                preserveScroll: true,
+              });
+
+              await tasks?.refreshOpenTask?.(taskId);
+            }
+          } else {
+            const timezoneOffset = -new Date().getTimezoneOffset();
+            const body = JSON.stringify({
+              targetTaskId: Number(dragState.swapCandidate.targetTaskId),
+              sourceVersion: expectedVersion,
+              targetVersion: targetVersion,
+              timezoneOffsetMinutes: timezoneOffset,
+            });
+            const resp =
+              (await logger?.fetchWithTrace?.(
+                `/api/tasks/${taskId}/swap`,
+                {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body,
+                },
+                { event: "ui.task.swap", taskId, targetTaskId: dragState.swapCandidate.targetTaskId }
+              )) ||
+              (await fetch(`/api/tasks/${taskId}/swap`, {
+                method: "PATCH",
+                headers: {
+                  "X-Requested-With": "XMLHttpRequest",
+                  "Content-Type": "application/json",
+                },
+                body,
+              }));
+
+            if (resp.status === 409 || resp.status === 422 || resp.status === 403 || resp.status === 404) {
+              const msg = (await resp.json().catch(() => null))?.message || "Nepavyko sukeisti uzduociu.";
+              alert(msg);
+            } else if (!resp.ok) {
+              throw new Error("Nepavyko sukeisti uzduociu.");
+            } else {
+              const query =
+                state?.getQuery?.() ||
+                new URLSearchParams(window.location.search || "");
+              if (!query.has("view")) query.set("view", "day");
+
+              await table?.fetchAndRender?.(query, {
+                updateUrl: false,
+                preserveScroll: true,
+              });
+
+              await tasks?.refreshOpenTask?.(taskId);
+            }
+          }
+        } catch (err) {
+          logEvent("ui.drag.drop.swap.error", { taskId, error: err?.message }, "error");
+          alert("Nepavyko sukeisti uzduociu.");
+        } finally {
+          clearDragState();
+        }
+        return;
+      }
+
+      if (dragState.swapCandidate && !canSwap) {
+        const isSameLaneCandidate =
+          String(dragState.swapCandidate.targetTechId) === String(technicianId) &&
+          String(dragState.swapCandidate.targetDate) === String(targetDate);
+        if (isSameLaneCandidate && !dragState.swapCandidate.eligible) {
+          alert(dragState.swapCandidate.reason || "Sukeitimas neleidziamas.");
+          clearDragState();
+          return;
+        }
+        logEvent("ui.drag.drop.swap.blocked", {
+          taskId: dragState.taskId,
+          targetTaskId: dragState.swapCandidate?.targetTaskId,
+          eligible: !!dragState.swapCandidate?.eligible,
+          byCard: !!targetMeta,
+          technicianId,
+          targetDate,
+        }, "warn");
+      }
+
       const previewOk = applyPreviewRangeByMinutes(
         row,
         startMinutes,
         dragState.durationSlots || 1,
+        dragState.taskId,
+        techId,
+        date
+      );
+
+      applyTravelPreviewRangeByMinutes(
+        row,
+        startMinutes,
+        dragState.travelSlots || 0,
         dragState.taskId,
         techId,
         date

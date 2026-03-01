@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -44,8 +44,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 infoType = "apkrova";
                 status = null;
             }
-            var weekStart = WeekCalculator.GetWeekStart(selectedDate);
-            var weekEnd = WeekCalculator.GetWeekEnd(selectedDate);
+            var weekStart = _timeService.GetWeekStart(selectedDate);
+            var weekEnd = _timeService.GetWeekEnd(selectedDate);
             var weekStartUtc = DateTime.SpecifyKind(weekStart, DateTimeKind.Utc);
             var weekEndUtcExclusive = DateTime.SpecifyKind(weekEnd.AddDays(1), DateTimeKind.Utc);
             var boundary = await _planningCalendar.GetBoundaryAsync();
@@ -55,7 +55,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
             var technicians = await _db.Technicians
                 .AsNoTracking()
-                .Include(t => t.Region)
+                .Include(t => t.WorkplaceAddress)
                 .Include(t => t.User)
                 .Select(t => new Technician
                 {
@@ -63,13 +63,12 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                     Name = t.User != null
                         ? (!string.IsNullOrWhiteSpace(t.User.Name) ? t.User.Name : t.User.Email)
                         : string.Empty,
-                    Location = t.Region != null ? t.Region.Name : string.Empty,
+                    Location = t.WorkplaceAddress.City,
                     RulesSummary = t.RulesSummary ?? string.Empty,
                     WeeklyHours = 0,
                     WeeklyLimit = (int)t.WeeklyLimit,
                     DailyHours = 0,
-                    DailyLimit = (int)t.DailyLimit,
-                    TravelSwitches = t.TravelSwitchLimit
+                    DailyLimit = (int)t.DailyLimit
                 })
                 .ToListAsync();
 
@@ -85,7 +84,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             var taskEntities = await taskBaseQuery
                 .Include(t => t.Plan)
                 .Include(t => t.Evaluation)
-                .Include(t => t.Object)
+                .Include(t => t.ServiceObject)
+                    .ThenInclude(o => o.Address)
                 .ToListAsync();
 
             var taskVersions = await taskBaseQuery
@@ -127,6 +127,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
             var draftExists = plansInView.Any(p => p!.Status == PlanStatus.Draft);
 
+            var travelMetricsByTaskId = await BuildTravelMetricsAsync(taskEntities, CancellationToken.None);
             var tasks = new List<TaskItem>();
             foreach (var t in taskEntities)
             {
@@ -138,7 +139,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                     _ => TaskPlanSource.Active
                 };
                 taskVersions.TryGetValue(t.Id, out var version);
-                var task = MapTask(t, technicians, planStatus, version, timezoneOffsetMinutes);
+                var task = MapTask(t, technicians, planStatus, version, timezoneOffsetMinutes, travelMetricsByTaskId);
                 task.Source = source;
                 task.IsEditable = await _taskPermissionService.CanEditTaskAsync(t, user, timezoneOffsetMinutes);
                 task.CanDelete = await _taskPermissionService.CanDeleteTaskAsync(t, user, timezoneOffsetMinutes);
@@ -151,17 +152,32 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 .ThenBy(t => t.Source == TaskPlanSource.Active ? 0 : t.Source == TaskPlanSource.Draft ? 1 : 2)
                 .ToList();
 
+            if (string.Equals(viewMode, "day", StringComparison.OrdinalIgnoreCase))
+            {
+                var travelBlocks = BuildTravelDisplayBlocks(tasks);
+                if (travelBlocks.Count > 0)
+                {
+                    tasks.AddRange(travelBlocks);
+                    tasks = tasks
+                        .OrderBy(t => t.Start)
+                        .ThenBy(t => t.IsTravelBlock ? 0 : 1)
+                        .ThenBy(t => t.Source == TaskPlanSource.Active ? 0 : t.Source == TaskPlanSource.Draft ? 1 : 2)
+                        .ToList();
+                }
+            }
+
             var availableLocations = technicians
                 .Select(t => t.Location)
                 .Where(l => !string.IsNullOrWhiteSpace(l))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(l => l)
                 .ToList();
-            var availableWorkloadLevels = BuildAvailableWorkloadLevels(tasks);
+            var nonTravelTasks = tasks.Where(t => !t.IsTravelBlock).ToList();
+            var availableWorkloadLevels = BuildAvailableWorkloadLevels(nonTravelTasks);
 
             var summaryTasks = includeCanceled
-                ? tasks.Where(t => !IsCanceledStatus(t.Status)).ToList()
-                : tasks;
+                ? nonTravelTasks.Where(t => !IsCanceledStatus(t.Status)).ToList()
+                : nonTravelTasks;
 
             var issues = BuildIssues(summaryTasks, technicians);
             var summary = BuildSummary(summaryTasks, technicians);
@@ -219,12 +235,19 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             };
         }
 
-        private TaskItem MapTask(Data.TaskEntity task, List<Technician> technicians, PlanStatus planStatus, uint version, int timezoneOffsetMinutes)
+        private TaskItem MapTask(
+            Data.TaskEntity task,
+            List<Technician> technicians,
+            PlanStatus planStatus,
+            uint version,
+            int timezoneOffsetMinutes,
+            IReadOnlyDictionary<long, (decimal? DistanceKm, int? DurationMinutes)> travelMetricsByTaskId)
         {
             var eval = task.Evaluation;
             var tech = technicians.FirstOrDefault(t => t.Id == task.TechnicianId);
             var status = eval?.Status ?? LoadState.Normal;
-            var objectAddress = task.Object?.Address;
+            var objectAddress = task.ServiceObject?.Address?.FullAddress;
+            travelMetricsByTaskId.TryGetValue(task.Id, out var travelMetrics);
 
             // Convert UTC times to local time for display
             var startLocal = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffsetMinutes);
@@ -239,19 +262,19 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 Version = version,
                 Title = task.Title,
                 // Prefer the object's address when available; fallback to legacy location field.
-                Location = !string.IsNullOrWhiteSpace(objectAddress) ? objectAddress! : task.Location,
+                Location = objectAddress ?? string.Empty,
                 Start = startLocal,
                 End = endLocal,
                 Priority = task.Priority.ToString().ToLowerInvariant(),
                 Status = task.Status.ToString().ToLowerInvariant(),
                 IsConflict = status == LoadState.Conflict,
                 IsLoad = status == LoadState.Load,
-                IsTravelSwitch = eval?.TravelRequired == true,
                 IsNewPlan = false,
                 Risk = eval?.RiskLevel?.ToString().ToLowerInvariant(),
                 OverloadHours = eval?.OverloadHours ?? 0,
-                SwitchCount = eval?.SwitchCount ?? 0,
-                LoadStatus = status.ToString().ToLowerInvariant()
+                LoadStatus = status.ToString().ToLowerInvariant(),
+                TravelDurationMinutes = travelMetrics.DurationMinutes.HasValue ? (decimal)travelMetrics.DurationMinutes.Value : null,
+                TravelDistanceKm = travelMetrics.DistanceKm
             };
         }
 
@@ -293,7 +316,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 return (technicians, tasks);
             }
 
-            // Use technician region (Location) as the source of truth for region filtering.
+            // Use technician city (Location) as the source of truth for location filtering.
             var techById = technicians.ToDictionary(t => t.Id);
             var filteredTasks = tasks
                 .Where(t => techById.TryGetValue(t.TechnicianId, out var tech) &&
@@ -324,8 +347,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
             // For weekly view: consider whole week window. For daily view: consider only the selected day.
             var tasksForMatching = isDayView
-                ? tasks.Where(t => t.Start.Date == selectedDate.Date).ToList()
-                : tasks;
+                ? tasks.Where(t => !t.IsTravelBlock && t.Start.Date == selectedDate.Date).ToList()
+                : tasks.Where(t => !t.IsTravelBlock).ToList();
 
             // Show technicians who have at least one task in the selected workload bucket (keep their tasks intact).
             var techIdsByWorkload = tasksForMatching
@@ -469,15 +492,6 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                         Detail = $"Apkrova virsija limita +{task.OverloadHours:0.##}h"
                     });
                 }
-                else if (task.IsTravelSwitch)
-                {
-                    issues.Add(new IssueItem
-                    {
-                        Id = $"task-{task.Id}",
-                        Title = $"[~] {techName} {task.Start:HH:mm}-{task.End:HH:mm}",
-                        Detail = "Virsyti kelioniu perjungimai"
-                    });
-                }
             }
 
             return issues;
@@ -486,14 +500,12 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
         private static ScheduleSummary BuildSummary(IEnumerable<TaskItem> tasks, IEnumerable<Technician> technicians)
         {
             var techLookup = technicians.ToDictionary(t => t.Id);
-            var switchExceedances = tasks.Count(t => t.IsTravelSwitch);
 
             return new ScheduleSummary
             {
                 TotalTasks = tasks.Count(),
                 ConflictTasks = tasks.Count(t => t.IsConflict),
-                OverloadHours = tasks.Sum(t => t.OverloadHours),
-                SwitchExceedances = switchExceedances
+                OverloadHours = tasks.Sum(t => t.OverloadHours)
             };
         }
 
@@ -513,6 +525,168 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                     _logger.LogWarning(ex, "Failed to repair evaluations for plan {PlanId} on read.", planId);
                 }
             });
+        }
+
+        private async Task<Dictionary<long, (decimal? DistanceKm, int? DurationMinutes)>> BuildTravelMetricsAsync(
+            List<Data.TaskEntity> tasks,
+            CancellationToken cancellationToken)
+        {
+            var result = new Dictionary<long, (decimal? DistanceKm, int? DurationMinutes)>();
+            if (tasks.Count == 0)
+            {
+                return result;
+            }
+
+            var routes = await _db.TravelRoutes
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+            var routeLookup = routes.ToDictionary(r => (r.FromAddressId, r.ToAddressId), r => r);
+
+            var workplaceLookup = await _db.Technicians
+                .AsNoTracking()
+                .Select(t => new { t.Id, t.WorkplaceAddressId })
+                .ToDictionaryAsync(t => t.Id, t => t.WorkplaceAddressId, cancellationToken);
+
+            var tasksByTech = tasks
+                .Where(t => t.ServiceObject != null)
+                .GroupBy(t => t.TechnicianId)
+                .ToList();
+
+            foreach (var techGroup in tasksByTech)
+            {
+                if (!workplaceLookup.TryGetValue(techGroup.Key, out var workplaceAddressId))
+                {
+                    continue;
+                }
+
+                foreach (var dayGroup in techGroup.OrderBy(t => t.StartAt).GroupBy(t => t.StartAt.Date))
+                {
+                    Data.TaskEntity? prev = null;
+                    foreach (var task in dayGroup.OrderBy(t => t.StartAt))
+                    {
+                        var fromAddressId = prev != null
+                            ? prev.ServiceObject!.AddressId
+                            : workplaceAddressId;
+                        var toAddressId = task.ServiceObject!.AddressId;
+
+                        if (routeLookup.TryGetValue((fromAddressId, toAddressId), out var route))
+                        {
+                            result[task.Id] = (route.DistanceKm, route.DurationMinutes);
+                        }
+                        else
+                        {
+                            result[task.Id] = (null, null);
+                        }
+
+                        prev = task;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        private static List<TaskItem> BuildTravelDisplayBlocks(List<TaskItem> tasks)
+        {
+            var blocks = new List<TaskItem>();
+            if (tasks.Count == 0)
+            {
+                return blocks;
+            }
+
+            var grouped = tasks
+                .Where(t => !t.IsTravelBlock)
+                .GroupBy(t => new { t.TechnicianId, Day = t.Start.Date });
+
+            var syntheticId = -1;
+            foreach (var group in grouped)
+            {
+                TaskItem? previous = null;
+                foreach (var task in group.OrderBy(t => t.Start))
+                {
+                    var requiredTravelMinutes = task.TravelDurationMinutes.HasValue
+                        ? (int)Math.Ceiling(task.TravelDurationMinutes.Value)
+                        : 0;
+                    if (requiredTravelMinutes <= 0)
+                    {
+                        previous = task;
+                        continue;
+                    }
+
+                    var taskStartMinutes = (int)task.Start.TimeOfDay.TotalMinutes;
+                    var earliestAllowedStart = previous != null
+                        ? (int)previous.End.TimeOfDay.TotalMinutes
+                        : ScheduleGrid.DayStartMinutes;
+
+                    var availableGap = taskStartMinutes - earliestAllowedStart;
+                    if (availableGap <= 0)
+                    {
+                        previous = task;
+                        continue;
+                    }
+
+                    var displayMinutes = Math.Min(requiredTravelMinutes, availableGap);
+                    var rawStartMinutes = taskStartMinutes - displayMinutes;
+                    var snappedStart = FloorToSlot(rawStartMinutes);
+                    var snappedEnd = CeilingToSlot(taskStartMinutes);
+                    if (snappedStart < earliestAllowedStart)
+                    {
+                        snappedStart = earliestAllowedStart;
+                    }
+
+                    if (snappedEnd <= snappedStart)
+                    {
+                        previous = task;
+                        continue;
+                    }
+
+                    blocks.Add(new TaskItem
+                    {
+                        Id = syntheticId--,
+                        PlanId = task.PlanId,
+                        TechnicianId = task.TechnicianId,
+                        Version = 0,
+                        Title = "Kelione",
+                        Location = string.Empty,
+                        Start = task.Start.Date.AddMinutes(snappedStart),
+                        End = task.Start.Date.AddMinutes(snappedEnd),
+                        PlanStatus = task.PlanStatus,
+                        Priority = string.Empty,
+                        Status = "travel",
+                        IsConflict = false,
+                        IsLoad = false,
+                        IsNewPlan = false,
+                        Source = task.Source,
+                        IsEditable = false,
+                        CanDelete = false,
+                        IsTimeExpired = false,
+                        Risk = null,
+                        OverloadHours = 0,
+                        LoadStatus = string.Empty,
+                        // Keep evaluated duration visible in UI; block width may still be clamped by free gap.
+                        TravelDurationMinutes = requiredTravelMinutes,
+                        TravelDistanceKm = task.TravelDistanceKm,
+                        IsTravelBlock = true,
+                        TravelForTaskId = task.Id
+                    });
+
+                    previous = task;
+                }
+            }
+
+            return blocks;
+        }
+
+        private static int FloorToSlot(int minutes)
+        {
+            var slot = ScheduleGrid.SlotSizeMinutes;
+            return (minutes / slot) * slot;
+        }
+
+        private static int CeilingToSlot(int minutes)
+        {
+            var slot = ScheduleGrid.SlotSizeMinutes;
+            return ((minutes + slot - 1) / slot) * slot;
         }
     }
 
@@ -539,19 +713,5 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             return false;
         }
     }
-
-    internal static class WeekCalculator
-    {
-        public static DateTime GetWeekStart(DateTime date)
-        {
-            var localDate = date.Date;
-            var offset = ((int)localDate.DayOfWeek + 6) % 7; // Monday = 0
-            return localDate.AddDays(-offset);
-        }
-
-        public static DateTime GetWeekEnd(DateTime date) => GetWeekStart(date).AddDays(6);
-
-        public static bool IsInRange(DateTime date, DateTime start, DateTime end) =>
-            date.Date >= start.Date && date.Date <= end.Date;
-    }
 }
+

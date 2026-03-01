@@ -49,11 +49,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 score += context.WeeklyOverHours * weights.WeeklyOverHoursPenalty;
             }
 
-            if (context.IsSwitchLimitExceeded)
-            {
-                score += weights.SwitchOverPenalty;
-            }
-
             // If hard constraints are violated, return immediately
             // (soft constraints don't matter when hard constraints fail)
             if (score < 0)
@@ -66,11 +61,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             double weeklyPenalty = ComputeUtilizationPenalty(context.WeeklyUtilization, weights);
 
             // Apply weights
-            score += (dailyPenalty * weights.DailyLoadWeight) + 
+            score += (dailyPenalty * weights.DailyLoadWeight) +
                      (weeklyPenalty * weights.WeeklyLoadWeight);
-
-            // Switch count penalty
-            score += context.SwitchCount * weights.SwitchCountPenalty;
 
             // Ensure non-negative for soft constraints only
             return System.Math.Max(0.0, score);

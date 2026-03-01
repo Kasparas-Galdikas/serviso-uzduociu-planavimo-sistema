@@ -30,9 +30,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public static WorkloadSnapshot Evaluate(
             TechnicianEntity technician,
             List<TaskEntity> dayTasks,
-            List<TaskEntity> weekTasks)
+            List<TaskEntity> weekTasks,
+            IReadOnlyDictionary<long, int>? travelMinutesByTaskId = null)
         {
-            // Ensure deterministic ordering for conflict/switch detection.
+            // Ensure deterministic ordering for conflict detection.
             dayTasks = dayTasks.OrderBy(t => t.StartAt).ToList();
             weekTasks = weekTasks.OrderBy(t => t.StartAt).ToList();
 
@@ -42,16 +43,28 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var dailyLimit = technician.DailyLimit > 0 ? (double)technician.DailyLimit : DefaultDailyLimit;
             var weeklyLimit = technician.WeeklyLimit > 0 ? (double)technician.WeeklyLimit : DefaultWeeklyLimit;
-            var switchLimit = technician.TravelSwitchLimit < 0 ? 0 : technician.TravelSwitchLimit;
 
-            // Calculate hours only from active tasks (not Canceled)
-            var dailyHours = activeDayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
-            var weeklyHours = activeWeekTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+            // Calculate task duration hours from active tasks (not Canceled)
+            var dailyTaskHours = activeDayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+            var weeklyTaskHours = activeWeekTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+
+            // Calculate travel time hours from active tasks (source: travel_routes)
+            var dailyTravelHours = activeDayTasks.Sum(t =>
+                travelMinutesByTaskId != null && travelMinutesByTaskId.TryGetValue(t.Id, out var minutes)
+                    ? minutes / 60.0
+                    : 0.0);
+            var weeklyTravelHours = activeWeekTasks.Sum(t =>
+                travelMinutesByTaskId != null && travelMinutesByTaskId.TryGetValue(t.Id, out var minutes)
+                    ? minutes / 60.0
+                    : 0.0);
+
+            // Total workload includes both task duration and travel time
+            var dailyHours = dailyTaskHours + dailyTravelHours;
+            var weeklyHours = weeklyTaskHours + weeklyTravelHours;
             var dailyOver = Math.Max(0d, dailyHours - dailyLimit);
             var weeklyOver = Math.Max(0d, weeklyHours - weeklyLimit);
 
-            // Switch count and conflicts only from active tasks
-            var switchCount = CalculateSwitchCount(activeDayTasks);
+            // Conflict detection from active tasks
             var conflicts = DetectConflicts(activeDayTasks);
 
             var context = new LoadScoreContext
@@ -61,36 +74,44 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 IsWeeklyLimitExceeded = weeklyOver > 0,
                 DailyOverHours = dailyOver,
                 WeeklyOverHours = weeklyOver,
-                SwitchCount = switchCount,
-                IsSwitchLimitExceeded = switchCount > switchLimit,
+                TravelTimeHours = dailyTravelHours,
                 DailyUtilization = dailyLimit > 0 ? dailyHours / dailyLimit : 1d,
                 WeeklyUtilization = weeklyLimit > 0 ? weeklyHours / weeklyLimit : 1d
             };
 
-            return new WorkloadSnapshot(context, conflicts, dailyHours, weeklyHours, switchCount);
+            return new WorkloadSnapshot(context, conflicts, dailyHours, weeklyHours);
         }
 
-        public static int CalculateSwitchCount(List<TaskEntity> orderedDayTasks)
+        /// <summary>
+        /// Detects tasks that cannot be reached in time given stored travel durations.
+        /// Checks consecutive task pairs: the gap between prev.EndAt and next.StartAt must be
+        /// >= the stored travel time to reach next from prev.
+        /// Returns a map of task ID → (RequiredMinutes, AvailableMinutes) for each infeasible task.
+        /// </summary>
+        public static Dictionary<long, (int Required, int Available)> DetectTravelViolations(
+            List<TaskEntity> orderedActiveDayTasks,
+            IReadOnlyDictionary<long, int> travelMinutesByTaskId)
         {
-            if (orderedDayTasks.Count == 0)
-            {
-                return 0;
-            }
+            var violations = new Dictionary<long, (int Required, int Available)>();
 
-            var switches = 0;
-            var lastLocation = orderedDayTasks[0].Location;
-
-            for (var i = 1; i < orderedDayTasks.Count; i++)
+            for (var i = 1; i < orderedActiveDayTasks.Count; i++)
             {
-                var current = orderedDayTasks[i].Location;
-                if (!string.Equals(current, lastLocation, StringComparison.OrdinalIgnoreCase))
+                var task = orderedActiveDayTasks[i];
+                var prev = orderedActiveDayTasks[i - 1];
+
+                if (!travelMinutesByTaskId.TryGetValue(task.Id, out var required) || required == 0)
                 {
-                    switches++;
+                    continue;
                 }
-                lastLocation = current;
+
+                var available = (int)(task.StartAt - prev.EndAt).TotalMinutes;
+                if (required > available)
+                {
+                    violations[task.Id] = (required, available);
+                }
             }
 
-            return switches;
+            return violations;
         }
 
         public static HashSet<long> DetectConflicts(List<TaskEntity> orderedTasks)
@@ -129,6 +150,5 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         LoadScoreContext Context,
         HashSet<long> Conflicts,
         double DailyHours,
-        double WeeklyHours,
-        int SwitchCount);
+        double WeeklyHours);
 }

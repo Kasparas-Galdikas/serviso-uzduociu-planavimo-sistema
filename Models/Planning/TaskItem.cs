@@ -18,7 +18,6 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public string Status { get; set; } = string.Empty;
         public bool IsConflict { get; set; }
         public bool IsLoad { get; set; }
-        public bool IsTravelSwitch { get; set; }
         public bool IsNewPlan { get; set; }
         public TaskPlanSource Source { get; set; } = TaskPlanSource.Active;
         public bool IsEditable { get; set; }
@@ -26,8 +25,11 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public bool IsTimeExpired { get; set; }
         public string? Risk { get; set; }
         public decimal OverloadHours { get; set; }
-        public int SwitchCount { get; set; }
         public string LoadStatus { get; set; } = string.Empty;
+        public decimal? TravelDurationMinutes { get; set; }
+        public decimal? TravelDistanceKm { get; set; }
+        public bool IsTravelBlock { get; set; }
+        public int? TravelForTaskId { get; set; }
     }
 
     public enum TaskPlanSource

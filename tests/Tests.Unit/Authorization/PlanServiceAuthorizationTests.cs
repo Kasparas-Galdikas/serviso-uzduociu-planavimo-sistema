@@ -9,9 +9,11 @@ using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.Authorization.Models;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.Travel;
 using Xunit;
 
 namespace Tests.Unit.Authorization;
@@ -22,6 +24,8 @@ public class PlanServiceAuthorizationTests
     private readonly IPlanningCalendar _planningCalendar = Substitute.For<IPlanningCalendar>();
     private readonly ITaskPermissionService _permission = Substitute.For<ITaskPermissionService>();
     private readonly IScheduleTimeService _time = Substitute.For<IScheduleTimeService>();
+    private readonly IRouteEvaluationService _routeEvaluation = Substitute.For<IRouteEvaluationService>();
+    private readonly ITaskTravelFeasibilityService _travelFeasibility = Substitute.For<ITaskTravelFeasibilityService>();
     private readonly ILogger<PlanService> _logger = Substitute.For<ILogger<PlanService>>();
 
     public PlanServiceAuthorizationTests()
@@ -36,6 +40,16 @@ public class PlanServiceAuthorizationTests
                 var minutes = (int)call[1];
                 return DateTime.SpecifyKind(date.AddMinutes(minutes), DateTimeKind.Utc);
             });
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult { IsFeasible = true });
     }
 
     [Fact]
@@ -50,7 +64,7 @@ public class PlanServiceAuthorizationTests
             .Returns(Task.FromResult(false));
 
         var service = CreateService(db);
-        var result = await service.CreateTaskAsync(1, DateTime.Today.AddDays(1), 480, 540, "t", "loc",
+        var result = await service.CreateTaskAsync(1, DateTime.Today.AddDays(1), 480, 540, "t",
             TaskPriority.Medium, ScheduleTaskStatus.InProgress, string.Empty, string.Empty, string.Empty, string.Empty,
             Manager(), 0, CancellationToken.None);
 
@@ -68,7 +82,7 @@ public class PlanServiceAuthorizationTests
             .Returns(Task.FromResult(true));
 
         var service = CreateService(db);
-        var result = await service.CreateTaskAsync(999, DateTime.Today.AddDays(1), 480, 540, "t", "loc",
+        var result = await service.CreateTaskAsync(999, DateTime.Today.AddDays(1), 480, 540, "t",
             TaskPriority.Medium, ScheduleTaskStatus.InProgress, string.Empty, string.Empty, string.Empty, string.Empty,
             Manager(), 0, CancellationToken.None);
 
@@ -96,7 +110,46 @@ public class PlanServiceAuthorizationTests
     }
 
     [Fact]
-    public async Task UpdateTask_PermissionDenied_Throws()
+    public async Task SwapTasks_PermissionDenied_ReturnsNotEditable()
+    {
+        using var db = CreateContext();
+        var plan = SeedPlan(db);
+        SeedTechnician(db, 1);
+        var first = SeedTask(db, plan.Id, technicianId: 1);
+        var second = SeedTask(db, plan.Id, technicianId: 1, startOffsetHours: 2);
+        SetVersion(db, first, 1);
+        SetVersion(db, second, 2);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(false));
+
+        var service = CreateService(db);
+        var result = await service.SwapTasksAsync(first.Id, second.Id, 1, 2, Manager(), 0, CancellationToken.None);
+
+        result.Error.Should().Be(TaskSwapError.NotEditable);
+    }
+
+    [Fact]
+    public async Task SwapTasks_DifferentTechnicians_ReturnsInvalidSwap()
+    {
+        using var db = CreateContext();
+        var plan = SeedPlan(db);
+        SeedTechnician(db, 1);
+        SeedTechnician(db, 2);
+        var first = SeedTask(db, plan.Id, technicianId: 1);
+        var second = SeedTask(db, plan.Id, technicianId: 2, startOffsetHours: 2);
+        SetVersion(db, first, 1);
+        SetVersion(db, second, 2);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+
+        var service = CreateService(db);
+        var result = await service.SwapTasksAsync(first.Id, second.Id, 1, 2, Manager(), 0, CancellationToken.None);
+
+        result.Error.Should().Be(TaskSwapError.InvalidSwap);
+    }
+
+    [Fact]
+    public async Task UpdateTask_PermissionDenied_ReturnsNotEditable()
     {
         using var db = CreateContext();
         var plan = SeedPlan(db);
@@ -105,9 +158,8 @@ public class PlanServiceAuthorizationTests
             .Returns(Task.FromResult(false));
 
         var service = CreateService(db);
-        var act = async () => await service.UpdateTaskAsync(task.Id, _ => { }, task.TechnicianId, Manager(), 0, string.Empty, string.Empty, CancellationToken.None);
-
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        var result = await service.UpdateTaskAsync(task.Id, _ => { }, task.TechnicianId, Manager(), 0, string.Empty, string.Empty, CancellationToken.None);
+        result.Error.Should().Be(TaskUpdateError.NotEditable);
     }
 
     [Fact]
@@ -117,7 +169,7 @@ public class PlanServiceAuthorizationTests
         _time.GetUserLocalToday(0).Returns(DateTime.Today);
 
         var service = CreateService(db);
-        var result = await service.CreateTaskAsync(1, DateTime.Today.AddDays(-1), 480, 540, "t", "loc",
+        var result = await service.CreateTaskAsync(1, DateTime.Today.AddDays(-1), 480, 540, "t",
             TaskPriority.Medium, ScheduleTaskStatus.InProgress, string.Empty, string.Empty, string.Empty, string.Empty,
             Manager(), 0, CancellationToken.None);
 
@@ -125,7 +177,7 @@ public class PlanServiceAuthorizationTests
     }
 
     private PlanService CreateService(ScheduleDbContext db) =>
-        new(db, _evaluation, _planningCalendar, _permission, _time, _logger);
+        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _logger);
 
     private static ScheduleDbContext CreateContext()
     {
@@ -141,7 +193,7 @@ public class PlanServiceAuthorizationTests
     {
         if (!db.Addresses.AnyAsync().GetAwaiter().GetResult())
         {
-            db.Addresses.Add(new AddressEntity { Id = 1, FullAddress = "addr" });
+            db.Addresses.Add(new AddressEntity { Id = 1, City = "City", Street = "Main", FullAddress = "Main 1, City" });
         }
         db.Technicians.Add(new TechnicianEntity
         {
@@ -149,7 +201,6 @@ public class PlanServiceAuthorizationTests
             WorkplaceAddressId = 1,
             DailyLimit = 8,
             WeeklyLimit = 40,
-            TravelSwitchLimit = 0
         });
         db.SaveChanges();
     }
@@ -169,17 +220,26 @@ public class PlanServiceAuthorizationTests
         return plan;
     }
 
-    private static TaskEntity SeedTask(ScheduleDbContext db, long planId, long technicianId)
+    private static TaskEntity SeedTask(ScheduleDbContext db, long planId, long technicianId, int startOffsetHours = 0)
     {
-        var start = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddHours(10), DateTimeKind.Utc);
+        var start = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddHours(10 + startOffsetHours), DateTimeKind.Utc);
+        if (!db.Addresses.AnyAsync().GetAwaiter().GetResult())
+        {
+            db.Addresses.Add(new AddressEntity { Id = 1, City = "City", Street = "Main", FullAddress = "Main 1, City" });
+        }
+        if (!db.ServiceObjects.AnyAsync().GetAwaiter().GetResult())
+        {
+            db.ServiceObjects.Add(new ServiceObjectEntity { Id = 1, Name = "Obj", AddressId = 1 });
+        }
+
         var task = new TaskEntity
         {
             PlanId = planId,
             TechnicianId = technicianId,
+            ServiceObjectId = 1,
             StartAt = start,
             EndAt = start.AddHours(1),
             Title = "t",
-            Location = "loc",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.InProgress,
             CreatedAt = DateTime.UtcNow
@@ -195,3 +255,4 @@ public class PlanServiceAuthorizationTests
         entry.CurrentValue = version;
     }
 }
+

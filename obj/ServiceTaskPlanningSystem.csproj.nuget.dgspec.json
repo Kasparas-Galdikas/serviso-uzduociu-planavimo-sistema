@@ -49,7 +49,6 @@
               "version": "[9.0.0, )"
             },
             "Microsoft.EntityFrameworkCore.Design": {
-              "include": "Compile, Build, Native, ContentFiles, Analyzers, BuildTransitive",
               "suppressParent": "All",
               "target": "Package",
               "version": "[9.0.1, )"

@@ -29,11 +29,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         /// 0 if within limit.
         public double WeeklyOverHours { get; init; }
 
-        /// Number of location switches (travel segments) in the day.
-        public int SwitchCount { get; init; }
-
-        /// Whether technician travel switch limit is exceeded for the day.
-        public bool IsSwitchLimitExceeded { get; init; }
+        /// Total travel time in hours for the workload assessment period.
+        public double TravelTimeHours { get; init; }
 
         /// Daily utilization ratio (daily hours / daily limit).
         /// Values > 1.0 indicate overload.
@@ -47,10 +44,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public LoadState ComputeLoadState()
         {
             // Hard constraint violations = Conflict
-            if (HasConflict || 
-                IsDailyLimitExceeded || 
-                IsWeeklyLimitExceeded ||
-                IsSwitchLimitExceeded)
+            if (HasConflict ||
+                IsDailyLimitExceeded ||
+                IsWeeklyLimitExceeded)
             {
                 return LoadState.Conflict;
             }

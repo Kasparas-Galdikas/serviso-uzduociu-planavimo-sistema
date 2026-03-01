@@ -1,4 +1,4 @@
-using ServiceTaskPlanningSystem.Data;
+﻿using ServiceTaskPlanningSystem.Data;
 
 namespace ServiceTaskPlanningSystem.Models.DTOs.Responses;
 
@@ -43,7 +43,7 @@ public class TaskDetailResponseDto
     /// </summary>
     public string TechnicianComment { get; set; } = string.Empty;
     public string SkillLevel { get; set; } = string.Empty;
-    public long? ObjectId { get; set; }
+    public long ObjectId { get; set; }
     public string ObjectName { get; set; } = string.Empty;
     public string ObjectAddress { get; set; } = string.Empty;
     public string Instructions { get; set; } = string.Empty;
@@ -71,3 +71,4 @@ public class TaskDetailResponseDto
     /// </summary>
     public int TimezoneOffsetMinutes { get; set; }
 }
+

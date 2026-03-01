@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -22,14 +22,14 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         [HttpGet]
         public async Task<IActionResult> GetObjects(CancellationToken cancellationToken)
         {
-            var objects = await _db.Objects
+            var objects = await _db.ServiceObjects
                 .AsNoTracking()
                 .OrderBy(o => o.Name)
                 .Select(o => new ObjectLookupResponseDto
                 {
                     Id = o.Id,
                     Name = o.Name,
-                    Address = o.Address
+                    Address = o.Address.FullAddress
                 })
                 .ToListAsync(cancellationToken);
 
@@ -37,3 +37,4 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         }
     }
 }
+

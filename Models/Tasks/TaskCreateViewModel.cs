@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using ServiceTaskPlanningSystem.Data;
 
 namespace ServiceTaskPlanningSystem.Models.Tasks;
@@ -30,6 +30,7 @@ public class TaskCreateViewModel
     [Display(Name = "Objektas")]
     public string? ObjectName { get; set; }
 
-    [Display(Name = "Lokacija / pastabos")]
-    public string? Location { get; set; }
+    [Display(Name = "Objekto adresas")]
+    public string? ObjectAddress { get; set; }
 }
+

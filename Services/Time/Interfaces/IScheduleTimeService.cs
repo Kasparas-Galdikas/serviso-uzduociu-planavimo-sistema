@@ -1,5 +1,5 @@
 using System;
-using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 
 namespace ServiceTaskPlanningSystem.Services.Time
 {
@@ -39,20 +39,6 @@ namespace ServiceTaskPlanningSystem.Services.Time
         bool IsTaskStillEditable(DateTime taskEndUtc);
 
         /// <summary>
-        /// Checks if a date is in the past (before today).
-        /// </summary>
-        /// <param name="dateToCheck">Date to check</param>
-        /// <returns>True if date is in the past</returns>
-        bool IsDateInPast(DateTime dateToCheck);
-
-        /// <summary>
-        /// Checks if a datetime (in UTC) is in the past (before now).
-        /// </summary>
-        /// <param name="dateTimeUtc">UTC datetime to check</param>
-        /// <returns>True if datetime is in the past</returns>
-        bool IsDateTimeInPastUtc(DateTime dateTimeUtc);
-
-        /// <summary>
         /// Gets the start of week (Monday) for a given date.
         /// </summary>
         DateTime GetWeekStart(DateTime date);
@@ -61,20 +47,6 @@ namespace ServiceTaskPlanningSystem.Services.Time
         /// Gets the end of week (Sunday) for a given date.
         /// </summary>
         DateTime GetWeekEnd(DateTime date);
-
-        /// <summary>
-        /// Converts minutes since midnight to HH:mm format.
-        /// </summary>
-        /// <param name="minutes">Minutes since midnight (0-1440)</param>
-        /// <returns>Time string in HH:mm format</returns>
-        string MinutesToTimeString(int minutes);
-
-        /// <summary>
-        /// Gets the user's local "now" (current datetime in their timezone).
-        /// </summary>
-        /// <param name="timezoneOffsetMinutes">User's timezone offset in minutes</param>
-        /// <returns>Current datetime in user's local timezone</returns>
-        DateTime GetUserLocalNow(int timezoneOffsetMinutes);
 
         /// <summary>
         /// Gets the user's local "today" (current date in their timezone).
@@ -94,11 +66,11 @@ namespace ServiceTaskPlanningSystem.Services.Time
         DateTime CreateUtcFromDateAndMinutes(DateTime targetDate, int minutesSinceMidnight, int timezoneOffsetMinutes);
 
         /// <summary>
-        /// Checks if a date is in the past from the user's local perspective.
+        /// Extracts browser timezone offset from HTTP request headers or cookies.
+        /// Checks X-Timezone-Offset header first, then timezone_offset cookie.
         /// </summary>
-        /// <param name="dateToCheck">Date to check</param>
-        /// <param name="timezoneOffsetMinutes">User's timezone offset</param>
-        /// <returns>True if date is before user's local today</returns>
-        bool IsDateInPastForUser(DateTime dateToCheck, int timezoneOffsetMinutes);
+        /// <param name="request">The HTTP request</param>
+        /// <returns>Timezone offset in minutes, or 0 if not found</returns>
+        int GetBrowserTimezoneOffset(HttpRequest request);
     }
 }

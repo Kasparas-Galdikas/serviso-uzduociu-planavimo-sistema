@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -66,8 +67,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
             var evaluator = scope.ServiceProvider.GetRequiredService<IEvaluationEngine>();
+            var timeService = scope.ServiceProvider.GetRequiredService<IScheduleTimeService>();
 
-            var cutoffTime = DateTime.UtcNow - GracePeriod;
+            var cutoffTime = timeService.GetCurrentUtcTime() - GracePeriod;
 
             // Find all InProgress tasks that have ended (with grace period)
             var expiredTasks = await db.Tasks

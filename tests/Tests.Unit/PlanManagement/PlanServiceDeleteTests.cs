@@ -9,9 +9,11 @@ using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Authorization.Models;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.Travel;
 using Xunit;
 
 namespace Tests.Unit.PlanManagement;
@@ -22,6 +24,8 @@ public class PlanServiceDeleteTests
     private readonly IPlanningCalendar _planningCalendar = Substitute.For<IPlanningCalendar>();
     private readonly ITaskPermissionService _permission = Substitute.For<ITaskPermissionService>();
     private readonly IScheduleTimeService _time = Substitute.For<IScheduleTimeService>();
+    private readonly IRouteEvaluationService _routeEvaluation = Substitute.For<IRouteEvaluationService>();
+    private readonly ITaskTravelFeasibilityService _travelFeasibility = Substitute.For<ITaskTravelFeasibilityService>();
     private readonly ILogger<PlanService> _logger = Substitute.For<ILogger<PlanService>>();
 
     public PlanServiceDeleteTests()
@@ -36,6 +40,16 @@ public class PlanServiceDeleteTests
                 var minutes = (int)call[1];
                 return DateTime.SpecifyKind(date.AddMinutes(minutes), DateTimeKind.Utc);
             });
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult { IsFeasible = true });
     }
 
     [Fact]
@@ -57,7 +71,7 @@ public class PlanServiceDeleteTests
     }
 
     private PlanService CreateService(ScheduleDbContext db) =>
-        new(db, _evaluation, _planningCalendar, _permission, _time, _logger);
+        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _logger);
 
     private static ScheduleDbContext CreateContext()
     {
@@ -87,14 +101,23 @@ public class PlanServiceDeleteTests
     private static TaskEntity SeedTask(ScheduleDbContext db, long planId, long technicianId, DateTime? endAtUtc = null)
     {
         var start = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddHours(10), DateTimeKind.Utc);
+        if (!db.Addresses.AnyAsync().GetAwaiter().GetResult())
+        {
+            db.Addresses.Add(new AddressEntity { Id = 1, City = "City", Street = "Main", FullAddress = "Main 1, City" });
+        }
+        if (!db.ServiceObjects.AnyAsync().GetAwaiter().GetResult())
+        {
+            db.ServiceObjects.Add(new ServiceObjectEntity { Id = 1, Name = "Obj", AddressId = 1 });
+        }
+
         var task = new TaskEntity
         {
             PlanId = planId,
             TechnicianId = technicianId,
+            ServiceObjectId = 1,
             StartAt = start,
             EndAt = endAtUtc ?? start.AddHours(1),
             Title = "t",
-            Location = "loc",
             Priority = TaskPriority.Medium,
             Status = ScheduleTaskStatus.InProgress,
             CreatedAt = DateTime.UtcNow

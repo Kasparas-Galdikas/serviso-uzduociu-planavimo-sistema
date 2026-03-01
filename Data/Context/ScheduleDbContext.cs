@@ -10,10 +10,9 @@ namespace ServiceTaskPlanningSystem.Data
         }
 
         public DbSet<UserEntity> Users => Set<UserEntity>();
-        public DbSet<RegionEntity> Regions => Set<RegionEntity>();
         public DbSet<TechnicianEntity> Technicians => Set<TechnicianEntity>();
         public DbSet<PlanEntity> Plans => Set<PlanEntity>();
-        public DbSet<ObjectEntity> Objects => Set<ObjectEntity>();
+        public DbSet<ServiceObjectEntity> ServiceObjects => Set<ServiceObjectEntity>();
         public DbSet<TaskEntity> Tasks => Set<TaskEntity>();
         public DbSet<TaskEvaluationEntity> TaskEvaluations => Set<TaskEvaluationEntity>();
         public DbSet<AddressEntity> Addresses => Set<AddressEntity>();
@@ -29,13 +28,11 @@ namespace ServiceTaskPlanningSystem.Data
             modelBuilder.HasPostgresEnum<ScheduleTaskStatus>("task_status");
             modelBuilder.HasPostgresEnum<RiskLevel>();
             modelBuilder.HasPostgresEnum<LoadState>();
-
             ConfigureAddresses(modelBuilder);
             ConfigureUsers(modelBuilder);
-            ConfigureRegions(modelBuilder);
             ConfigureTechnicians(modelBuilder);
             ConfigurePlans(modelBuilder);
-            ConfigureObjects(modelBuilder);
+            ConfigureServiceObjects(modelBuilder);
             ConfigureTasks(modelBuilder);
             ConfigureTaskEvaluations(modelBuilder);
             ConfigureTravelRoutes(modelBuilder);
@@ -46,15 +43,15 @@ namespace ServiceTaskPlanningSystem.Data
             var entity = modelBuilder.Entity<AddressEntity>();
             entity.ToTable("addresses");
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.Street)
+                .IsRequired()
+                .HasMaxLength(300);
+            entity.Property(e => e.City)
+                .IsRequired()
+                .HasMaxLength(150);
             entity.Property(e => e.FullAddress)
                 .IsRequired()
                 .HasMaxLength(500);
-            entity.Property(e => e.Street)
-                .HasMaxLength(200);
-            entity.Property(e => e.City)
-                .HasMaxLength(200);
-            entity.Property(e => e.Country)
-                .HasMaxLength(200);
             entity.Property(e => e.Latitude)
                 .HasColumnType("numeric(9,6)");
             entity.Property(e => e.Longitude)
@@ -62,7 +59,7 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.CreatedAt)
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");
-            entity.HasIndex(e => e.FullAddress)
+            entity.HasIndex(e => new { e.City, e.Street })
                 .IsUnique();
         }
 
@@ -88,22 +85,6 @@ namespace ServiceTaskPlanningSystem.Data
                 .IsUnique();
         }
 
-        private static void ConfigureRegions(ModelBuilder modelBuilder)
-        {
-            var entity = modelBuilder.Entity<RegionEntity>();
-            entity.ToTable("regions");
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Name)
-                .IsRequired();
-            entity.Property(e => e.PriorityWeight)
-                .HasDefaultValue(0);
-            entity.Property(e => e.CreatedAt)
-                .HasColumnType("timestamptz")
-                .HasDefaultValueSql("NOW()");
-            entity.HasIndex(e => e.Name)
-                .IsUnique();
-        }
-
         private static void ConfigureTechnicians(ModelBuilder modelBuilder)
         {
             var entity = modelBuilder.Entity<TechnicianEntity>();
@@ -111,17 +92,12 @@ namespace ServiceTaskPlanningSystem.Data
             {
                 table.HasCheckConstraint("ck_technicians_daily_limit_positive", "daily_limit > 0");
                 table.HasCheckConstraint("ck_technicians_weekly_limit_positive", "weekly_limit > 0");
-                table.HasCheckConstraint("ck_technicians_travel_switch_non_negative", "travel_switch_limit >= 0");
             });
             entity.HasKey(e => e.Id);
             entity.HasOne(e => e.WorkplaceAddress)
                 .WithMany(a => a.Technicians)
                 .HasForeignKey(e => e.WorkplaceAddressId)
                 .OnDelete(DeleteBehavior.Restrict);
-            entity.Property(e => e.WorkplaceLatitude)
-                .HasColumnType("numeric(9,6)");
-            entity.Property(e => e.WorkplaceLongitude)
-                .HasColumnType("numeric(9,6)");
 
             entity.Property(e => e.DailyLimit)
                 .HasColumnType("numeric(5,2)")
@@ -131,8 +107,6 @@ namespace ServiceTaskPlanningSystem.Data
                 .HasColumnType("numeric(6,2)")
                 .HasDefaultValue(40)
                 .IsRequired();
-            entity.Property(e => e.TravelSwitchLimit)
-                .HasDefaultValue(0);
             entity.Property(e => e.CreatedAt)
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");
@@ -140,11 +114,6 @@ namespace ServiceTaskPlanningSystem.Data
             entity.HasOne(e => e.User)
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasOne(e => e.Region)
-                .WithMany(r => r.Technicians)
-                .HasForeignKey(e => e.RegionId)
                 .OnDelete(DeleteBehavior.SetNull);
         }
 
@@ -188,38 +157,26 @@ namespace ServiceTaskPlanningSystem.Data
                 .IsUnique();
         }
 
-        private static void ConfigureObjects(ModelBuilder modelBuilder)
+        private static void ConfigureServiceObjects(ModelBuilder modelBuilder)
         {
-            var entity = modelBuilder.Entity<ObjectEntity>();
-            entity.ToTable("objects");
+            var entity = modelBuilder.Entity<ServiceObjectEntity>();
+            entity.ToTable("service_objects");
             entity.HasKey(e => e.Id);
 
             entity.Property(e => e.Name)
                 .IsRequired()
-                .HasMaxLength(200);
-            entity.Property(e => e.Address)
-                .IsRequired()
                 .HasMaxLength(500);
-            entity.HasOne(e => e.AddressEntity)
-                .WithMany(a => a.Objects)
+            entity.HasOne(e => e.Address)
+                .WithMany(a => a.ServiceObjects)
                 .HasForeignKey(e => e.AddressId)
-                .OnDelete(DeleteBehavior.SetNull);
-            entity.Property(e => e.Latitude)
-                .HasColumnType("numeric(9,6)");
-            entity.Property(e => e.Longitude)
-                .HasColumnType("numeric(9,6)");
+                .OnDelete(DeleteBehavior.Restrict);
             entity.Property(e => e.Description)
                 .HasMaxLength(1000);
             entity.Property(e => e.CreatedAt)
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");
 
-            entity.HasOne(e => e.Region)
-                .WithMany()
-                .HasForeignKey(e => e.RegionId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasIndex(e => new { e.Name, e.Address });
+            entity.HasIndex(e => new { e.Name, e.AddressId });
         }
 
         private static void ConfigureTasks(ModelBuilder modelBuilder)
@@ -237,8 +194,6 @@ namespace ServiceTaskPlanningSystem.Data
             entity.HasKey(e => e.Id);
 
             entity.Property(e => e.Title)
-                .IsRequired();
-            entity.Property(e => e.Location)
                 .IsRequired();
             entity.Property(e => e.Priority)
                 .HasColumnType("task_priority")
@@ -265,9 +220,6 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.Instructions)
                 .HasMaxLength(2000)
                 .HasDefaultValue(string.Empty);
-            entity.Property(e => e.TravelDistanceKm)
-                .HasColumnType("numeric(8,2)");
-            entity.Property(e => e.TravelDurationMinutes);
             entity.Property(e => e.PreviousTaskId);
 
             entity.HasOne(e => e.Plan)
@@ -280,15 +232,10 @@ namespace ServiceTaskPlanningSystem.Data
                 .HasForeignKey(e => e.TechnicianId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasOne(e => e.Region)
-                .WithMany()
-                .HasForeignKey(e => e.RegionId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasOne(e => e.Object)
+            entity.HasOne(e => e.ServiceObject)
                 .WithMany(o => o.Tasks)
-                .HasForeignKey(e => e.ObjectId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .HasForeignKey(e => e.ServiceObjectId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasOne(e => e.PreviousTask)
                 .WithMany()
@@ -298,6 +245,7 @@ namespace ServiceTaskPlanningSystem.Data
             entity.HasIndex(e => new { e.PlanId, e.TechnicianId, e.StartAt });
             entity.HasIndex(e => new { e.PlanId, e.StartAt });
             entity.HasIndex(e => new { e.TechnicianId, e.StartAt });
+            entity.HasIndex(e => new { e.ServiceObjectId, e.StartAt });
         }
 
         private static void ConfigureTaskEvaluations(ModelBuilder modelBuilder)

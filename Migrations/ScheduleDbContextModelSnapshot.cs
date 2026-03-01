@@ -26,7 +26,7 @@ namespace ServiceTaskPlanningSystem.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_priority", new[] { "low", "medium", "high" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", new[] { "canceled", "completed", "conflict", "in_progress" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", "schedule_task_status", new[] { "in_progress", "completed", "conflict", "canceled" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_role", new[] { "manager", "technician" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_role", new[] { "manager", "technician", "anonymous" });
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
@@ -40,14 +40,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
                     b.Property<string>("City")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
                         .HasColumnName("city");
-
-                    b.Property<string>("Country")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("country");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -70,81 +66,19 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnName("longitude");
 
                     b.Property<string>("Street")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
                         .HasColumnName("street");
 
                     b.HasKey("Id")
                         .HasName("pk_addresses");
 
-                    b.HasIndex("FullAddress")
+                    b.HasIndex("City", "Street")
                         .IsUnique()
-                        .HasDatabaseName("ix_addresses_full_address");
+                        .HasDatabaseName("ix_addresses_city_street");
 
                     b.ToTable("addresses", (string)null);
-                });
-
-            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.ObjectEntity", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("Address")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("address");
-
-                    b.Property<long?>("AddressId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("address_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamptz")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("NOW()");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("description");
-
-                    b.Property<decimal?>("Latitude")
-                        .HasColumnType("numeric(9,6)")
-                        .HasColumnName("latitude");
-
-                    b.Property<decimal?>("Longitude")
-                        .HasColumnType("numeric(9,6)")
-                        .HasColumnName("longitude");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("name");
-
-                    b.Property<long?>("RegionId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("region_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_objects");
-
-                    b.HasIndex("AddressId")
-                        .HasDatabaseName("ix_objects_address_id");
-
-                    b.HasIndex("RegionId")
-                        .HasDatabaseName("ix_objects_region_id");
-
-                    b.HasIndex("Name", "Address")
-                        .HasDatabaseName("ix_objects_name_address");
-
-                    b.ToTable("objects", (string)null);
                 });
 
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.PlanEntity", b =>
@@ -210,7 +144,7 @@ namespace ServiceTaskPlanningSystem.Migrations
                         });
                 });
 
-            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.RegionEntity", b =>
+            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.ServiceObjectEntity", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -219,31 +153,37 @@ namespace ServiceTaskPlanningSystem.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<long>("AddressId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("address_id");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamptz")
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("NOW()");
 
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
                         .HasColumnName("name");
 
-                    b.Property<int>("PriorityWeight")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("priority_weight");
-
                     b.HasKey("Id")
-                        .HasName("pk_regions");
+                        .HasName("pk_service_objects");
 
-                    b.HasIndex("Name")
-                        .IsUnique()
-                        .HasDatabaseName("ix_regions_name");
+                    b.HasIndex("AddressId")
+                        .HasDatabaseName("ix_service_objects_address_id");
 
-                    b.ToTable("regions", (string)null);
+                    b.HasIndex("Name", "AddressId")
+                        .HasDatabaseName("ix_service_objects_name_address_id");
+
+                    b.ToTable("service_objects", (string)null);
                 });
 
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.TaskEntity", b =>
@@ -273,15 +213,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDefaultValue("")
                         .HasColumnName("instructions");
 
-                    b.Property<string>("Location")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("location");
-
-                    b.Property<long?>("ObjectId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("object_id");
-
                     b.Property<long?>("PlanId")
                         .HasColumnType("bigint")
                         .HasColumnName("plan_id");
@@ -296,9 +227,9 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnName("priority")
                         .HasDefaultValueSql("'medium'::task_priority");
 
-                    b.Property<long?>("RegionId")
+                    b.Property<long>("ServiceObjectId")
                         .HasColumnType("bigint")
-                        .HasColumnName("region_id");
+                        .HasColumnName("service_object_id");
 
                     b.Property<string>("SkillLevel")
                         .IsRequired()
@@ -332,14 +263,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("text")
                         .HasColumnName("title");
 
-                    b.Property<decimal?>("TravelDistanceKm")
-                        .HasColumnType("numeric(8,2)")
-                        .HasColumnName("travel_distance_km");
-
-                    b.Property<int?>("TravelDurationMinutes")
-                        .HasColumnType("integer")
-                        .HasColumnName("travel_duration_minutes");
-
                     b.Property<uint>("xmin")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -349,17 +272,14 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.HasKey("Id")
                         .HasName("pk_tasks");
 
-                    b.HasIndex("ObjectId")
-                        .HasDatabaseName("ix_tasks_object_id");
-
                     b.HasIndex("PreviousTaskId")
                         .HasDatabaseName("ix_tasks_previous_task_id");
 
-                    b.HasIndex("RegionId")
-                        .HasDatabaseName("ix_tasks_region_id");
-
                     b.HasIndex("PlanId", "StartAt")
                         .HasDatabaseName("ix_tasks_plan_id_start_at");
+
+                    b.HasIndex("ServiceObjectId", "StartAt")
+                        .HasDatabaseName("ix_tasks_service_object_id_start_at");
 
                     b.HasIndex("TechnicianId", "StartAt")
                         .HasDatabaseName("ix_tasks_technician_id_start_at");
@@ -378,6 +298,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.Property<long>("TaskId")
                         .HasColumnType("bigint")
                         .HasColumnName("task_id");
+
+                    b.Property<int?>("AvailableGapMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("available_gap_minutes");
 
                     b.Property<string>("ConflictReason")
                         .HasColumnType("text")
@@ -405,6 +329,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_overloaded");
 
+                    b.Property<bool>("IsTravelInfeasible")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_travel_infeasible");
+
                     b.Property<decimal?>("LoadHours")
                         .HasColumnType("numeric")
                         .HasColumnName("load_hours");
@@ -412,6 +340,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.Property<decimal?>("OverloadHours")
                         .HasColumnType("numeric")
                         .HasColumnName("overload_hours");
+
+                    b.Property<int?>("RequiredTravelMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("required_travel_minutes");
 
                     b.Property<RiskLevel?>("RiskLevel")
                         .HasColumnType("risk_level")
@@ -460,19 +392,9 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDefaultValue(8m)
                         .HasColumnName("daily_limit");
 
-                    b.Property<long?>("RegionId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("region_id");
-
                     b.Property<string>("RulesSummary")
                         .HasColumnType("text")
                         .HasColumnName("rules_summary");
-
-                    b.Property<int>("TravelSwitchLimit")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("travel_switch_limit");
 
                     b.Property<long?>("UserId")
                         .HasColumnType("bigint")
@@ -488,19 +410,8 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("workplace_address_id");
 
-                    b.Property<decimal?>("WorkplaceLatitude")
-                        .HasColumnType("numeric(9,6)")
-                        .HasColumnName("workplace_latitude");
-
-                    b.Property<decimal?>("WorkplaceLongitude")
-                        .HasColumnType("numeric(9,6)")
-                        .HasColumnName("workplace_longitude");
-
                     b.HasKey("Id")
                         .HasName("pk_technicians");
-
-                    b.HasIndex("RegionId")
-                        .HasDatabaseName("ix_technicians_region_id");
 
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_technicians_user_id");
@@ -511,8 +422,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.ToTable("technicians", null, t =>
                         {
                             t.HasCheckConstraint("ck_technicians_daily_limit_positive", "daily_limit > 0");
-
-                            t.HasCheckConstraint("ck_technicians_travel_switch_non_negative", "travel_switch_limit >= 0");
 
                             t.HasCheckConstraint("ck_technicians_weekly_limit_positive", "weekly_limit > 0");
                         });
@@ -607,25 +516,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.ToTable("users", (string)null);
                 });
 
-            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.ObjectEntity", b =>
-                {
-                    b.HasOne("ServiceTaskPlanningSystem.Data.AddressEntity", "AddressEntity")
-                        .WithMany("Objects")
-                        .HasForeignKey("AddressId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_objects_addresses_address_id");
-
-                    b.HasOne("ServiceTaskPlanningSystem.Data.RegionEntity", "Region")
-                        .WithMany()
-                        .HasForeignKey("RegionId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_objects_regions_region_id");
-
-                    b.Navigation("AddressEntity");
-
-                    b.Navigation("Region");
-                });
-
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.PlanEntity", b =>
                 {
                     b.HasOne("ServiceTaskPlanningSystem.Data.UserEntity", "CreatedByUser")
@@ -645,14 +535,20 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.Navigation("SupersededByPlan");
                 });
 
+            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.ServiceObjectEntity", b =>
+                {
+                    b.HasOne("ServiceTaskPlanningSystem.Data.AddressEntity", "Address")
+                        .WithMany("ServiceObjects")
+                        .HasForeignKey("AddressId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_service_objects_addresses_address_id");
+
+                    b.Navigation("Address");
+                });
+
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.TaskEntity", b =>
                 {
-                    b.HasOne("ServiceTaskPlanningSystem.Data.ObjectEntity", "Object")
-                        .WithMany("Tasks")
-                        .HasForeignKey("ObjectId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_tasks_objects_object_id");
-
                     b.HasOne("ServiceTaskPlanningSystem.Data.PlanEntity", "Plan")
                         .WithMany("Tasks")
                         .HasForeignKey("PlanId")
@@ -665,11 +561,12 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_tasks_tasks_previous_task_id");
 
-                    b.HasOne("ServiceTaskPlanningSystem.Data.RegionEntity", "Region")
-                        .WithMany()
-                        .HasForeignKey("RegionId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_tasks_regions_region_id");
+                    b.HasOne("ServiceTaskPlanningSystem.Data.ServiceObjectEntity", "ServiceObject")
+                        .WithMany("Tasks")
+                        .HasForeignKey("ServiceObjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_tasks_service_objects_service_object_id");
 
                     b.HasOne("ServiceTaskPlanningSystem.Data.TechnicianEntity", "Technician")
                         .WithMany("Tasks")
@@ -678,13 +575,11 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_tasks_technicians_technician_id");
 
-                    b.Navigation("Object");
-
                     b.Navigation("Plan");
 
                     b.Navigation("PreviousTask");
 
-                    b.Navigation("Region");
+                    b.Navigation("ServiceObject");
 
                     b.Navigation("Technician");
                 });
@@ -703,12 +598,6 @@ namespace ServiceTaskPlanningSystem.Migrations
 
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.TechnicianEntity", b =>
                 {
-                    b.HasOne("ServiceTaskPlanningSystem.Data.RegionEntity", "Region")
-                        .WithMany("Technicians")
-                        .HasForeignKey("RegionId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_technicians_regions_region_id");
-
                     b.HasOne("ServiceTaskPlanningSystem.Data.UserEntity", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -721,8 +610,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_technicians_addresses_workplace_address_id");
-
-                    b.Navigation("Region");
 
                     b.Navigation("User");
 
@@ -752,14 +639,9 @@ namespace ServiceTaskPlanningSystem.Migrations
 
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.AddressEntity", b =>
                 {
-                    b.Navigation("Objects");
+                    b.Navigation("ServiceObjects");
 
                     b.Navigation("Technicians");
-                });
-
-            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.ObjectEntity", b =>
-                {
-                    b.Navigation("Tasks");
                 });
 
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.PlanEntity", b =>
@@ -769,9 +651,9 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.Navigation("Tasks");
                 });
 
-            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.RegionEntity", b =>
+            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.ServiceObjectEntity", b =>
                 {
-                    b.Navigation("Technicians");
+                    b.Navigation("Tasks");
                 });
 
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.TaskEntity", b =>

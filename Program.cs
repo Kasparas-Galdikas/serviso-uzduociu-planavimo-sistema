@@ -9,6 +9,11 @@ using ServiceTaskPlanningSystem.Services.Authentication;
 using ServiceTaskPlanningSystem.Configuration;
 using ServiceTaskPlanningSystem.Middleware;
 using ServiceTaskPlanningSystem.Infrastructure.Logging;
+using ServiceTaskPlanningSystem.Services.ExternalServices.ExternalApis;
+using ServiceTaskPlanningSystem.Services.ExternalServices.Common;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
+using ServiceTaskPlanningSystem.Services.Travel;
+using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Authorization;
@@ -74,6 +79,8 @@ builder.Services.AddControllersWithViews(options =>
 
 builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
 builder.Services.AddScoped<IPlanService, PlanService>();
+builder.Services.AddScoped<ITaskTravelFeasibilityService, TaskTravelFeasibilityService>();
+builder.Services.AddScoped<IRouteChainBuilder, RouteChainBuilder>();
 builder.Services.AddScoped<IEvaluationEngine, TaskEvaluationEngine>();
 builder.Services.AddScoped<IPlanningCalendar, PlanningCalendar>();
 builder.Services.AddScoped<ITaskPermissionService, TaskPermissionService>();
@@ -81,13 +88,19 @@ builder.Services.AddScoped<IScheduleTimeService, ScheduleTimeService>();
 builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
 builder.Services.AddScoped<IUserContextResolver, HttpUserContextResolver>();
 builder.Services.AddScoped<ILoginService, LoginService>();
+builder.Services.AddSingleton(new HeigitApiOptions());
+builder.Services.AddSingleton<IExternalCallPolicy, ExternalCallPolicy>();
+builder.Services.AddSingleton<IExternalCallKeyedLock, ExternalCallKeyedLock>();
+builder.Services.AddScoped<IRouteEvaluationService, RouteEvaluationService>();
+builder.Services.AddHttpClient<ILocationApiClient, LocationApiClient>();
+builder.Services.AddHttpClient<IDistanceApiClient, DistanceApiClient>();
 
 // Register strategy pattern implementations for plan-status-specific edit policies
 builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Interfaces.IPlanStatusEditPolicy, ServiceTaskPlanningSystem.Services.Authorization.Policies.DraftPlanEditPolicy>();
 builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Interfaces.IPlanStatusEditPolicy, ServiceTaskPlanningSystem.Services.Authorization.Policies.ActivePlanEditPolicy>();
 builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Interfaces.IPlanStatusEditPolicy, ServiceTaskPlanningSystem.Services.Authorization.Policies.SupersededPlanEditPolicy>();
 builder.Services.AddTransient<DatabaseSeeder>();
-builder.Services.AddSingleton<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
+builder.Services.AddScoped<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 builder.Services.AddHostedService<EvaluationRepairService>();
 builder.Services.AddHostedService<TaskAutoExpirationService>();
 

@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-using ServiceTaskPlanningSystem.Services.Scheduling;
+using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Data.Seed
 {
@@ -14,10 +16,20 @@ namespace ServiceTaskPlanningSystem.Data.Seed
     public class DatabaseSeeder
     {
         private readonly ScheduleDbContext _db;
+        private readonly IScheduleTimeService _timeService;
+        private readonly IRouteEvaluationService _routeEvaluationService;
+        private readonly ILogger<DatabaseSeeder> _logger;
 
-        public DatabaseSeeder(ScheduleDbContext db)
+        public DatabaseSeeder(
+            ScheduleDbContext db,
+            IScheduleTimeService timeService,
+            IRouteEvaluationService routeEvaluationService,
+            ILogger<DatabaseSeeder> logger)
         {
             _db = db;
+            _timeService = timeService;
+            _routeEvaluationService = routeEvaluationService;
+            _logger = logger;
         }
 
         public async Task SeedAsync()
@@ -27,29 +39,58 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                 return; // already seeded
             }
 
+            long? seededPlanId = null;
+            List<DateTime> seededDays = new();
             await using var transaction = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                // Address cache to enforce deduplication
+                var addressLookup = new Dictionary<string, AddressEntity>(StringComparer.OrdinalIgnoreCase);
 
-            // Address cache to enforce deduplication
-            var addressLookup = new Dictionary<string, AddressEntity>(StringComparer.OrdinalIgnoreCase);
+                // Seed Users
+                var userLookup = await SeedUsersAsync();
 
-            // Seed Users
-            var userLookup = await SeedUsersAsync();
+                // Seed Technicians
+                var technicianLookup = await SeedTechniciansAsync(userLookup, addressLookup);
 
-            // Seed Regions
-            var regionLookup = await SeedRegionsAsync();
+                // Seed Service Objects
+                var serviceObjectLookup = await SeedServiceObjectsAsync(addressLookup);
 
-            // Seed Technicians
-            var technicianLookup = await SeedTechniciansAsync(userLookup, regionLookup, addressLookup);
+                // Seed Plan and Tasks
+                // Build address ID lookup for tasks
+                var addressById = addressLookup.Values.ToDictionary(a => a.Id);
+                var result = await SeedPlanAndTasksAsync(technicianLookup, serviceObjectLookup, addressById);
+                seededPlanId = result.PlanId;
+                seededDays = result.SeededDays;
 
-            // Seed Objects
-            var objectLookup = await SeedObjectsAsync(regionLookup, addressLookup);
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
 
-            // Seed Plan and Tasks
-            // Build address ID lookup for tasks
-            var addressById = addressLookup.Values.ToDictionary(a => a.Id);
-            await SeedPlanAndTasksAsync(technicianLookup, regionLookup, objectLookup, addressLookup, addressById);
+            if (!seededPlanId.HasValue || seededDays.Count == 0)
+            {
+                return;
+            }
 
-            await transaction.CommitAsync();
+            foreach (var day in seededDays)
+            {
+                try
+                {
+                    await _routeEvaluationService.EvaluatePlanDayAsync(seededPlanId.Value, day);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "seed.route-evaluation.failed planId={PlanId} day={Day}",
+                        seededPlanId.Value,
+                        day);
+                }
+            }
         }
 
         private async Task<Dictionary<string, UserEntity>> SeedUsersAsync()
@@ -79,34 +120,8 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             return userLookup.ToDictionary(kv => kv.Value.Name, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
         }
 
-        private async Task<Dictionary<string, RegionEntity>> SeedRegionsAsync()
-        {
-            var mockRegions = MockSeedData.GetRegions();
-            var existingRegions = await _db.Regions.ToListAsync();
-            var regionLookup = existingRegions.ToDictionary(r => r.Name, StringComparer.OrdinalIgnoreCase);
-
-            foreach (var mockRegion in mockRegions)
-            {
-                if (regionLookup.ContainsKey(mockRegion.Name)) continue;
-
-                var region = new RegionEntity
-                {
-                    Name = mockRegion.Name,
-                    PriorityWeight = mockRegion.PriorityWeight,
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                _db.Regions.Add(region);
-                regionLookup[mockRegion.Name] = region;
-            }
-
-            await _db.SaveChangesAsync();
-            return regionLookup;
-        }
-
         private async Task<Dictionary<string, TechnicianEntity>> SeedTechniciansAsync(
             Dictionary<string, UserEntity> userLookup,
-            Dictionary<string, RegionEntity> regionLookup,
             Dictionary<string, AddressEntity> addressLookup)
         {
             var mockTechnicians = MockSeedData.GetTechnicians();
@@ -124,18 +139,14 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                     continue; // Skip if user not found
                 }
 
-                var address = await EnsureAddressAsync(mockTech.WorkplaceAddress, addressLookup);
+                var address = await EnsureAddressAsync(mockTech.WorkplaceAddress, mockTech.City, addressLookup);
 
                 var technician = new TechnicianEntity
                 {
                     UserId = user.Id,
-                    RegionId = regionLookup.TryGetValue(mockTech.RegionName, out var region) ? region.Id : null,
                     WorkplaceAddressId = address.Id,
-                    WorkplaceLatitude = mockTech.WorkplaceLatitude,
-                    WorkplaceLongitude = mockTech.WorkplaceLongitude,
                     DailyLimit = mockTech.DailyLimit,
                     WeeklyLimit = mockTech.WeeklyLimit,
-                    TravelSwitchLimit = mockTech.TravelSwitchLimit,
                     RulesSummary = mockTech.RulesSummary,
                     CreatedAt = DateTime.UtcNow
                 };
@@ -148,15 +159,26 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             return technicianLookup;
         }
 
-        private async Task<AddressEntity> EnsureAddressAsync(string fullAddress, Dictionary<string, AddressEntity> addressLookup)
+        private async Task<AddressEntity> EnsureAddressAsync(
+            string fullAddress,
+            string city,
+            Dictionary<string, AddressEntity> addressLookup)
         {
             if (addressLookup.TryGetValue(fullAddress, out var existing))
             {
                 return existing;
             }
 
+            var street = ParseStreet(fullAddress);
+            var normalizedCity = string.IsNullOrWhiteSpace(city) ? ParseCity(fullAddress) : city.Trim();
+            if (string.IsNullOrWhiteSpace(normalizedCity))
+            {
+                normalizedCity = "Nezinomas";
+            }
             var address = new AddressEntity
             {
+                City = normalizedCity,
+                Street = street,
                 FullAddress = fullAddress,
                 CreatedAt = DateTime.UtcNow
             };
@@ -166,31 +188,28 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             return address;
         }
 
-        private async Task<Dictionary<string, ObjectEntity>> SeedObjectsAsync(
-            Dictionary<string, RegionEntity> regionLookup,
+        private async Task<Dictionary<string, ServiceObjectEntity>> SeedServiceObjectsAsync(
             Dictionary<string, AddressEntity> addressLookup)
         {
             var mockObjects = MockSeedData.GetObjects();
-            var existingObjects = await _db.Objects.ToListAsync();
+            var existingObjects = await _db.ServiceObjects.ToListAsync();
             var objectLookup = existingObjects.ToDictionary(o => o.Name, StringComparer.OrdinalIgnoreCase);
 
             foreach (var mockObject in mockObjects)
             {
                 if (objectLookup.ContainsKey(mockObject.Name)) continue;
 
-                var addr = await EnsureAddressAsync(mockObject.Address, addressLookup);
+                var addr = await EnsureAddressAsync(mockObject.Address, mockObject.City, addressLookup);
 
-                var obj = new ObjectEntity
+                var obj = new ServiceObjectEntity
                 {
                     Name = mockObject.Name,
-                    Address = mockObject.Address,
                     AddressId = addr.Id,
-                    RegionId = regionLookup.TryGetValue(mockObject.RegionName, out var region) ? region.Id : null,
                     Description = mockObject.Description,
                     CreatedAt = DateTime.UtcNow
                 };
 
-                _db.Objects.Add(obj);
+                _db.ServiceObjects.Add(obj);
                 objectLookup[mockObject.Name] = obj;
             }
 
@@ -198,17 +217,24 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             return objectLookup;
         }
 
-        private async Task SeedPlanAndTasksAsync(
+        private async Task<(long? PlanId, List<DateTime> SeededDays)> SeedPlanAndTasksAsync(
             Dictionary<string, TechnicianEntity> technicianLookup,
-            Dictionary<string, RegionEntity> regionLookup,
-            Dictionary<string, ObjectEntity> objectLookup,
-            Dictionary<string, AddressEntity> addressLookupByFull,
+            Dictionary<string, ServiceObjectEntity> serviceObjectLookup,
             Dictionary<long, AddressEntity> addressById)
         {
-            var weekStart = WeekCalculator.GetWeekStart(DateTime.Today);
-            var mockTasks = MockSeedData.GetTasks(weekStart, 5);
+            var today = _timeService.GetLocalToday();
+            var startDate = today.DayOfWeek switch
+            {
+                DayOfWeek.Saturday => today.AddDays(2),
+                DayOfWeek.Sunday => today.AddDays(1),
+                _ => today
+            };
+            var mockTasks = MockSeedData.GetTasks(startDate, 5);
 
-            if (mockTasks.Count == 0) return;
+            if (mockTasks.Count == 0)
+            {
+                return (null, new List<DateTime>());
+            }
 
             var periodStart = mockTasks.Min(t => t.StartTime.Date);
             var periodEnd = mockTasks.Max(t => t.EndTime.Date);
@@ -225,8 +251,9 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             _db.Plans.Add(activePlan);
             await _db.SaveChangesAsync();
 
-            // Lithuania timezone offset (UTC+2 in winter, UTC+3 in summer)
-            var timezoneOffsetMinutes = 120; // EET (Eastern European Time) = UTC+2
+            // Seed timezone offset in minutes (currently fixed to Lithuania winter time: UTC+2).
+            // TODO: Consider sourcing this from configuration or adding DST-aware logic.
+            const int timezoneOffsetMinutes = 120;
 
             var taskEntities = new List<TaskEntity>();
             var evaluations = new List<TaskEvaluationEntity>();
@@ -238,26 +265,24 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                     continue; // Skip if technician not found
                 }
 
-                // Convert local times to UTC
-                var startUtc = ConvertLocalToUtc(mockTask.StartTime, timezoneOffsetMinutes);
-                var endUtc = ConvertLocalToUtc(mockTask.EndTime, timezoneOffsetMinutes);
+                // Convert local times to UTC using the shared time service.
+                var startMinutes = (int)Math.Round(mockTask.StartTime.TimeOfDay.TotalMinutes);
+                var endMinutes = (int)Math.Round(mockTask.EndTime.TimeOfDay.TotalMinutes);
+                var startUtc = _timeService.CreateUtcFromDateAndMinutes(mockTask.StartTime.Date, startMinutes, timezoneOffsetMinutes);
+                var endUtc = _timeService.CreateUtcFromDateAndMinutes(mockTask.EndTime.Date, endMinutes, timezoneOffsetMinutes);
 
                 // Find object if specified
-                long? objectId = null;
-                if (!string.IsNullOrWhiteSpace(mockTask.ObjectName) &&
-                    objectLookup.TryGetValue(mockTask.ObjectName, out var obj))
+                if (!serviceObjectLookup.TryGetValue(mockTask.ObjectName, out var serviceObject))
                 {
-                    objectId = obj.Id;
+                    continue;
                 }
 
                 var taskEntity = new TaskEntity
                 {
                     PlanId = activePlan.Id,
                     TechnicianId = technician.Id,
-                    ObjectId = objectId,
+                    ServiceObjectId = serviceObject.Id,
                     Title = mockTask.Title,
-                    Location = mockTask.Location,
-                    RegionId = regionLookup.TryGetValue(mockTask.Location, out var region) ? region.Id : null,
                     StartAt = startUtc,
                     EndAt = endUtc,
                     Priority = mockTask.Priority,
@@ -274,41 +299,14 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             _db.Tasks.AddRange(taskEntities);
             await _db.SaveChangesAsync();
 
-            // Wire previous task chain + travel estimation for each technician per day (using address entities + travel routes).
-            var travelCache = new Dictionary<(long fromId, long toId), TravelRouteEntity>();
+            // Wire previous task chain for each technician per day.
             foreach (var techGroup in taskEntities.GroupBy(t => t.TechnicianId))
             {
-                var techId = techGroup.Key;
-                var technician = technicianLookup.Values.First(t => t.Id == techId);
-
                 foreach (var dayGroup in techGroup.OrderBy(t => t.StartAt).GroupBy(t => t.StartAt.Date))
                 {
                     TaskEntity? prev = null;
                     foreach (var task in dayGroup.OrderBy(t => t.StartAt))
                     {
-                        var fromAddr = prev != null
-                            ? await GetTaskAddressEntityAsync(prev, addressLookupByFull, addressById, objectLookup)
-                            : addressById[technician.WorkplaceAddressId];
-                        var toAddr = await GetTaskAddressEntityAsync(task, addressLookupByFull, addressById, objectLookup);
-
-                        var key = (fromAddr.Id, toAddr.Id);
-                        if (!travelCache.TryGetValue(key, out var cached))
-                        {
-                            var (distanceKm, durationMinutes) = EstimateTravel(fromAddr.FullAddress, toAddr.FullAddress, technician.RegionId, task.RegionId);
-                            cached = new TravelRouteEntity
-                            {
-                                FromAddressId = fromAddr.Id,
-                                ToAddressId = toAddr.Id,
-                                DistanceKm = distanceKm,
-                                DurationMinutes = durationMinutes,
-                                CalculatedAt = DateTime.UtcNow
-                            };
-                            travelCache[key] = cached;
-                            _db.TravelRoutes.Add(cached);
-                        }
-
-                        task.TravelDistanceKm = cached.DistanceKm;
-                        task.TravelDurationMinutes = cached.DurationMinutes;
                         task.PreviousTaskId = prev?.Id;
 
                         prev = task;
@@ -342,59 +340,42 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
             _db.TaskEvaluations.AddRange(evaluations);
             await _db.SaveChangesAsync();
+
+            var seededDays = taskEntities
+                .Select(t => t.StartAt.Date)
+                .Distinct()
+                .OrderBy(d => d)
+                .ToList();
+
+            return (activePlan.Id, seededDays);
         }
 
-        private static DateTime ConvertLocalToUtc(DateTime localTime, int timezoneOffsetMinutes)
+        private static string ParseStreet(string fullAddress)
         {
-            if (localTime.Kind == DateTimeKind.Utc)
+            if (string.IsNullOrWhiteSpace(fullAddress))
             {
-                return localTime;
+                return string.Empty;
             }
 
-            var unspecified = DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified);
-            return DateTime.SpecifyKind(unspecified.AddMinutes(-timezoneOffsetMinutes), DateTimeKind.Utc);
-        }
-
-        private async Task<AddressEntity> GetTaskAddressEntityAsync(
-            TaskEntity task,
-            Dictionary<string, AddressEntity> addressLookupByFull,
-            Dictionary<long, AddressEntity> addressById,
-            Dictionary<string, ObjectEntity> objectLookup)
-        {
-            if (task.ObjectId.HasValue)
+            var firstPart = fullAddress.Split(',', 2, StringSplitOptions.TrimEntries)[0];
+            if (string.IsNullOrWhiteSpace(firstPart))
             {
-                var obj = objectLookup.Values.FirstOrDefault(o => o.Id == task.ObjectId.Value);
-                if (obj?.AddressId != null && addressById.TryGetValue(obj.AddressId.Value, out var addr))
-                {
-                    return addr;
-                }
+                return fullAddress.Trim();
             }
 
-            // Fallback: synthetic address per location string (ensure it exists in addressLookup)
-            var fallback = $"Location: {task.Location}";
-            if (addressLookupByFull.TryGetValue(fallback, out var existing))
+            return firstPart.Trim();
+        }
+
+        private static string ParseCity(string fullAddress)
+        {
+            if (string.IsNullOrWhiteSpace(fullAddress))
             {
-                return existing;
+                return string.Empty;
             }
 
-            var newAddr = await EnsureAddressAsync(fallback, addressLookupByFull);
-            addressById[newAddr.Id] = newAddr;
-            return newAddr;
+            var parts = fullAddress.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length >= 2 ? parts[^1] : string.Empty;
         }
 
-        private static (decimal distanceKm, int durationMinutes) EstimateTravel(
-            string fromAddress,
-            string toAddress,
-            long? fromRegionId,
-            long? toRegionId)
-        {
-            // Simple deterministic mock: same region => short trip, different => longer.
-            var sameRegion = fromRegionId.HasValue && toRegionId.HasValue && fromRegionId == toRegionId;
-            var hash = Math.Abs((fromAddress + "|" + toAddress).GetHashCode());
-            var baseKm = sameRegion ? 3 + (hash % 10) : 40 + (hash % 60); // 3-12km intra-region, 40-99km inter-region
-            var distanceKm = (decimal)baseKm;
-            var durationMinutes = Math.Max(10, (int)Math.Round(baseKm / 40.0 * 60)); // assume ~40km/h avg + clamp to 10 min
-            return (distanceKm, durationMinutes);
-        }
     }
 }

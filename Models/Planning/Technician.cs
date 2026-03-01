@@ -10,6 +10,5 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public int WeeklyLimit { get; set; }
         public int DailyHours { get; set; }
         public int DailyLimit { get; set; }
-        public int TravelSwitches { get; set; }
     }
 }

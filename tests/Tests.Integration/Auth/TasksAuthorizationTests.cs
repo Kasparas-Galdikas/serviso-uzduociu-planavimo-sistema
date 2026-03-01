@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
@@ -48,7 +48,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AuthMe_UnknownUser_FallsBackToTechnicianContext()
+    public async Task AuthMe_UnknownUser_FallsBackToAnonymousContext()
     {
         await ResetAndReseedAsync();
         var client = CreateClient("missing-user@test.com");
@@ -57,7 +57,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
-        payload!.GetProperty("role").GetString().Should().Be("technician");
+        payload!.GetProperty("role").GetString().Should().Be("anonymous");
         payload.GetProperty("userId").ValueKind.Should().Be(JsonValueKind.Null);
         payload.GetProperty("technicianId").ValueKind.Should().Be(JsonValueKind.Null);
     }
@@ -111,7 +111,6 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
 
         var attackerClient = CreateClient("austeja.j@test.com", timezoneOffsetMinutes: -120, technicianId: otherTechId);
         var updateDto = TestUpdateTaskRequestBuilder.Create(ownerTechId, task.LocalStart, task.LocalEnd, "Should fail", version)
-            .WithLocation("Anywhere")
             .WithTimezone(-120)
             .Build();
         var response = await attackerClient.PatchAsJsonAsync($"/api/tasks/{task.Id}", updateDto);
@@ -120,7 +119,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task UpdateTask_PastTask_IsRejected()
+    public async Task UpdateTask_PastTask_IsForbidden()
     {
         await ResetAndReseedAsync();
         var techId = await GetTechnicianIdAsync("technician@test.com");
@@ -134,12 +133,11 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var version = await GetTaskVersionAsync(task.Id);
 
         var updateDto = TestUpdateTaskRequestBuilder.Create(techId, task.LocalStart, task.LocalEnd, "Past update", version)
-            .WithLocation("Past")
             .WithTimezone(-120)
             .Build();
         var response = await managerClient.PatchAsJsonAsync($"/api/tasks/{task.Id}", updateDto);
 
-        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -355,3 +353,4 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         await db.SaveChangesAsync();
     }
 }
+

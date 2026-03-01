@@ -1,5 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Authorization;
@@ -9,6 +8,9 @@ using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using ServiceTaskPlanningSystem.Services.Scheduling;
+using Microsoft.EntityFrameworkCore;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
+using ServiceTaskPlanningSystem.Services.Travel;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -16,117 +18,38 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
     [Route("api/tasks")]
     public class TasksController : ControllerBase
     {
-        private readonly ScheduleDbContext _db;
+        private sealed record PreviewTaskRow(long TechnicianId, DateTime StartAt, DateTime EndAt, long AddressId);
+
         private readonly IPlanService _planService;
-        private readonly IEvaluationEngine _evaluationEngine;
         private readonly ILogger<TasksController> _logger;
         private readonly ITaskPermissionService _taskPermissionService;
         private readonly IScheduleTimeService _timeService;
         private readonly IUserContextResolver _userContextResolver;
+        private readonly ScheduleDbContext _db;
+        private readonly ILocationApiClient _locationApiClient;
+        private readonly IDistanceApiClient _distanceApiClient;
+        private readonly ITaskTravelFeasibilityService _travelFeasibilityService;
 
-        public TasksController(ScheduleDbContext db, IPlanService planService, IEvaluationEngine evaluationEngine, ITaskPermissionService taskPermissionService, IScheduleTimeService timeService, IUserContextResolver userContextResolver, ILogger<TasksController> logger)
+        public TasksController(
+            IPlanService planService,
+            ITaskPermissionService taskPermissionService,
+            IScheduleTimeService timeService,
+            IUserContextResolver userContextResolver,
+            ScheduleDbContext db,
+            ILocationApiClient locationApiClient,
+            IDistanceApiClient distanceApiClient,
+            ITaskTravelFeasibilityService travelFeasibilityService,
+            ILogger<TasksController> logger)
         {
-            _db = db;
             _planService = planService;
-            _evaluationEngine = evaluationEngine;
             _taskPermissionService = taskPermissionService;
             _timeService = timeService;
             _userContextResolver = userContextResolver;
+            _db = db;
+            _locationApiClient = locationApiClient;
+            _distanceApiClient = distanceApiClient;
+            _travelFeasibilityService = travelFeasibilityService;
             _logger = logger;
-        }
-
-        private static DateTime GetWeekStartUtc(DateTime dateUtc)
-        {
-            var dayOfWeek = dateUtc.DayOfWeek;
-            var diff = dayOfWeek - DayOfWeek.Monday;
-            if (diff < 0) diff += 7;
-            return dateUtc.AddDays(-diff).Date;
-        }
-
-        private static LoadSnapshotDto ToLoadSnapshotDto(TechnicianEntity technician, WorkloadSnapshot snapshot)
-        {
-            var context = snapshot.Context;
-            return new LoadSnapshotDto
-            {
-                LoadState = context.ComputeLoadState().ToString(),
-                HasConflict = context.HasConflict,
-                IsDailyLimitExceeded = context.IsDailyLimitExceeded,
-                IsWeeklyLimitExceeded = context.IsWeeklyLimitExceeded,
-                IsSwitchLimitExceeded = context.IsSwitchLimitExceeded,
-                DailyHours = Math.Round(snapshot.DailyHours, 2),
-                WeeklyHours = Math.Round(snapshot.WeeklyHours, 2),
-                DailyLimit = (double)technician.DailyLimit,
-                WeeklyLimit = (double)technician.WeeklyLimit,
-                DailyUtilization = Math.Round(context.DailyUtilization, 2),
-                WeeklyUtilization = Math.Round(context.WeeklyUtilization, 2),
-                SwitchCount = snapshot.SwitchCount
-            };
-        }
-
-        private static LoadSnapshotDto BuildLoadSnapshotForSimulation(
-            long technicianId,
-            DateTime dayStartUtc,
-            List<TaskEntity> tasks,
-            List<TechnicianEntity> technicians)
-        {
-            var technician = technicians.FirstOrDefault(t => t.Id == technicianId);
-            if (technician == null)
-            {
-                return new LoadSnapshotDto();
-            }
-
-            var dayEnd = dayStartUtc.AddDays(1);
-            var weekStart = GetWeekStartUtc(dayStartUtc);
-            var weekEnd = weekStart.AddDays(7);
-
-            var dayTasks = tasks
-                .Where(t => t.TechnicianId == technicianId &&
-                            t.StartAt >= dayStartUtc &&
-                            t.StartAt < dayEnd)
-                .OrderBy(t => t.StartAt)
-                .ToList();
-
-            var weekTasks = tasks
-                .Where(t => t.TechnicianId == technicianId &&
-                            t.StartAt >= weekStart &&
-                            t.StartAt < weekEnd)
-                .OrderBy(t => t.StartAt)
-                .ToList();
-
-            var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
-            return ToLoadSnapshotDto(technician, snapshot);
-        }
-
-        private async Task<LoadSnapshotDto> BuildLoadSnapshotAsync(long technicianId, DateTime dayStartUtc, CancellationToken cancellationToken)
-        {
-            var technician = await _db.Technicians
-                .AsNoTracking()
-                .FirstOrDefaultAsync(t => t.Id == technicianId, cancellationToken);
-
-            if (technician == null)
-            {
-                return new LoadSnapshotDto();
-            }
-
-            var dayEnd = dayStartUtc.AddDays(1);
-            var weekStart = GetWeekStartUtc(dayStartUtc);
-            var weekEnd = weekStart.AddDays(7);
-
-            var weekTasks = await _db.Tasks
-                .AsNoTracking()
-                .Where(t => t.TechnicianId == technicianId &&
-                            t.StartAt >= weekStart &&
-                            t.StartAt < weekEnd)
-                .OrderBy(t => t.StartAt)
-                .ToListAsync(cancellationToken);
-
-            var dayTasks = weekTasks
-                .Where(t => t.StartAt >= dayStartUtc && t.StartAt < dayEnd)
-                .OrderBy(t => t.StartAt)
-                .ToList();
-
-            var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
-            return ToLoadSnapshotDto(technician, snapshot);
         }
 
         [HttpPost]
@@ -141,7 +64,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             // System constraint: New tasks must always start with InProgress status
             if (dto.Status != ScheduleTaskStatus.InProgress)
             {
-                return UnprocessableEntity(new { message = "Naujos užduotys turi prasidėti su 'Vykdoma' statusu. Sistema nustato statusą automatiškai." });
+                return UnprocessableEntity(new { message = "Naujos uÅ¾duotys turi prasidÄ—ti su 'Vykdoma' statusu. Sistema nustato statusÄ… automatiÅ¡kai." });
             }
 
             if (!TryParseDate(dto.TargetDate, out var targetDate))
@@ -156,8 +79,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (string.IsNullOrWhiteSpace(dto.SkillLevel) ||
                 string.IsNullOrWhiteSpace(dto.ObjectName) ||
-                string.IsNullOrWhiteSpace(dto.ObjectAddress) ||
-                string.IsNullOrWhiteSpace(dto.Location))
+                string.IsNullOrWhiteSpace(dto.ObjectAddress))
             {
                 return UnprocessableEntity(new { message = "Privalomi laukai (kvalifikacija, objektas ir adresas) turi buti uzpildyti." });
             }
@@ -165,7 +87,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var normalizedSkillLevel = dto.SkillLevel.Trim();
             var normalizedObjectName = dto.ObjectName.Trim();
             var normalizedObjectAddress = dto.ObjectAddress.Trim();
-            var normalizedLocation = dto.Location.Trim();
 
             var user = _userContextResolver.GetCurrentUser();
             var result = await _planService.CreateTaskAsync(
@@ -174,7 +95,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 dto.StartMinutes,
                 dto.EndMinutes,
                 dto.Title,
-                normalizedLocation,
                 dto.Priority,
                 dto.Status,
                 normalizedSkillLevel,
@@ -187,17 +107,11 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.Task != null)
             {
-                var version = await _db.Tasks
-                    .AsNoTracking()
-                    .Where(t => t.Id == result.Task.Id)
-                    .Select(t => EF.Property<uint>(t, "xmin"))
-                    .FirstAsync(cancellationToken);
-
                 var response = new TaskCreatedOrUpdatedResponseDto
                 {
                     Id = result.Task.Id,
-                    Version = version,
-                    Load = await BuildLoadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                    Version = result.CurrentVersion ?? 0,
+                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
                 };
 
                 _logger.LogInformation("api.task.create id={Id} planId={PlanId}", result.Task.Id, result.Task.PlanId);
@@ -216,24 +130,17 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         [HttpGet("{id:long}")]
         public async Task<IActionResult> GetTask(long id, CancellationToken cancellationToken)
         {
-            var task = await _db.Tasks
-                .AsNoTracking()
-                .Include(t => t.Plan)
-                .Include(t => t.Object)
-                .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+            var taskDetail = await _planService.GetTaskDetailAsync(id, cancellationToken);
 
-            if (task == null)
+            if (taskDetail == null)
             {
                 return NotFound();
             }
 
-            var version = await _db.Tasks
-                .AsNoTracking()
-                .Where(t => t.Id == id)
-                .Select(t => EF.Property<uint>(t, "xmin"))
-                .FirstAsync(cancellationToken);
+            var task = taskDetail.Task;
+            var version = taskDetail.Version;
 
-            var timezoneOffset = GetBrowserTimezoneOffset();
+            var timezoneOffset = _timeService.GetBrowserTimezoneOffset(Request);
             var user = _userContextResolver.GetCurrentUser();
             var isEditable = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffset);
             var isDeletable = await _taskPermissionService.CanDeleteTaskAsync(task, user, timezoneOffset);
@@ -249,16 +156,16 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 PlanId = task.PlanId,
                 TechnicianId = task.TechnicianId,
                 Title = task.Title,
-                Location = task.Location,
+                Location = task.ServiceObject?.Address?.FullAddress ?? string.Empty,
                 StartAt = localStartAt,
                 EndAt = localEndAt,
                 Priority = task.Priority,
                 Status = task.Status,
                 TechnicianComment = task.TechnicianComment,
                 SkillLevel = task.SkillLevel,
-                ObjectId = task.ObjectId,
-                ObjectName = task.Object?.Name ?? string.Empty,
-                ObjectAddress = task.Object?.Address ?? string.Empty,
+                ObjectId = task.ServiceObjectId,
+                ObjectName = task.ServiceObject?.Name ?? string.Empty,
+                ObjectAddress = task.ServiceObject?.Address?.FullAddress ?? string.Empty,
                 Instructions = task.Instructions,
                 PlanStatus = task.Plan?.Status.ToString() ?? string.Empty,
                 IsEditable = isEditable,
@@ -291,7 +198,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 {
                     DeletedTaskId = result.Task.Id,
                     Version = result.CurrentVersion ?? dto.Version,
-                    Load = await BuildLoadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
                 };
                 _logger.LogInformation("api.task.delete.succeeded id={Id}", id);
                 return Ok(response);
@@ -347,7 +254,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     TechnicianId = result.Task.TechnicianId,
                     StartAt = localStart,
                     EndAt = localEnd,
-                    Load = await BuildLoadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
                 };
                 _logger.LogInformation("api.task.time.succeeded id={Id}", id);
                 return Ok(response);
@@ -376,132 +283,264 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (dto.TargetEndAt <= dto.TargetStartAt)
             {
+                return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlesnis už pradžia." });
+            }
+
+            var timezoneOffset = _timeService.GetBrowserTimezoneOffset(Request);
+            var user = _userContextResolver.GetCurrentUser();
+
+            var result = await _planService.PreviewDragAsync(
+                dto.TaskId,
+                dto.TargetTechnicianId,
+                dto.TargetStartAt,
+                dto.TargetEndAt,
+                user,
+                timezoneOffset,
+                cancellationToken);
+
+            if (result.Ok && result.Response != null)
+            {
+                _logger.LogInformation("api.task.preview.drag task={TaskId} tech={Tech} states={Count}",
+                    dto.TaskId, dto.TargetTechnicianId, result.Response.PreviewStates.Count);
+                return Ok(result.Response);
+            }
+
+            return result.Error switch
+            {
+                DragPreviewError.TaskNotFound => NotFound(),
+                DragPreviewError.NotEditable => StatusCode(403),
+                DragPreviewError.NoPlan => UnprocessableEntity(new { message = result.Message }),
+                DragPreviewError.TechnicianNotFound => UnprocessableEntity(new { message = result.Message }),
+                _ => StatusCode(500)
+            };
+        }
+
+        [HttpPost("preview/assignee-travel")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> PreviewAssigneeTravel([FromBody] AssigneeTravelPreviewRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                return ValidationProblem(ModelState);
+            }
+
+            if (!TryParseDate(dto.TargetDate, out var targetDate))
+            {
+                return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
+            }
+
+            if (dto.EndMinutes <= dto.StartMinutes)
+            {
                 return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlesnis už pradžią." });
             }
 
-            var timezoneOffset = GetBrowserTimezoneOffset();
-            var user = _userContextResolver.GetCurrentUser();
-
-            var targetTask = await _db.Tasks
+            var normalizedAddress = dto.ObjectAddress.Trim();
+            var targetAddressId = await _db.Addresses
                 .AsNoTracking()
-                .Include(t => t.Plan)
-                .Include(t => t.Technician)
-                .FirstOrDefaultAsync(t => t.Id == dto.TaskId, cancellationToken);
+                .Where(a => a.FullAddress == normalizedAddress)
+                .Select(a => (long?)a.Id)
+                .FirstOrDefaultAsync(cancellationToken);
 
-            if (targetTask == null)
-            {
-                return NotFound();
-            }
-
-            var isEditable = await _taskPermissionService.CanEditTaskAsync(targetTask, user, timezoneOffset);
-            if (!isEditable)
-            {
-                return StatusCode(403);
-            }
-
-            if (targetTask.PlanId == null)
-            {
-                return UnprocessableEntity(new { message = "Užduotis neturi plano." });
-            }
-
-            var hoverTech = await _db.Technicians
-                .AsNoTracking()
-                .FirstOrDefaultAsync(t => t.Id == dto.TargetTechnicianId, cancellationToken);
-
-            if (hoverTech == null)
-            {
-                return UnprocessableEntity(new { message = "Technikas nerastas." });
-            }
-
-            var dayStart = dto.TargetStartAt.Date;
-            var weekStart = WeekCalculator.GetWeekStart(dayStart);
-            var weekEndExclusive = weekStart.AddDays(7);
-
-            var scopeTasks = await _db.Tasks
-                .AsNoTracking()
-                .Include(t => t.Technician)
-                .Where(t => t.PlanId == targetTask.PlanId &&
-                            t.StartAt < weekEndExclusive &&
-                            t.EndAt > weekStart)
-                .ToListAsync(cancellationToken);
-
+            var result = new AssigneeTravelPreviewResponseDto();
             var technicians = await _db.Technicians
                 .AsNoTracking()
+                .Select(t => new { t.Id, t.WorkplaceAddressId })
                 .ToListAsync(cancellationToken);
 
-            var simulation = PlanSimulationContext.Create(scopeTasks, technicians, targetTask);
-
-            var modifiedSim = simulation.WithModifiedTasks(tasks =>
+            if (!targetAddressId.HasValue || technicians.Count == 0)
             {
-                var modified = tasks.ToList();
-                var idx = modified.FindIndex(t => t.Id == targetTask.Id);
-                if (idx >= 0)
+                result.Items.AddRange(technicians.Select(t => new AssigneeTravelPreviewItemDto
                 {
-                    modified[idx] = new TaskEntity
-                    {
-                        Id = targetTask.Id,
-                        PlanId = targetTask.PlanId,
-                        TechnicianId = dto.TargetTechnicianId,
-                        Title = targetTask.Title,
-                        Location = targetTask.Location,
-                        RegionId = hoverTech.RegionId ?? targetTask.RegionId,
-                        StartAt = dto.TargetStartAt,
-                        EndAt = dto.TargetEndAt,
-                        Priority = targetTask.Priority,
-                        Status = targetTask.Status,
-                        CreatedAt = targetTask.CreatedAt,
-                        Plan = targetTask.Plan,
-                        Technician = targetTask.Technician,
-                        Region = targetTask.Region,
-                        Evaluation = targetTask.Evaluation,
-                        Object = targetTask.Object,
-                        ObjectId = targetTask.ObjectId,
-                        Instructions = targetTask.Instructions,
-                        SkillLevel = targetTask.SkillLevel,
-                        TechnicianComment = targetTask.TechnicianComment
-                    };
-                }
-                return modified;
-            });
+                    TechnicianId = t.Id,
+                    TravelMinutes = null,
+                    IsSelectable = true
+                }));
+                return Ok(result);
+            }
 
-            var visibleTechs = technicians
-                .Where(t => scopeTasks.Any(task => task.TechnicianId == t.Id) || t.Id == dto.TargetTechnicianId)
+            var startAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, dto.StartMinutes, dto.TimezoneOffsetMinutes);
+            var endAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, dto.EndMinutes, dto.TimezoneOffsetMinutes);
+            var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, 0, dto.TimezoneOffsetMinutes);
+            var dayEndUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate.AddDays(1), 0, dto.TimezoneOffsetMinutes);
+            long? scopedPlanId = null;
+            if (dto.TaskId.HasValue)
+            {
+                scopedPlanId = await _db.Tasks
+                    .AsNoTracking()
+                    .Where(t => t.Id == dto.TaskId.Value)
+                    .Select(t => t.PlanId)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+
+            var dayTasks = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                .Where(t => dto.TaskId == null || t.Id != dto.TaskId.Value)
+                .Where(t => scopedPlanId == null || t.PlanId == scopedPlanId)
+                .Where(t => t.StartAt < dayEndUtc && t.EndAt > dayStartUtc)
+                .Select(t => new PreviewTaskRow(
+                    t.TechnicianId,
+                    t.StartAt,
+                    t.EndAt,
+                    t.ServiceObject.AddressId))
+                .ToListAsync(cancellationToken);
+
+            var tasksByTech = dayTasks
+                .GroupBy(t => t.TechnicianId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.StartAt).ToList());
+
+            var candidates = new List<(long TechnicianId, long FromAddressId)>();
+            foreach (var tech in technicians)
+            {
+                var techTasks = tasksByTech.TryGetValue(tech.Id, out var list)
+                    ? list
+                    : new List<PreviewTaskRow>();
+
+                var prevTask = techTasks
+                    .Where(t => t.EndAt <= startAtUtc)
+                    .OrderByDescending(t => t.EndAt)
+                    .FirstOrDefault();
+
+                var fromAddressId = prevTask != null ? (long)prevTask.AddressId : tech.WorkplaceAddressId;
+                candidates.Add((tech.Id, fromAddressId));
+            }
+
+            var requiredPairs = candidates
+                .Select(c => (FromAddressId: c.FromAddressId, ToAddressId: targetAddressId.Value))
+                .Distinct()
                 .ToList();
 
-            var response = new DragPreviewResponseDto
-            {
-                DraggedTaskId = targetTask.Id
-            };
+            await WarmupMissingRoutesAsync(requiredPairs, cancellationToken);
 
-            foreach (var tech in visibleTechs)
+            foreach (var c in candidates)
             {
-                var loadSnapshot = BuildLoadSnapshotForSimulation(
-                    tech.Id,
-                    dayStart,
-                    modifiedSim.Tasks.ToList(),
-                    modifiedSim.Technicians.ToList());
+                var feasibility = await _travelFeasibilityService.EvaluatePlacementAsync(
+                    c.TechnicianId,
+                    startAtUtc,
+                    endAtUtc,
+                    targetAddressId.Value,
+                    dto.StartMinutes,
+                    dto.TaskId,
+                    checkOverlap: true,
+                    cancellationToken);
 
-                response.PreviewStates.Add(new DragPreviewStateDto
+                result.Items.Add(new AssigneeTravelPreviewItemDto
                 {
-                    TechnicianId = tech.Id,
-                    LoadState = loadSnapshot.LoadState,
-                    HasConflict = loadSnapshot.HasConflict,
-                    IsDailyLimitExceeded = loadSnapshot.IsDailyLimitExceeded,
-                    IsWeeklyLimitExceeded = loadSnapshot.IsWeeklyLimitExceeded,
-                    IsSwitchLimitExceeded = loadSnapshot.IsSwitchLimitExceeded,
-                    DailyHours = Math.Round(loadSnapshot.DailyHours, 2),
-                    WeeklyHours = Math.Round(loadSnapshot.WeeklyHours, 2),
-                    DailyLimit = loadSnapshot.DailyLimit,
-                    WeeklyLimit = loadSnapshot.WeeklyLimit,
-                    DailyUtilization = Math.Round(loadSnapshot.DailyUtilization, 2),
-                    WeeklyUtilization = Math.Round(loadSnapshot.WeeklyUtilization, 2),
-                    SwitchCount = loadSnapshot.SwitchCount
+                    TechnicianId = c.TechnicianId,
+                    TravelMinutes = feasibility.InboundTravelMinutes,
+                    IsSelectable = feasibility.IsFeasible
                 });
             }
 
-            _logger.LogInformation("api.task.preview.drag task={TaskId} plan={PlanId} tech={Tech} date={Day} states={Count}", targetTask.Id, targetTask.PlanId, dto.TargetTechnicianId, dayStart, response.PreviewStates.Count);
+            return Ok(result);
+        }
 
-            return Ok(response);
+        private async Task WarmupMissingRoutesAsync(
+            IReadOnlyCollection<(long FromAddressId, long ToAddressId)> pairs,
+            CancellationToken cancellationToken)
+        {
+            if (pairs.Count == 0)
+            {
+                return;
+            }
+
+            var fromIds = pairs.Select(p => p.FromAddressId).Distinct().ToList();
+            var toIds = pairs.Select(p => p.ToAddressId).Distinct().ToList();
+            var existingPairs = await _db.TravelRoutes
+                .AsNoTracking()
+                .Where(r => fromIds.Contains(r.FromAddressId) && toIds.Contains(r.ToAddressId))
+                .Select(r => new { r.FromAddressId, r.ToAddressId })
+                .ToListAsync(cancellationToken);
+            var existingLookup = existingPairs
+                .Select(p => (p.FromAddressId, p.ToAddressId))
+                .ToHashSet();
+
+            var missingPairs = pairs
+                .Where(p => !existingLookup.Contains((p.FromAddressId, p.ToAddressId)))
+                .Distinct()
+                .ToList();
+            if (missingPairs.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var addressIds = missingPairs
+                    .SelectMany(p => new[] { p.FromAddressId, p.ToAddressId })
+                    .Distinct()
+                    .ToList();
+                var addresses = await _db.Addresses
+                    .Where(a => addressIds.Contains(a.Id))
+                    .ToListAsync(cancellationToken);
+                var byId = addresses.ToDictionary(a => a.Id);
+
+                var coordsUpdated = false;
+                foreach (var address in addresses)
+                {
+                    if (address.Latitude.HasValue && address.Longitude.HasValue)
+                    {
+                        continue;
+                    }
+
+                    var coords = await _locationApiClient.GeocodeAsync(address.FullAddress, cancellationToken);
+                    address.Latitude = coords.Latitude;
+                    address.Longitude = coords.Longitude;
+                    coordsUpdated = true;
+                }
+
+                if (coordsUpdated)
+                {
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
+
+                var matrixAddressIds = addresses
+                    .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
+                    .Select(a => a.Id)
+                    .Distinct()
+                    .ToList();
+                if (matrixAddressIds.Count < 2)
+                {
+                    return;
+                }
+
+                var matrixAddresses = matrixAddressIds
+                    .Select(id => byId[id])
+                    .ToList();
+                var indexByAddressId = matrixAddresses
+                    .Select((address, idx) => new { address.Id, idx })
+                    .ToDictionary(x => x.Id, x => x.idx);
+                var points = matrixAddresses
+                    .Select(a => new GeoPoint(a.Latitude!.Value, a.Longitude!.Value))
+                    .ToList();
+                var matrix = await _distanceApiClient.GetMatrixAsync(points, cancellationToken);
+
+                foreach (var pair in missingPairs)
+                {
+                    if (!indexByAddressId.TryGetValue(pair.FromAddressId, out var fromIdx) ||
+                        !indexByAddressId.TryGetValue(pair.ToAddressId, out var toIdx))
+                    {
+                        continue;
+                    }
+
+                    var distanceMeters = matrix.DistancesMeters[fromIdx][toIdx];
+                    var durationSeconds = matrix.DurationsSeconds[fromIdx][toIdx];
+                    _db.TravelRoutes.Add(new TravelRouteEntity
+                    {
+                        FromAddressId = pair.FromAddressId,
+                        ToAddressId = pair.ToAddressId,
+                        DistanceKm = Math.Round((decimal)(distanceMeters / 1000d), 2),
+                        DurationMinutes = (int)Math.Ceiling(durationSeconds / 60d),
+                        CalculatedAt = DateTime.UtcNow
+                    });
+                }
+
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "api.task.preview.assignee-travel.warmup.failed");
+            }
         }
 
         [HttpPatch("{id:long}")]
@@ -515,13 +554,12 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (dto.EndAt <= dto.StartAt)
             {
-                return UnprocessableEntity(new { message = "Pabaigos laikas turi b?ti v?lesnis u? prad?i?." });
+                return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlenis už pradžia." });
             }
 
             if (string.IsNullOrWhiteSpace(dto.SkillLevel) ||
                 string.IsNullOrWhiteSpace(dto.ObjectName) ||
-                string.IsNullOrWhiteSpace(dto.ObjectAddress) ||
-                string.IsNullOrWhiteSpace(dto.Location))
+                string.IsNullOrWhiteSpace(dto.ObjectAddress))
             {
                 return UnprocessableEntity(new { message = "Privalomi laukai (kvalifikacija, objektas ir adresas) turi buti uzpildyti." });
             }
@@ -529,7 +567,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var normalizedSkillLevel = dto.SkillLevel.Trim();
             var normalizedObjectName = dto.ObjectName.Trim();
             var normalizedObjectAddress = dto.ObjectAddress.Trim();
-            var normalizedLocation = dto.Location.Trim();
             var normalizedInstructions = (dto.Instructions ?? string.Empty).Trim();
 
             // Convert local times from frontend to UTC for storage
@@ -540,42 +577,30 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 "api.task.update.request id={Id} tz={Tz} localStart={LocalStart} utcStart={UtcStart}",
                 id, dto.TimezoneOffsetMinutes, dto.StartAt, utcStartAt);
 
-            var existing = await _db.Tasks
-                .Include(t => t.Plan)
-                .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+            var existingDetail = await _planService.GetTaskDetailAsync(id, cancellationToken);
 
-            if (existing == null)
+            if (existingDetail == null)
             {
-                return NotFound(new { message = "U?duotis nerasta." });
+                return NotFound(new { message = "Uzduotis nerasta." });
             }
 
-            var currentVersion = _db.Entry(existing).Property<uint>("xmin").CurrentValue;
+            var existing = existingDetail.Task;
+            var currentVersion = existingDetail.Version;
             if (dto.Version == 0 || dto.Version != currentVersion)
             {
-                return Conflict(new { message = "U?duotis buvo pakeista kito vartotojo.", version = currentVersion });
+                return Conflict(new { message = "Uzduotis buvo pakeista kito vartotojo.", version = currentVersion });
             }
 
             var user = _userContextResolver.GetCurrentUser();
-            if (user.IsTechnician && (!user.TechnicianId.HasValue || existing.TechnicianId != user.TechnicianId.Value))
-            {
-                return StatusCode(403, new { message = "Galite redaguoti tik savo u?duotis." });
-            }
 
-            if (!_timeService.IsTaskStillEditable(existing.EndAt))
-            {
-                return UnprocessableEntity(new { message = "?i u?duotis nebegali b?ti redaguojama." });
-            }
-
+            // Single authorization check - TaskPermissionService is the sole authority
             var canEdit = await _taskPermissionService.CanEditTaskAsync(existing, user, dto.TimezoneOffsetMinutes);
             if (!canEdit)
             {
-                return StatusCode(403, new { message = "Neturite teisi? atlikti ?io veiksmo." });
+                return StatusCode(403, new { message = "Neturite teisiu atlikti sio veiksmo." });
             }
 
-            var technicianExists = await _db.Technicians
-                .AsNoTracking()
-                .AnyAsync(t => t.Id == dto.TechnicianId, cancellationToken);
-
+            var technicianExists = await _planService.TechnicianExistsAsync(dto.TechnicianId, cancellationToken);
             if (!technicianExists)
             {
                 return UnprocessableEntity(new { message = "Technikas nerastas." });
@@ -586,41 +611,33 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var endLocal = dto.EndAt;
             if (startLocal.Date != endLocal.Date)
             {
-                return UnprocessableEntity(new { message = "U?duotis turi tilpti vien? dien?." });
+                return UnprocessableEntity(new { message = "Uzduotis turi tilpti viena diena." });
             }
 
             var startMinutes = startLocal.Hour * 60 + startLocal.Minute;
             var endMinutes = endLocal.Hour * 60 + endLocal.Minute;
             if (startMinutes < ScheduleGrid.DayStartMinutes || endMinutes > ScheduleGrid.DayEndMinutes)
             {
-                return UnprocessableEntity(new { message = "U?duotis privalo tilpti ? darbo laik?." });
+                return UnprocessableEntity(new { message = "Uzduotis privalo tilpti i darbo laika." });
             }
 
             if (startMinutes % ScheduleGrid.SlotSizeMinutes != 0 || endMinutes % ScheduleGrid.SlotSizeMinutes != 0)
             {
-                return UnprocessableEntity(new { message = "Laikas turi atitikti grafiko ?ingsn?." });
+                return UnprocessableEntity(new { message = "Laikas turi atitikti grafiko zingsni." });
             }
 
-            var hasOverlap = await _db.Tasks
-                .AsNoTracking()
-                .Where(t => t.Id != id)
-                .Where(t => t.TechnicianId == dto.TechnicianId)
-                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
-                .Where(t => t.StartAt < utcEndAt && t.EndAt > utcStartAt)
-                .AnyAsync(cancellationToken);
-
+            var hasOverlap = await _planService.HasTaskOverlapAsync(id, dto.TechnicianId, utcStartAt, utcEndAt, cancellationToken);
             if (hasOverlap)
             {
-                return Conflict(new { message = "Laiko langas u?imtas (persidengia u?duotys).", version = currentVersion });
+                return Conflict(new { message = "Laiko langas uzimtas (persidengia uzduotys).", version = currentVersion });
             }
 
             // Preserve existing status - managers cannot change it, system manages status automatically
             var preservedStatus = existing.Status;
 
-            var updated = await _planService.UpdateTaskAsync(id, task =>
+            var updateResult = await _planService.UpdateTaskAsync(id, task =>
             {
                 task.Title = dto.Title;
-                task.Location = normalizedLocation;
                 task.StartAt = utcStartAt;
                 task.EndAt = utcEndAt;
                 task.Priority = dto.Priority;
@@ -633,17 +650,26 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 }
             }, dto.TechnicianId, user, dto.TimezoneOffsetMinutes, normalizedObjectName, normalizedObjectAddress, cancellationToken);
 
-            var version = await _db.Tasks
-                .AsNoTracking()
-                .Where(t => t.Id == id)
-                .Select(t => EF.Property<uint>(t, "xmin"))
-                .FirstAsync(cancellationToken);
+            if (!updateResult.Ok)
+            {
+                return updateResult.Error switch
+                {
+                    TaskUpdateError.NotFound => NotFound(new { message = updateResult.Message }),
+                    TaskUpdateError.NotEditable => StatusCode(403, new { message = updateResult.Message }),
+                    TaskUpdateError.TechnicianNotFound => UnprocessableEntity(new { message = updateResult.Message }),
+                    TaskUpdateError.TravelInfeasible => UnprocessableEntity(new { message = updateResult.Message }),
+                    _ => UnprocessableEntity(new { message = updateResult.Message })
+                };
+            }
+
+            var updated = updateResult.Task!;
+            var version = await _planService.GetTaskVersionAsync(id, cancellationToken);
 
             var response = new TaskCreatedOrUpdatedResponseDto
             {
                 Id = updated.Id,
                 Version = version,
-                Load = await BuildLoadSnapshotAsync(updated.TechnicianId, updated.StartAt.Date, cancellationToken)
+                Load = await _planService.GetWorkloadSnapshotAsync(updated.TechnicianId, updated.StartAt.Date, cancellationToken)
             };
 
             _logger.LogInformation("api.task.update id={Id} planId={PlanId} version={Version}", id, updated.PlanId, version);
@@ -681,12 +707,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.Task != null)
             {
-                var version = await _db.Tasks
-                    .AsNoTracking()
-                    .Where(t => t.Id == id)
-                    .Select(t => EF.Property<uint>(t, "xmin"))
-                    .FirstAsync(cancellationToken);
-
                 // Convert UTC times to local for response
                 var timezoneOffset = dto.TimezoneOffsetMinutes;
                 var localStartAt = _timeService.ConvertUtcToLocal(result.Task.StartAt, timezoneOffset);
@@ -695,14 +715,14 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 var response = new TaskMovedResponseDto
                 {
                     Id = result.Task.Id,
-                    Version = version,
+                    Version = result.CurrentVersion ?? 0,
                     TechnicianId = result.Task.TechnicianId,
                     StartAt = localStartAt,
                     EndAt = localEndAt,
-                    Load = await BuildLoadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
                 };
 
-                _logger.LogInformation("api.task.move id={Id} techId={TechId} version={Version}", id, dto.TargetTechnicianId, version);
+                _logger.LogInformation("api.task.move id={Id} techId={TechId} version={Version}", id, dto.TargetTechnicianId, result.CurrentVersion);
                 return Ok(response);
             }
 
@@ -713,7 +733,70 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 TaskMoveError.InvalidWindow => UnprocessableEntity(new { message = result.Message }),
                 TaskMoveError.NotEditable => StatusCode(403, new { message = result.Message }),
                 TaskMoveError.Overlap => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                TaskMoveError.TravelInfeasible => UnprocessableEntity(new { message = result.Message }),
                 TaskMoveError.Stale => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                _ => StatusCode(500, new { message = result.Message ?? "Unknown error" })
+            };
+        }
+
+        [HttpPatch("{id:long}/swap")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> SwapTask(long id, [FromBody] SwapTaskRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                return ValidationProblem(ModelState);
+            }
+
+            var user = _userContextResolver.GetCurrentUser();
+            var result = await _planService.SwapTasksAsync(
+                id,
+                dto.TargetTaskId,
+                dto.SourceVersion,
+                dto.TargetVersion,
+                user,
+                dto.TimezoneOffsetMinutes,
+                cancellationToken);
+
+            if (result.Ok && result.SourceTask != null && result.TargetTask != null)
+            {
+                var sourceLocalStart = _timeService.ConvertUtcToLocal(result.SourceTask.StartAt, dto.TimezoneOffsetMinutes);
+                var sourceLocalEnd = _timeService.ConvertUtcToLocal(result.SourceTask.EndAt, dto.TimezoneOffsetMinutes);
+                var targetLocalStart = _timeService.ConvertUtcToLocal(result.TargetTask.StartAt, dto.TimezoneOffsetMinutes);
+                var targetLocalEnd = _timeService.ConvertUtcToLocal(result.TargetTask.EndAt, dto.TimezoneOffsetMinutes);
+
+                return Ok(new TaskSwappedResponseDto
+                {
+                    SourceTaskId = result.SourceTask.Id,
+                    SourceVersion = result.CurrentSourceVersion ?? 0,
+                    SourceStartAt = sourceLocalStart,
+                    SourceEndAt = sourceLocalEnd,
+                    TargetTaskId = result.TargetTask.Id,
+                    TargetVersion = result.CurrentTargetVersion ?? 0,
+                    TargetStartAt = targetLocalStart,
+                    TargetEndAt = targetLocalEnd,
+                    TechnicianId = result.SourceTask.TechnicianId,
+                    Load = await _planService.GetWorkloadSnapshotAsync(
+                        result.SourceTask.TechnicianId,
+                        result.SourceTask.StartAt.Date,
+                        cancellationToken)
+                });
+            }
+
+            return result.Error switch
+            {
+                TaskSwapError.NotFound => NotFound(new { message = result.Message }),
+                TaskSwapError.TargetNotFound => NotFound(new { message = result.Message }),
+                TaskSwapError.NotEditable => StatusCode(403, new { message = result.Message }),
+                TaskSwapError.Stale => Conflict(new
+                {
+                    message = result.Message,
+                    sourceVersion = result.CurrentSourceVersion,
+                    targetVersion = result.CurrentTargetVersion
+                }),
+                TaskSwapError.InvalidSwap => UnprocessableEntity(new { message = result.Message }),
+                TaskSwapError.Overlap => Conflict(new { message = result.Message }),
+                TaskSwapError.TravelInfeasible => UnprocessableEntity(new { message = result.Message }),
                 _ => StatusCode(500, new { message = result.Message ?? "Unknown error" })
             };
         }
@@ -733,81 +816,17 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return StatusCode(403, new { message = "Managers must use the main edit endpoint." });
             }
 
-            // Validate that technician can only set status to Completed (1) or Conflict (2)
-            // InProgress (0) and Canceled (3) are system-managed only
-            if (dto.Status != ScheduleTaskStatus.Completed && dto.Status != ScheduleTaskStatus.Conflict)
+            var result = await _planService.TechnicianUpdateTaskAsync(
+                id,
+                dto.Status,
+                dto.Comment,
+                dto.Version,
+                user,
+                dto.TimezoneOffsetMinutes,
+                cancellationToken);
+
+            if (result.Ok && result.Task != null)
             {
-                return UnprocessableEntity(new { message = "Galite nustatyti tik 'Atlikta' arba 'Problema' statusus." });
-            }
-
-            var task = await _db.Tasks
-                .Include(t => t.Plan)
-                .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
-
-            if (task == null)
-            {
-                return NotFound(new { message = "Uzduotis nerasta." });
-            }
-
-            if (user.IsTechnician && (!user.TechnicianId.HasValue || task.TechnicianId != user.TechnicianId.Value))
-            {
-                _logger.LogWarning(
-                    "api.task.technician-update.forbidden userId={UserId} taskId={TaskId} ownerId={OwnerId}",
-                    user.UserId, id, task.TechnicianId);
-                return StatusCode(403, new { message = "Galite redaguoti tik savo uzduotis." });
-            }
-
-            if (!_timeService.IsTaskStillEditable(task.EndAt))
-            {
-                return UnprocessableEntity(new { message = "Si uzduotis nebegali buti redaguojama." });
-            }
-
-            var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, dto.TimezoneOffsetMinutes);
-            if (!canEdit)
-            {
-                _logger.LogWarning(
-                    "api.task.technician-update.not-editable userId={UserId} taskId={TaskId}",
-                    user.UserId, id);
-                return StatusCode(403, new { message = "Si uzduotis nebegali buti redaguojama." });
-            }
-
-            var currentVersion = await _db.Tasks
-                .AsNoTracking()
-                .Where(t => t.Id == id)
-                .Select(t => EF.Property<uint>(t, "xmin"))
-                .FirstAsync(cancellationToken);
-
-            if (currentVersion != dto.Version)
-            {
-                _logger.LogWarning(
-                    "api.task.technician-update.version-conflict taskId={Id} expected={Expected} actual={Actual}",
-                    id, dto.Version, currentVersion);
-                return Conflict(new
-                {
-                    message = "Uzduotis buvo pakeista kito vartotojo. Prasome atnaujinti puslapi.",
-                    version = currentVersion
-                });
-            }
-
-            task.Status = dto.Status;
-            task.TechnicianComment = dto.Comment;
-
-            try
-            {
-                await _db.SaveChangesAsync(cancellationToken);
-
-                // Trigger evaluation recalculation when status changes (affects workload for Completed/Canceled tasks)
-                if (task.PlanId.HasValue)
-                {
-                    await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
-                }
-
-                var newVersion = await _db.Tasks
-                    .AsNoTracking()
-                    .Where(t => t.Id == id)
-                    .Select(t => EF.Property<uint>(t, "xmin"))
-                    .FirstAsync(cancellationToken);
-
                 _logger.LogInformation(
                     "api.task.technician-update.success userId={UserId} taskId={TaskId} status={Status}",
                     user.UserId, id, dto.Status);
@@ -815,16 +834,23 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return Ok(new TaskCreatedOrUpdatedResponseDto
                 {
                     Id = id,
-                    Version = newVersion
+                    Version = result.CurrentVersion ?? 0
                 });
             }
-            catch (DbUpdateConcurrencyException)
+
+            _logger.LogWarning(
+                "api.task.technician-update.rejected userId={UserId} taskId={TaskId} reason={Reason}",
+                user.UserId, id, result.Error);
+
+            return result.Error switch
             {
-                _logger.LogWarning(
-                    "api.task.technician-update.concurrency taskId={Id}",
-                    id);
-                return Conflict(new { message = "Uzduotis buvo pakeista kito vartotojo. Prasome atnaujinti puslapi." });
-            }
+                TechnicianUpdateError.TaskNotFound => NotFound(new { message = result.Message }),
+                TechnicianUpdateError.NotOwner => StatusCode(403, new { message = result.Message }),
+                TechnicianUpdateError.NotEditable => StatusCode(403, new { message = result.Message }),
+                TechnicianUpdateError.InvalidStatus => UnprocessableEntity(new { message = result.Message }),
+                TechnicianUpdateError.Stale => Conflict(new { message = result.Message, version = result.CurrentVersion }),
+                _ => StatusCode(500, new { message = "Nepavyko atnaujinti uzduoties." })
+            };
         }
 
         private static bool TryParseDate(string value, out DateTime parsed)
@@ -840,24 +866,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             return false;
         }
 
-        /// Extract browser timezone offset from request headers.
-        private int GetBrowserTimezoneOffset()
-        {
-            // Try header first (for AJAX requests)
-            if (Request.Headers.TryGetValue("X-Timezone-Offset", out var tzHeader) &&
-                int.TryParse(tzHeader.ToString(), out var offset))
-            {
-                return offset;
-            }
-
-            // Fallback to cookie (for initial page loads)
-            if (Request.Cookies.TryGetValue("timezone_offset", out var tzCookie) &&
-                int.TryParse(tzCookie, out var cookieOffset))
-            {
-                return cookieOffset;
-            }
-
-            return 0;
-        }
     }
 }
+

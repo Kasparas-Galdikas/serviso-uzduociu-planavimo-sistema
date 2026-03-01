@@ -16,7 +16,6 @@ public class TestTaskRequestBuilder
     private string _title = string.Empty;
 
     // Defaults for optional/required fields - UPDATE HERE when new fields are added
-    private string _location = "HQ";
     private TaskPriority _priority = TaskPriority.Medium;
     private ScheduleTaskStatus _status = ScheduleTaskStatus.InProgress;
     private int _timezoneOffsetMinutes = 0;
@@ -48,12 +47,6 @@ public class TestTaskRequestBuilder
     public static TestTaskRequestBuilder Create(long technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title)
     {
         return Create(technicianId, DateOnly.FromDateTime(targetDate.Date).ToString("yyyy-MM-dd"), startMinutes, endMinutes, title);
-    }
-
-    public TestTaskRequestBuilder WithLocation(string location)
-    {
-        _location = location;
-        return this;
     }
 
     public TestTaskRequestBuilder WithPriority(TaskPriority priority)
@@ -110,7 +103,6 @@ public class TestTaskRequestBuilder
             StartMinutes = _startMinutes,
             EndMinutes = _endMinutes,
             Title = _title,
-            Location = _location,
             Priority = _priority,
             Status = _status,
             TimezoneOffsetMinutes = _timezoneOffsetMinutes,

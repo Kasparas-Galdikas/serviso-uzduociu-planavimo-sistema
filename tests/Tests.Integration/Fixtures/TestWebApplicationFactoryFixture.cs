@@ -1,3 +1,10 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using Xunit;
 
 namespace Tests.Integration.Fixtures;
@@ -14,7 +21,20 @@ public sealed class TestWebApplicationFactoryFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await Postgres.InitializeAsync();
-        Factory = new TestWebApplicationFactory(Postgres);
+        Factory = new TestWebApplicationFactory(
+            Postgres,
+            configureTestServices: services =>
+            {
+                services.RemoveAll<ILocationApiClient>();
+                services.RemoveAll<IDistanceApiClient>();
+                services.AddSingleton<ILocationApiClient, NoNetworkLocationApiClient>();
+                services.AddSingleton<IDistanceApiClient, NoNetworkDistanceApiClient>();
+            },
+            configOverrides: new Dictionary<string, string?>
+            {
+                ["HEIGIT_API_KEY"] = "__PLACEHOLDER__",
+                ["HEIGIT_BASE_URL"] = "https://tests.invalid"
+            });
 
         // Force the app to boot, which runs migrations via Program.cs
         // This must happen before Respawn can analyze the schema
@@ -25,5 +45,17 @@ public sealed class TestWebApplicationFactoryFixture : IAsyncLifetime
     {
         Factory.Dispose();
         await Postgres.DisposeAsync();
+    }
+
+    private sealed class NoNetworkLocationApiClient : ILocationApiClient
+    {
+        public Task<GeoPoint> GeocodeAsync(string address, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("External geocoding is disabled in integration tests.");
+    }
+
+    private sealed class NoNetworkDistanceApiClient : IDistanceApiClient
+    {
+        public Task<MatrixResult> GetMatrixAsync(IReadOnlyList<GeoPoint> coordinates, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("External distance matrix is disabled in integration tests.");
     }
 }

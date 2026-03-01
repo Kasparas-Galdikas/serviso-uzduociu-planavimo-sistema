@@ -2,20 +2,27 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Net;
 using ServiceTaskPlanningSystem.Models.Planning;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.Scheduling
 {
     public interface IScheduleLayoutBuilder
     {
-        DailyTableLayout BuildDailyLayout(SchedulePageViewModel viewModel);
-        WeeklyTableLayout BuildWeeklyLayout(SchedulePageViewModel viewModel);
+        DailyTableLayout BuildDailyLayout(SchedulePageViewModel viewModel, int timezoneOffsetMinutes);
+        WeeklyTableLayout BuildWeeklyLayout(SchedulePageViewModel viewModel, int timezoneOffsetMinutes);
     }
 
     public class ScheduleLayoutBuilder : IScheduleLayoutBuilder
     {
-        public DailyTableLayout BuildDailyLayout(SchedulePageViewModel viewModel)
+        private readonly IScheduleTimeService _timeService;
+
+        public ScheduleLayoutBuilder(IScheduleTimeService timeService)
+        {
+            _timeService = timeService;
+        }
+
+        public DailyTableLayout BuildDailyLayout(SchedulePageViewModel viewModel, int timezoneOffsetMinutes)
         {
             var day = viewModel.SelectedDate != default ? viewModel.SelectedDate : viewModel.WeekStart;
 
@@ -64,57 +71,14 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                         var remainingSlots = slots.Count - slotIndex;
                         var colspan = Math.Max(1, Math.Min(durationSlots, remainingSlots));
 
-                        var contentHtml = string.Join(string.Empty, slotTasks.Select(task =>
-                        {
-                            var sourceClass = task.Source switch
-                            {
-                                TaskPlanSource.Draft => "task-draft",
-                                TaskPlanSource.Superseded => "task-superseded",
-                                _ => "task-active"
-                            };
-                            var editClass = task.IsEditable ? string.Empty : "read-only";
-                            var loadClass = task.IsConflict
-                                ? "task-conflict"
-                                : (task.IsLoad || task.OverloadHours > 0) ? "task-load" : "task-normal";
-                            // Task execution status class (inprogress, completed, conflict, canceled)
-                            var statusClass = $"task-status-{task.Status}";
-                            var durationMinutes = (int)Math.Round((task.End - task.Start).TotalMinutes);
-                            var handleHtml = task.IsEditable ? @"<span class=""task-drag-handle"" draggable=""true"" aria-label=""Perkelti"" title=""Perkelti"">⋮⋮</span>" : string.Empty;
-                            
-                            // Edit button only shows when task is editable
-                            var editButtonHtml = task.IsEditable
-                                ? @"<button type=""button"" class=""task-card-action task-card-action-edit"" title=""Koreguoti laika"" aria-label=""Koreguoti laika"">
-            <i class=""bi bi-pencil"" aria-hidden=""true""></i>
-        </button>"
-                                : string.Empty;
-                            
-                            // Delete button only shows when user can delete
-                            var deleteButtonHtml = task.CanDelete
-                                ? @"<button type=""button"" class=""task-card-action task-card-action-delete"" title=""Istrinti uzduoti"" aria-label=""Istrinti uzduoti"">
-            <i class=""bi bi-x-lg"" aria-hidden=""true""></i>
-        </button>"
-                                : string.Empty;
-                            
-                            var actionsHtml = task.IsEditable || task.CanDelete
-                                ? @"<div class=""task-card-actions"" aria-label=""Uzduoties veiksmai"">
-        " + editButtonHtml + deleteButtonHtml + @"
-    </div>"
-                                : string.Empty;
-                            return $@"
-<div class=""task-card {loadClass} {sourceClass} {editClass} {statusClass}"" data-plan=""{task.PlanId}"" data-task-id=""{task.Id}"" data-tech-id=""{task.TechnicianId}"" data-plan-source=""{task.Source.ToString().ToLowerInvariant()}"" data-task-status=""{task.Status}""
-    data-editable=""{task.IsEditable.ToString().ToLowerInvariant()}"" data-task-version=""{task.Version}"" data-duration-minutes=""{durationMinutes}"" data-date=""{task.Start:yyyy-MM-dd}"" data-start-minutes=""{(int)task.Start.TimeOfDay.TotalMinutes}"">
-    {actionsHtml}
-    <div class=""task-time"">{handleHtml}{task.Start:HH:mm} - {task.End:HH:mm}</div>
-    <div class=""task-title"">{WebUtility.HtmlEncode(task.Title)}</div>
-    <div class=""task-location"">{WebUtility.HtmlEncode(task.Location)}</div>
-</div>";
-                        }));
-
                         cells.Add(new TableCell
                         {
                             CssClass = "schedule-cell",
                             ColSpan = colspan,
-                            ContentHtml = contentHtml
+                            DailyData = new DailyCellData
+                            {
+                                Tasks = slotTasks
+                            }
                         });
 
                         slotIndex += colspan;
@@ -123,10 +87,20 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                     {
                         var emptySlotStartMinutes = startMinutes + slotIndex * slotSize;
                         var timeLabel = TimeSpan.FromMinutes(emptySlotStartMinutes).ToString(@"hh\:mm");
+
                         cells.Add(new TableCell
                         {
                             CssClass = "schedule-cell empty-slot",
-                            ContentHtml = $@"<div class=""schedule-slot"" role=""button"" tabindex=""0"" aria-label=""Pasirinkti laiko tarpa nuo {timeLabel}"" data-date=""{day:yyyy-MM-dd}"" data-tech-id=""{tech.Id}"" data-slot-start-minutes=""{emptySlotStartMinutes}""></div>"
+                            DailyData = new DailyCellData
+                            {
+                                EmptySlot = new EmptySlotInfo
+                                {
+                                    Date = day.ToString("yyyy-MM-dd"),
+                                    TechnicianId = tech.Id,
+                                    SlotStartMinutes = emptySlotStartMinutes,
+                                    TimeLabel = timeLabel
+                                }
+                            }
                         });
                         slotIndex++;
                     }
@@ -134,7 +108,12 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
                 rows.Add(new TableRow
                 {
-                    HeaderHtml = $@"<div class=""fw-semibold"">{WebUtility.HtmlEncode(tech.Name)}</div><div class=""text-muted small"">{WebUtility.HtmlEncode(tech.Location)}</div>",
+                    TechnicianInfo = new TechnicianHeaderInfo
+                    {
+                        TechnicianId = tech.Id,
+                        Name = tech.Name,
+                        Location = tech.Location
+                    },
                     Cells = cells
                 });
             }
@@ -144,7 +123,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             return new DailyTableLayout
             {
                 HeaderLabel = headerLabel,
-                IsToday = day.Date == DateTime.Today,
+                IsToday = day.Date == _timeService.GetUserLocalToday(timezoneOffsetMinutes),
                 Table = new TableShellModel
                 {
                     FirstColumnTitle = "Technikai",
@@ -156,25 +135,18 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             };
         }
 
-        public WeeklyTableLayout BuildWeeklyLayout(SchedulePageViewModel viewModel)
+        public WeeklyTableLayout BuildWeeklyLayout(SchedulePageViewModel viewModel, int timezoneOffsetMinutes)
         {
             var lt = CultureInfo.GetCultureInfo("lt-LT");
             var days = Enumerable.Range(0, 7)
                 .Select(i => viewModel.WeekStart.Date.AddDays(i))
                 .ToList();
 
-            string GetDotClass(string state) => state switch
-            {
-                "task-conflict" => "is-conflict",
-                "task-load" => "is-load",
-                _ => "is-normal"
-            };
-
             var columns = days
                 .Select(d =>
                 {
                     var label = lt.TextInfo.ToTitleCase(d.ToString("dddd yyyy-MM-dd", lt));
-                    var isToday = d.Date == DateTime.Today;
+                    var isToday = d.Date == _timeService.GetUserLocalToday(timezoneOffsetMinutes);
                     return new TableColumn
                     {
                         Title = label,
@@ -209,47 +181,32 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                             ? "task-load"
                             : "task-normal";
 
-                    var loadLine = $"{totalHours:0.#}h / {dailyLimit:0.#}h";
-                    var taskLine = taskCount > 0 ? $"{taskCount} uzduotys" : "Nera uzduociu";
-                    var freeLine = freeHours >= 0
-                        ? $"+{freeHours:0.#}h laisva"
-                        : $"{Math.Abs(freeHours):0.#}h viršija";
-                    var freeClass = freeHours >= 0 ? "text-success" : "text-danger";
-                    var dotTitle = stateClass switch
-                    {
-                        "task-conflict" => "Perkrova",
-                        "task-load" => "Apkrova",
-                        _ => "Normali"
-                    };
-                    var statusDot = $@"<span class=""state-dot-only {GetDotClass(stateClass)}"" title=""{dotTitle}"" aria-label=""{dotTitle}""></span>";
-
-                    var content = $@"
-<a href=""{dailyUrl}"" class=""text-decoration-none d-block"">
-<div class=""task-card weekly-card p-2"">
-    <div class=""d-flex justify-content-between align-items-start gap-2 mb-1"">
-        <div class=""fact-line fw-semibold mb-0"">{loadLine}</div>
-        {statusDot}
-    </div>
-    <div class=""d-flex justify-content-between align-items-start gap-2"">
-        <div class=""weekly-facts"">
-            <div class=""fact-line text-muted"">{WebUtility.HtmlEncode(taskLine)}</div>
-            <div class=""fact-line {freeClass}"">{freeLine}</div>
-        </div>
-    </div>
-</div>
-</a>";
-
                     cells.Add(new TableCell
                     {
                         CssClass = "schedule-cell",
                         ColSpan = 1,
-                        ContentHtml = content
+                        WeeklyData = new WeeklyCellData
+                        {
+                            DailyUrl = dailyUrl,
+                            TotalHours = totalHours,
+                            TaskCount = taskCount,
+                            DailyLimit = dailyLimit,
+                            FreeHours = freeHours,
+                            HasConflicts = hasConflicts,
+                            HasLoadFlags = hasLoadFlags,
+                            StateClass = stateClass
+                        }
                     });
                 }
 
                 rows.Add(new TableRow
                 {
-                    HeaderHtml = $@"<div class=""fw-semibold"">{WebUtility.HtmlEncode(tech.Name)}</div><div class=""text-muted small"">{WebUtility.HtmlEncode(tech.Location)}</div>",
+                    TechnicianInfo = new TechnicianHeaderInfo
+                    {
+                        TechnicianId = tech.Id,
+                        Name = tech.Name,
+                        Location = tech.Location
+                    },
                     Cells = cells
                 });
             }

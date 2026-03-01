@@ -13,7 +13,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public double ConflictPenalty { get; init; } = -1000.0;
         public double DailyOverPenalty { get; init; } = -500.0;
         public double WeeklyOverPenalty { get; init; } = -300.0;
-        public double SwitchOverPenalty { get; init; } = -200.0;
 
         // Per-hour overage penalties
         public double DailyOverHoursPenalty { get; init; } = -50.0;
@@ -24,9 +23,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public double MediumUtilizationPenalty { get; init; } = -10.0; // 50-75%
         public double HighUtilizationPenalty { get; init; } = -25.0;   // 75-90%
         public double VeryHighUtilizationPenalty { get; init; } = -50.0; // 90-100%
-
-        // Travel/switch penalties
-        public double SwitchCountPenalty { get; init; } = -5.0;
 
         // Weighting for multi-objective optimization
         public double DailyLoadWeight { get; init; } = 1.5;

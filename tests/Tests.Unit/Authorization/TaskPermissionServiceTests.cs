@@ -42,6 +42,18 @@ public class TaskPermissionServiceTests
     }
 
     [Fact]
+    public async Task AnonymousRole_ReturnsFalse()
+    {
+        _timeService.IsTaskStillEditable(Arg.Any<DateTime>()).Returns(true);
+        var service = CreateService(new[] { AllowPolicy() });
+        var user = new UserContext { Role = UserRole.Anonymous };
+
+        var result = await service.CanEditTaskAsync(CreateTask(), user, 0);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task TechnicianWithoutMapping_ReturnsFalse()
     {
         _timeService.IsTaskStillEditable(Arg.Any<DateTime>()).Returns(true);

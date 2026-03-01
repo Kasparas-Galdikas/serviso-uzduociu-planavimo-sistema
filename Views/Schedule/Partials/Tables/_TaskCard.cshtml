@@ -1,0 +1,88 @@
+@model ServiceTaskPlanningSystem.Models.Planning.TaskItem
+
+@{
+    var task = Model;
+    if (task.IsTravelBlock)
+    {
+        var travelDurationMinutes = (int)Math.Ceiling(task.TravelDurationMinutes ?? (decimal)(task.End - task.Start).TotalMinutes);
+        var travelHours = travelDurationMinutes / 60;
+        var travelRemainingMinutes = travelDurationMinutes % 60;
+        var travelDurationLabel = travelHours > 0
+            ? (travelRemainingMinutes > 0 ? $"{travelHours} h {travelRemainingMinutes} min" : $"{travelHours} h")
+            : $"{travelDurationMinutes} min";
+        <div class="task-card task-travel travel-slot-card read-only"
+             data-tech-id="@task.TechnicianId"
+             data-date="@task.Start.ToString("yyyy-MM-dd")"
+             data-start-minutes="@((int)task.Start.TimeOfDay.TotalMinutes)"
+             data-duration-minutes="@travelDurationMinutes"
+             data-editable="false"
+             data-travel-for-task-id="@task.TravelForTaskId"
+             aria-label="Kelione @task.Start.ToString("HH:mm") - @task.End.ToString("HH:mm")">
+            <div class="travel-slot-meta" aria-label="Apytikslis keliones laikas">
+                <span class="travel-slot-icon" aria-hidden="true">
+                    <i class="bi bi-car-front-fill"></i>
+                </span>
+                <span class="travel-slot-approx" aria-hidden="true">
+                    @travelDurationLabel
+                </span>
+                <span class="travel-slot-range" aria-hidden="true">
+                    @task.Start.ToString("HH:mm") - @task.End.ToString("HH:mm")
+                </span>
+            </div>
+        </div>
+        return;
+    }
+
+    var sourceClass = task.Source switch
+    {
+        ServiceTaskPlanningSystem.Models.Planning.TaskPlanSource.Draft => "task-draft",
+        ServiceTaskPlanningSystem.Models.Planning.TaskPlanSource.Superseded => "task-superseded",
+        _ => "task-active"
+    };
+    var editClass = task.IsEditable ? string.Empty : "read-only";
+    var loadClass = task.IsConflict
+        ? "task-conflict"
+        : (task.IsLoad || task.OverloadHours > 0) ? "task-load" : "task-normal";
+    var statusClass = $"task-status-{task.Status}";
+    var durationMinutes = (int)Math.Round((task.End - task.Start).TotalMinutes);
+}
+
+<div class="task-card @loadClass @sourceClass @editClass @statusClass"
+     data-plan="@task.PlanId"
+     data-task-id="@task.Id"
+     data-tech-id="@task.TechnicianId"
+     data-plan-source="@task.Source.ToString().ToLowerInvariant()"
+     data-task-status="@task.Status"
+     data-editable="@task.IsEditable.ToString().ToLowerInvariant()"
+     data-task-version="@task.Version"
+     data-duration-minutes="@durationMinutes"
+     data-travel-duration-minutes="@((int)Math.Ceiling(task.TravelDurationMinutes ?? 0))"
+     data-date="@task.Start.ToString("yyyy-MM-dd")"
+     data-start-minutes="@((int)task.Start.TimeOfDay.TotalMinutes)">
+    @if (task.IsEditable || task.CanDelete)
+    {
+        <div class="task-card-actions" aria-label="Uzduoties veiksmai">
+            @if (task.IsEditable)
+            {
+                <button type="button" class="task-card-action task-card-action-edit" title="Koreguoti laika" aria-label="Koreguoti laika">
+                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                </button>
+            }
+            @if (task.CanDelete)
+            {
+                <button type="button" class="task-card-action task-card-action-delete" title="Istrinti uzduoti" aria-label="Istrinti uzduoti">
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                </button>
+            }
+        </div>
+    }
+    <div class="task-time">
+        @if (task.IsEditable)
+        {
+            <span class="task-drag-handle" draggable="true" aria-label="Perkelti" title="Perkelti">&#8942;&#8942;</span>
+        }
+        @task.Start.ToString("HH:mm") - @task.End.ToString("HH:mm")
+    </div>
+    <div class="task-title">@task.Title</div>
+    <div class="task-location">@task.Location</div>
+</div>

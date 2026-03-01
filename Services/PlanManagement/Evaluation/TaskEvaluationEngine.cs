@@ -6,17 +6,20 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
     public class TaskEvaluationEngine : IEvaluationEngine
     {
         private readonly ScheduleDbContext _db;
+        private readonly IScheduleTimeService _timeService;
         private readonly ILogger<TaskEvaluationEngine> _logger;
 
-        public TaskEvaluationEngine(ScheduleDbContext db, ILogger<TaskEvaluationEngine> logger)
+        public TaskEvaluationEngine(ScheduleDbContext db, IScheduleTimeService timeService, ILogger<TaskEvaluationEngine> logger)
         {
             _db = db;
+            _timeService = timeService;
             _logger = logger;
         }
 
@@ -38,7 +41,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         {
             var tasks = await scope(_db.Tasks
                     .Include(t => t.Evaluation)
-                    .Include(t => t.Technician))
+                    .Include(t => t.Technician)
+                        .ThenInclude(t => t.WorkplaceAddress)
+                    .Include(t => t.ServiceObject)
+                        .ThenInclude(o => o.Address))
                 .AsNoTracking()
                 .ToListAsync(cancellationToken);
 
@@ -52,7 +58,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .Where(t => t != null)
                 .GroupBy(t => t!.Id)
                 .ToDictionary(g => g.Key, g => g.First()!);
-            var now = DateTime.UtcNow;
+            var now = _timeService.GetCurrentUtcTime();
             var evaluations = new List<TaskEvaluationEntity>();
             var tracked = await _db.TaskEvaluations
                 .Where(e => tasks.Select(t => t.Id).Contains(e.TaskId))
@@ -66,7 +72,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var conflictCount = 0;
             var overloadTotal = 0d;
-            var switchExceeded = 0;
+            var travelMinutesByTaskId = await BuildTravelMinutesByTaskIdAsync(tasks, cancellationToken);
+
             foreach (var techGroup in tasksByTech)
             {
                 if (!techLookup.TryGetValue(techGroup.Key, out var technician))
@@ -82,25 +89,26 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 foreach (var dayGroup in tasksByDay)
                 {
                     var dayTasks = dayGroup.OrderBy(t => t.StartAt).ToList();
-                    var weekStart = Services.Scheduling.WeekCalculator.GetWeekStart(dayGroup.Key);
+                    var weekStart = _timeService.GetWeekStart(dayGroup.Key);
                     var weekEnd = weekStart.AddDays(7);
                     var weekTasks = techGroup
                         .Where(t => t.StartAt.Date >= weekStart && t.StartAt.Date < weekEnd)
                         .OrderBy(t => t.StartAt)
                         .ToList();
 
-                    var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
+                    var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks, travelMinutesByTaskId);
                     var status = snapshot.Context.ComputeLoadState();
                     var overloadHours = Math.Max(snapshot.Context.DailyOverHours, snapshot.Context.WeeklyOverHours);
                     overloadTotal += overloadHours;
 
-                    if (snapshot.Context.IsSwitchLimitExceeded)
-                    {
-                        switchExceeded++;
-                    }
-
                     var conflictSet = snapshot.Conflicts;
                     conflictCount += conflictSet.Count;
+
+                    var activeDayTasks = dayTasks
+                        .Where(t => WorkloadCalculator.CountsTowardsWorkload(t.Status))
+                        .OrderBy(t => t.StartAt)
+                        .ToList();
+                    var travelViolations = WorkloadCalculator.DetectTravelViolations(activeDayTasks, travelMinutesByTaskId);
 
                     foreach (var task in dayTasks)
                     {
@@ -116,16 +124,27 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                         eval.DailyHours = (decimal)Math.Round(snapshot.DailyHours, 2);
                         eval.WeeklyHours = (decimal)Math.Round(snapshot.WeeklyHours, 2);
                         eval.OverloadHours = overloadHours > 0d ? (decimal)Math.Round(overloadHours, 2) : null;
-                        eval.SwitchCount = snapshot.SwitchCount;
                         eval.Status = status;
                         eval.IsConflict = status == LoadState.Conflict;
                         eval.IsOverloaded = status != LoadState.Normal;
-                        eval.TravelRequired = snapshot.Context.IsSwitchLimitExceeded;
                         eval.LoadHours = (decimal)Math.Round(taskDuration, 2);
                         eval.RiskLevel = status == LoadState.Conflict
                             ? RiskLevel.High
                             : status == LoadState.Load ? RiskLevel.Medium : (RiskLevel?)null;
                         eval.EvaluatedAt = now;
+
+                        if (travelViolations.TryGetValue(task.Id, out var violation))
+                        {
+                            eval.IsTravelInfeasible = true;
+                            eval.RequiredTravelMinutes = violation.Required;
+                            eval.AvailableGapMinutes = violation.Available;
+                        }
+                        else
+                        {
+                            eval.IsTravelInfeasible = false;
+                            eval.RequiredTravelMinutes = null;
+                            eval.AvailableGapMinutes = null;
+                        }
 
                         evaluations.Add(eval);
                     }
@@ -152,7 +171,54 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
-            _logger.LogInformation("svc.eval.recalculate tasks={Tasks} techs={Techs} conflicts={Conflicts} overloadHours={OverloadHours} switchesExceeded={SwitchExceeded}", tasks.Count, tasksByTech.Count, conflictCount, overloadTotal, switchExceeded);
+            _logger.LogInformation("svc.eval.recalculate tasks={Tasks} techs={Techs} conflicts={Conflicts} overloadHours={OverloadHours}", tasks.Count, tasksByTech.Count, conflictCount, overloadTotal);
+        }
+
+        private async Task<Dictionary<long, int>> BuildTravelMinutesByTaskIdAsync(
+            List<TaskEntity> tasks,
+            CancellationToken cancellationToken)
+        {
+            var routes = await _db.TravelRoutes
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+            var routeLookup = routes.ToDictionary(r => (r.FromAddressId, r.ToAddressId), r => r);
+
+            var result = new Dictionary<long, int>();
+            var tasksByTech = tasks
+                .Where(t => t.Technician != null && t.ServiceObject != null)
+                .GroupBy(t => t.TechnicianId)
+                .ToList();
+
+            foreach (var techGroup in tasksByTech)
+            {
+                var technician = techGroup.First().Technician!;
+                var workplaceAddressId = technician.WorkplaceAddressId;
+
+                foreach (var dayGroup in techGroup.OrderBy(t => t.StartAt).GroupBy(t => t.StartAt.Date))
+                {
+                    TaskEntity? prev = null;
+                    foreach (var task in dayGroup.OrderBy(t => t.StartAt))
+                    {
+                        var fromAddressId = prev != null
+                            ? prev.ServiceObject!.AddressId
+                            : workplaceAddressId;
+                        var toAddressId = task.ServiceObject!.AddressId;
+
+                        if (routeLookup.TryGetValue((fromAddressId, toAddressId), out var route))
+                        {
+                            result[task.Id] = route.DurationMinutes;
+                        }
+                        else
+                        {
+                            result[task.Id] = 0;
+                        }
+
+                        prev = task;
+                    }
+                }
+            }
+
+            return result;
         }
     }
 }
