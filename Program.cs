@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.Mvc.Authorization;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
+var migrateOnly = args.Contains("--migrate-only", StringComparer.OrdinalIgnoreCase);
 
 var configuration = ConfigurationLoader.Build(builder.Environment.ContentRootPath, builder.Environment.EnvironmentName);
 builder.Configuration.AddConfiguration(configuration);
@@ -147,27 +148,44 @@ app.MapControllerRoute(
 
 using (var scope = app.Services.CreateScope())
 {
-    try
-    {
-        Console.WriteLine("🔄 Starting database migration...");
-        var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
-        await db.Database.MigrateAsync();
-        Console.WriteLine("✅ Database migration completed");
+    var runMigrationsOnStartup = migrateOnly || configuration.GetValue(
+        "Database:RunMigrationsOnStartup",
+        app.Environment.IsDevelopment());
 
-        Console.WriteLine("🌱 Starting database seeding...");
-        var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
-        await seeder.SeedAsync();
-        Console.WriteLine("✅ Database seeding completed");
-    }
-    catch (Exception ex)
+    if (!runMigrationsOnStartup)
     {
-        Console.WriteLine("🔥 DATABASE STARTUP FAILURE");
-        Console.WriteLine(ex.GetType().FullName);
-        Console.WriteLine(ex.Message);
-        Console.WriteLine(ex.StackTrace);
-        throw;
+        Console.WriteLine("Skipping startup DB migration and seed (Database:RunMigrationsOnStartup=false).");
+    }
+    else
+    {
+        try
+        {
+            Console.WriteLine("Starting database migration...");
+            var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+            await db.Database.MigrateAsync();
+            Console.WriteLine("Database migration completed");
+
+            Console.WriteLine("Starting database seeding...");
+            var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+            await seeder.SeedAsync();
+            Console.WriteLine("Database seeding completed");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("DATABASE STARTUP FAILURE");
+            Console.WriteLine(ex.GetType().FullName);
+            Console.WriteLine(ex.Message);
+            Console.WriteLine(ex.StackTrace);
+            throw;
+        }
     }
 }
 
+if (migrateOnly)
+{
+    Console.WriteLine("Migration-only mode completed successfully.");
+    return;
+}
 
 await app.RunAsync();
+
