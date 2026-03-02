@@ -829,6 +829,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             await _db.SaveChangesAsync(cancellationToken);
+            await TriggerTaskRouteImpactSafelyAsync(task.Id, "update", cancellationToken);
             await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "update", cancellationToken);
 
             // Resolve final address and check travel feasibility after route evaluation.
@@ -2014,6 +2015,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (dayTasks.Count <= 1)
             {
+                LogSwapCompactionSkipped("NoMovableTasks", technicianId, utcDay);
+                return false;
+            }
+
+            var movableCount = dayTasks.Count(t => !fixedTaskIds.Contains(t.Id));
+            if (movableCount == 0)
+            {
+                LogSwapCompactionSkipped("NoMovableTasks", technicianId, utcDay);
                 return false;
             }
 
@@ -2061,6 +2070,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 var requiredMinutes = ResolveRouteMinutes(routeLookup, prevAddressId, task.ServiceObject.AddressId);
                 if (!requiredMinutes.HasValue)
                 {
+                    LogSwapCompactionSkipped("MissingRouteData", technicianId, utcDay);
                     return false;
                 }
 
@@ -2097,8 +2107,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var beforeIdleMinutes = ComputeEffectiveIdleMinutes(ordered, originalStarts, durations, byId, routeLookup);
             var afterIdleMinutes = ComputeEffectiveIdleMinutes(ordered, starts, durations, byId, routeLookup);
-            if (!beforeIdleMinutes.HasValue || !afterIdleMinutes.HasValue || afterIdleMinutes.Value >= beforeIdleMinutes.Value)
+            if (!beforeIdleMinutes.HasValue || !afterIdleMinutes.HasValue)
             {
+                LogSwapCompactionSkipped("MissingRouteData", technicianId, utcDay);
+                return false;
+            }
+
+            if (afterIdleMinutes.Value >= beforeIdleMinutes.Value)
+            {
+                LogSwapCompactionSkipped("NoImprovement", technicianId, utcDay);
                 return false;
             }
 
@@ -2118,6 +2135,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (!changed)
             {
+                LogSwapCompactionSkipped("NoImprovement", technicianId, utcDay);
                 return false;
             }
 
@@ -2131,6 +2149,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 afterIdleMinutes.Value);
 
             return true;
+        }
+
+        private void LogSwapCompactionSkipped(string reason, long technicianId, DateTime utcDay)
+        {
+            _logger.LogInformation(
+                "swap.compaction.skipped reason={Reason} technicianId={TechnicianId} day={Day:yyyy-MM-dd}",
+                reason,
+                technicianId,
+                utcDay.Date);
         }
 
         private static int? ComputeEffectiveIdleMinutes(
@@ -2213,6 +2240,23 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 _logger.LogWarning(ex,
                     "route.evaluation.trigger.failed action={Action} technicianId={TechnicianId} day={Day:yyyy-MM-dd}",
                     action, technicianId, day);
+            }
+        }
+
+        private async Task TriggerTaskRouteImpactSafelyAsync(long taskId, string action, CancellationToken cancellationToken)
+        {
+            _logger.LogInformation(
+                "route.evaluation.task-impact.triggered action={Action} taskId={TaskId}",
+                action, taskId);
+            try
+            {
+                await _routeEvaluationService.EvaluateTaskRouteImpactAsync(taskId, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "route.evaluation.task-impact.trigger.failed action={Action} taskId={TaskId}",
+                    action, taskId);
             }
         }
 

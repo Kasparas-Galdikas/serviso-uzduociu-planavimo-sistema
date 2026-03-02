@@ -1123,11 +1123,11 @@
           targetTaskId,
         });
 
-        let smartSwapAttempted = false;
+        let smartSwapAttempted = true;
         let smartSwapFailed = false;
         try {
-          if (taskApi?.swapTask) {
-            let result = await taskApi.swapTask(
+          if (taskApi?.swapTaskSmart) {
+            let result = await taskApi.swapTaskSmart(
               taskId,
               targetTaskId,
               sourceVersionForRequest,
@@ -1155,7 +1155,7 @@
                 targetVersionForRequest;
 
               if (sourceVersionForRequest && targetVersionForRequest) {
-                result = await taskApi.swapTask(
+                result = await taskApi.swapTaskSmart(
                   taskId,
                   targetTaskId,
                   sourceVersionForRequest,
@@ -1163,74 +1163,25 @@
                 );
               }
             }
-            logEvent("ui.drag.drop.swap.status", {
-              "swap.status": result.success ? "ok" : "failed",
-              "swap.errorType": result.errorType || "",
-              "swap.staleRetryAttempted": staleRetryAttempted,
-              "smartSwap.attempted": false,
-              "smartSwap.failed": false,
-            });
             if (!result.success) {
-              const shouldTrySmartSwap =
-                (result.errorType === "unprocessable" || result.errorType === "conflict") &&
-                !!taskApi?.swapTaskSmart;
-              if (shouldTrySmartSwap) {
-                smartSwapAttempted = true;
-                logEvent("ui.drag.drop.swap.smart.attempt", {
-                  "swap.status": "failed",
-                  "swap.errorType": result.errorType || "",
-                  "smartSwap.attempted": true,
-                  "smartSwap.failed": false,
-                });
-                const smartResult = await taskApi.swapTaskSmart(
-                  taskId,
-                  targetTaskId,
-                  sourceVersionForRequest,
-                  targetVersionForRequest
-                );
-                if (!smartResult.success) {
-                  smartSwapFailed = true;
-                  logEvent("ui.drag.drop.swap.smart.failed", {
-                    "swap.status": "failed",
-                    "swap.errorType": smartResult.errorType || result.errorType || "unknown",
-                    "swap.staleRetryAttempted": staleRetryAttempted,
-                    "smartSwap.attempted": true,
-                    "smartSwap.failed": true,
-                    reason: smartResult.error || result.error || "",
-                  }, "warn");
-                  alert(smartResult.error || result.error || "Nepavyko sukeisti uzduociu.");
-                } else {
-                  logEvent("ui.drag.drop.swap.smart.status", {
-                    "swap.status": "ok",
-                    "swap.errorType": "",
-                    "swap.staleRetryAttempted": staleRetryAttempted,
-                    "smartSwap.attempted": true,
-                    "smartSwap.failed": false,
-                  });
-                  const query =
-                    state?.getQuery?.() ||
-                    new URLSearchParams(window.location.search || "");
-                  if (!query.has("view")) query.set("view", "day");
-
-                  await table?.fetchAndRender?.(query, {
-                    updateUrl: false,
-                    preserveScroll: true,
-                  });
-
-                  await tasks?.refreshOpenTask?.(taskId);
-                }
-              } else {
-                logEvent("ui.drag.drop.swap.failed", {
-                  "swap.status": "failed",
-                  "swap.errorType": result.errorType || "unknown",
-                  "swap.staleRetryAttempted": staleRetryAttempted,
-                  "smartSwap.attempted": false,
-                  "smartSwap.failed": false,
-                  reason: result.error || "",
-                }, "warn");
-                alert(result.error || "Nepavyko sukeisti uzduociu.");
-              }
+              smartSwapFailed = true;
+              logEvent("ui.drag.drop.swap.failed", {
+                "swap.status": "failed",
+                "swap.errorType": result.errorType || "unknown",
+                "swap.staleRetryAttempted": staleRetryAttempted,
+                "smartSwap.attempted": true,
+                "smartSwap.failed": true,
+                reason: result.error || "",
+              }, "warn");
+              alert(result.error || "Nepavyko sukeisti uzduociu.");
             } else {
+              logEvent("ui.drag.drop.swap.status", {
+                "swap.status": "ok",
+                "swap.errorType": "",
+                "swap.staleRetryAttempted": staleRetryAttempted,
+                "smartSwap.attempted": true,
+                "smartSwap.failed": false,
+              });
               const query =
                 state?.getQuery?.() ||
                 new URLSearchParams(window.location.search || "");
@@ -1253,15 +1204,15 @@
             });
             const resp =
               (await logger?.fetchWithTrace?.(
-                `/api/tasks/${taskId}/swap`,
+                `/api/tasks/${taskId}/swap-smart`,
                 {
                   method: "PATCH",
                   headers: { "Content-Type": "application/json" },
                   body,
                 },
-                { event: "ui.task.swap", taskId, targetTaskId }
+                { event: "ui.task.swap.smart", taskId, targetTaskId }
               )) ||
-              (await fetch(`/api/tasks/${taskId}/swap`, {
+              (await fetch(`/api/tasks/${taskId}/swap-smart`, {
                 method: "PATCH",
                 headers: {
                   "X-Requested-With": "XMLHttpRequest",
@@ -1272,20 +1223,22 @@
 
             if (resp.status === 409 || resp.status === 422 || resp.status === 403 || resp.status === 404) {
               const msg = (await resp.json().catch(() => null))?.message || "Nepavyko sukeisti uzduociu.";
+              smartSwapFailed = true;
               logEvent("ui.drag.drop.swap.failed", {
                 "swap.status": "failed",
                 "swap.errorType": resp.status === 409 ? "conflict" : resp.status === 422 ? "unprocessable" : resp.status === 403 ? "forbidden" : "not_found",
-                "smartSwap.attempted": false,
-                "smartSwap.failed": false,
+                "smartSwap.attempted": true,
+                "smartSwap.failed": true,
                 reason: msg,
               }, "warn");
               alert(msg);
             } else if (!resp.ok) {
+              smartSwapFailed = true;
               logEvent("ui.drag.drop.swap.failed", {
                 "swap.status": "failed",
                 "swap.errorType": "unknown",
-                "smartSwap.attempted": false,
-                "smartSwap.failed": false,
+                "smartSwap.attempted": true,
+                "smartSwap.failed": true,
                 reason: "Nepavyko sukeisti uzduociu.",
               }, "warn");
               throw new Error("Nepavyko sukeisti uzduociu.");
@@ -1293,7 +1246,7 @@
               logEvent("ui.drag.drop.swap.status", {
                 "swap.status": "ok",
                 "swap.errorType": "",
-                "smartSwap.attempted": false,
+                "smartSwap.attempted": true,
                 "smartSwap.failed": false,
               });
               const query =

@@ -107,7 +107,7 @@ public class RouteEvaluationServiceTests
         await service.EvaluateTaskRouteImpactAsync(taskId, CancellationToken.None);
 
         await _distance.DidNotReceive().GetMatrixAsync(Arg.Any<IReadOnlyList<GeoPoint>>(), Arg.Any<CancellationToken>());
-        (await db.TravelRoutes.CountAsync()).Should().Be(1);
+        (await db.TravelRoutes.CountAsync()).Should().Be(2);
     }
 
     [Fact]
@@ -121,9 +121,8 @@ public class RouteEvaluationServiceTests
 
         await _distance.Received(1).GetMatrixAsync(Arg.Any<IReadOnlyList<GeoPoint>>(), Arg.Any<CancellationToken>());
         var routes = await db.TravelRoutes.ToListAsync();
-        routes.Should().HaveCount(1);
-        routes[0].DistanceKm.Should().Be(1.5m);
-        routes[0].DurationMinutes.Should().Be(10);
+        routes.Should().HaveCount(2);
+        routes.Should().OnlyContain(r => r.DistanceKm == 1.5m && r.DurationMinutes == 10);
     }
 
     private RouteEvaluationService CreateService(ScheduleDbContext db, string apiKey = "test-key")
@@ -207,6 +206,15 @@ public class RouteEvaluationServiceTests
                 Id = 100,
                 FromAddressId = 1,
                 ToAddressId = 2,
+                DistanceKm = 2.0m,
+                DurationMinutes = 12,
+                CalculatedAt = DateTime.UtcNow
+            });
+            db.TravelRoutes.Add(new TravelRouteEntity
+            {
+                Id = 101,
+                FromAddressId = 2,
+                ToAddressId = 1,
                 DistanceKm = 2.0m,
                 DurationMinutes = 12,
                 CalculatedAt = DateTime.UtcNow

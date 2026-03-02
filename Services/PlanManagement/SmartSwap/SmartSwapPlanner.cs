@@ -131,6 +131,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap
                 return SmartSwapPlan.Fail("Techniko darbo vietos adresas nerastas.");
             }
 
+            var addressLabels = await BuildAddressLabelLookupAsync(dayTasks, workplaceAddressId, cancellationToken);
+
             var routeLookup = await BuildRouteLookupAsync(dayTasks, workplaceAddressId, cancellationToken);
             if (routeLookup == null)
             {
@@ -168,6 +170,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap
                         var required = TryResolveRouteMinutes(routeLookup, workplaceAddressId, task.ServiceObject.AddressId);
                         if (!required.HasValue)
                         {
+                            var toAddressId = task.ServiceObject.AddressId;
+                            _logger.LogWarning(
+                                "swap-smart.planner.missing-route fromAddressId={FromAddressId} fromAddress={FromAddress} toAddressId={ToAddressId} toAddress={ToAddress} taskId={TaskId} segment=workplace-first",
+                                workplaceAddressId,
+                                ResolveAddressLabel(addressLabels, workplaceAddressId),
+                                toAddressId,
+                                ResolveAddressLabel(addressLabels, toAddressId),
+                                task.Id);
                             return SmartSwapPlan.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu).");
                         }
                         minStartUtc = dayStartUtc.AddMinutes(required.Value);
@@ -177,9 +187,19 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap
                         var prevTaskId = ordered[i - 1];
                         var prevTask = byId[prevTaskId];
                         var prevEnd = starts[prevTaskId] + durations[prevTaskId];
-                        var required = TryResolveRouteMinutes(routeLookup, prevTask.ServiceObject.AddressId, task.ServiceObject.AddressId);
+                        var fromAddressId = prevTask.ServiceObject.AddressId;
+                        var toAddressId = task.ServiceObject.AddressId;
+                        var required = TryResolveRouteMinutes(routeLookup, fromAddressId, toAddressId);
                         if (!required.HasValue)
                         {
+                            _logger.LogWarning(
+                                "swap-smart.planner.missing-route fromAddressId={FromAddressId} fromAddress={FromAddress} toAddressId={ToAddressId} toAddress={ToAddress} prevTaskId={PrevTaskId} taskId={TaskId} segment=task-task",
+                                fromAddressId,
+                                ResolveAddressLabel(addressLabels, fromAddressId),
+                                toAddressId,
+                                ResolveAddressLabel(addressLabels, toAddressId),
+                                prevTask.Id,
+                                task.Id);
                             return SmartSwapPlan.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu).");
                         }
                         minStartUtc = prevEnd.AddMinutes(required.Value);
@@ -279,6 +299,30 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap
                 .ToDictionary(
                     g => g.Key,
                     g => g.OrderByDescending(x => x.DurationMinutes).First().DurationMinutes);
+        }
+
+        private async Task<Dictionary<long, string>> BuildAddressLabelLookupAsync(
+            IReadOnlyCollection<TaskEntity> dayTasks,
+            long workplaceAddressId,
+            CancellationToken cancellationToken)
+        {
+            var addressIds = dayTasks
+                .Select(t => t.ServiceObject.AddressId)
+                .Append(workplaceAddressId)
+                .Distinct()
+                .ToList();
+
+            return await _db.Addresses
+                .AsNoTracking()
+                .Where(a => addressIds.Contains(a.Id))
+                .ToDictionaryAsync(a => a.Id, a => a.FullAddress, cancellationToken);
+        }
+
+        private static string ResolveAddressLabel(IReadOnlyDictionary<long, string> addressLabels, long addressId)
+        {
+            return addressLabels.TryGetValue(addressId, out var value) && !string.IsNullOrWhiteSpace(value)
+                ? value
+                : "unknown-address";
         }
     }
 }

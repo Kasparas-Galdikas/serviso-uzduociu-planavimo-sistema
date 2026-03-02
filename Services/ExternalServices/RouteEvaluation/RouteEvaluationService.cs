@@ -373,7 +373,13 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             CancellationToken cancellationToken)
         {
             var requiredPairs = Enumerable.Range(0, routeAddresses.Count - 1)
-                .Select(i => (FromAddressId: routeAddresses[i].Id, ToAddressId: routeAddresses[i + 1].Id, MatrixFrom: i, MatrixTo: i + 1))
+                .SelectMany(i =>
+                {
+                    var forward = (FromAddressId: routeAddresses[i].Id, ToAddressId: routeAddresses[i + 1].Id, MatrixFrom: i, MatrixTo: i + 1);
+                    var reverse = (FromAddressId: routeAddresses[i + 1].Id, ToAddressId: routeAddresses[i].Id, MatrixFrom: i + 1, MatrixTo: i);
+                    return new[] { forward, reverse };
+                })
+                .Where(p => p.FromAddressId != p.ToAddressId)
                 .Distinct()
                 .ToList();
 
