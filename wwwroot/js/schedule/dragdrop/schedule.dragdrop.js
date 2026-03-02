@@ -44,8 +44,11 @@
     lastPreviewSlot: null,
     lastPreviewMinutes: null,
     lastPreviewRow: null,
+    intent: "move",
+    hoverTargetCardId: null,
     swapCandidate: null,
     swapPreviewActive: false,
+    swapPreviewKey: null,
     highlightedCells: [],
     highlightedTravelCells: [],
     scroll: {
@@ -94,11 +97,18 @@
       card.style.transform = "";
     });
     dragState.swapPreviewActive = false;
+    dragState.swapPreviewKey = null;
   };
 
   const applySwapPreview = (sourceCard, targetCard, isValid) => {
+    const sourceId = sourceCard?.getAttribute?.("data-task-id") || "";
+    const targetId = targetCard?.getAttribute?.("data-task-id") || "";
+    const key = `${sourceId}|${targetId}|${isValid ? 1 : 0}`;
+    if (dragState.swapPreviewKey === key) return;
+
     clearSwapPreview();
     if (!sourceCard || !targetCard) return;
+    dragState.swapPreviewKey = key;
 
     sourceCard.classList.add("swap-preview-source");
     targetCard.classList.add("swap-preview-target");
@@ -380,8 +390,11 @@
     dragState.lastPreviewSlot = null;
     dragState.lastPreviewMinutes = null;
     dragState.lastPreviewRow = null;
+    dragState.intent = "move";
+    dragState.hoverTargetCardId = null;
     dragState.swapCandidate = null;
     dragState.swapPreviewActive = false;
+    dragState.swapPreviewKey = null;
     if (dragState.previewDebounceTimer) {
       clearTimeout(dragState.previewDebounceTimer);
       dragState.previewDebounceTimer = null;
@@ -402,6 +415,20 @@
     if (grid?.parseIntSafe) return grid.parseIntSafe(val);
     const n = Number.parseInt(String(val || ""), 10);
     return Number.isFinite(n) ? n : null;
+  };
+
+  const isStaleSwapFailure = (result) => {
+    if (!result || result.success) return false;
+    if (result.errorType !== "conflict") return false;
+    const msg = String(result.error || "").toLowerCase();
+    return msg.includes("stale") || msg.includes("pasikeit");
+  };
+
+  const getBoardTaskVersion = (taskId) => {
+    if (!taskId) return null;
+    const card = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
+    if (!card) return null;
+    return parseIntSafe(card.getAttribute("data-task-version"));
   };
 
   const getCardMeta = (card) => {
@@ -768,6 +795,9 @@
       dragState.originStartMinutes = parseIntSafe(card.getAttribute("data-start-minutes"));
       dragState.busy = false;
       dragState.lastPreviewOk = false;
+      dragState.intent = "move";
+      dragState.hoverTargetCardId = null;
+      dragState.swapCandidate = null;
       dragState.scroll.container = getScrollContainer();
 
       evt.dataTransfer.effectAllowed = "move";
@@ -788,8 +818,10 @@
     });
 
     tables.addEventListener("dragend", () => {
-      logEvent("ui.drag.end", { taskId: dragState.taskId || "none" });
+      const busy = !!dragState.busy;
+      logEvent("ui.drag.end", { taskId: dragState.taskId || "none", busy });
       selection?.clearSelection?.("task.drag.end");
+      if (busy) return;
       clearDragState();
     });
 
@@ -833,9 +865,11 @@
           const sourceMeta = getCardMeta(dragState.sourceCard);
           if (!sourceMeta) return;
 
-          const travelDiff = Math.abs((sourceMeta.travelSlots || 0) - (targetMeta.travelSlots || 0));
-          const travelSimilar = travelDiff <= 1;
-          const swapEligible = travelSimilar;
+          // Do not hard-block swap on travel-duration heuristic.
+          // Server-side feasibility + smart-swap should decide final validity.
+          const swapEligible = true;
+          dragState.intent = "swap";
+          dragState.hoverTargetCardId = String(targetMeta.taskId);
           dragState.swapCandidate = {
             targetTaskId: targetMeta.taskId,
             targetVersion: targetMeta.version,
@@ -843,13 +877,14 @@
             targetTechId: targetMeta.techId,
             targetDate: targetMeta.date,
             eligible: swapEligible,
-            reason: swapEligible ? "" : "Keliones skirtumas didesnis nei 30 min.",
+            reason: "",
           };
 
           applySwapPreview(dragState.sourceCard, hoveredTaskCard, swapEligible);
+          const swapPreviewStartMinutes = targetMeta.startMinutes;
           applyPreviewRangeByMinutes(
             row,
-            sourceNewStart,
+            swapPreviewStartMinutes,
             dragState.durationSlots || 1,
             dragState.taskId,
             techId,
@@ -857,7 +892,7 @@
           );
           applyTravelPreviewRangeByMinutes(
             row,
-            sourceNewStart,
+            swapPreviewStartMinutes,
             dragState.travelSlots || 0,
             dragState.taskId,
             techId,
@@ -866,7 +901,7 @@
 
           scheduleDragPreview({
             technicianId: parseIntSafe(techId),
-            startMinutes: sourceNewStart,
+            startMinutes: swapPreviewStartMinutes,
             targetDate: date,
             row,
           });
@@ -874,13 +909,59 @@
         }
       }
 
-      // Keep last valid swap candidate while still in same lane to avoid losing it
-      // when cursor sits on slot edges between cards during drag.
-      const sameLaneAsSource = techId === dragState.sourceTechId && date === dragState.sourceDate;
-      if (!sameLaneAsSource) {
-        dragState.swapCandidate = null;
-        clearSwapPreview();
+      // Tolerant swap hit: if pointer is still inside the same cell that contains
+      // the last hovered swap target card, keep swap intent/candidate.
+      const tolerantTargetId = String(dragState.hoverTargetCardId || "");
+      if (
+        dragState.intent === "swap" &&
+        tolerantTargetId &&
+        dragState.swapCandidate &&
+        String(dragState.swapCandidate.targetTaskId) === tolerantTargetId
+      ) {
+        const sameCellTargetCard = cell.querySelector(
+          `.task-card[data-task-id="${tolerantTargetId}"]:not(.task-travel)`
+        );
+        const sameCellTargetMeta = getCardMeta(sameCellTargetCard);
+        if (
+          sameCellTargetMeta &&
+          String(sameCellTargetMeta.taskId) !== draggedId &&
+          sameCellTargetMeta.techId === dragState.sourceTechId &&
+          sameCellTargetMeta.date === dragState.sourceDate &&
+          sameCellTargetMeta.editable
+        ) {
+          applySwapPreview(dragState.sourceCard, sameCellTargetCard, !!dragState.swapCandidate.eligible);
+          const swapPreviewStartMinutes = sameCellTargetMeta.startMinutes;
+          applyPreviewRangeByMinutes(
+            row,
+            swapPreviewStartMinutes,
+            dragState.durationSlots || 1,
+            dragState.taskId,
+            techId,
+            date
+          );
+          applyTravelPreviewRangeByMinutes(
+            row,
+            swapPreviewStartMinutes,
+            dragState.travelSlots || 0,
+            dragState.taskId,
+            techId,
+            date
+          );
+
+          scheduleDragPreview({
+            technicianId: parseIntSafe(techId),
+            startMinutes: swapPreviewStartMinutes,
+            targetDate: date,
+            row,
+          });
+          return;
+        }
       }
+
+      dragState.intent = "move";
+      dragState.hoverTargetCardId = null;
+      dragState.swapCandidate = null;
+      clearSwapPreview();
 
       // Calculate slot minutes based on cursor X position
       const slotMinutes = getSlotMinutesFromX(row, evt.clientX, techId, date);
@@ -1005,29 +1086,33 @@
       }
 
       const dropCard = el?.closest?.(".task-card[data-task-id]:not(.task-travel)");
+      const tolerantSwapCard =
+        !dropCard && dragState.intent === "swap" && dragState.hoverTargetCardId
+          ? cell.querySelector(`.task-card[data-task-id="${dragState.hoverTargetCardId}"]:not(.task-travel)`)
+          : null;
+      const swapTargetCard = dropCard || tolerantSwapCard;
       const draggedTaskId = String(dragState.taskId || "");
-      const targetMeta = dropCard ? getCardMeta(dropCard) : null;
-      const canSwapFromCard =
+      const targetMeta = swapTargetCard ? getCardMeta(swapTargetCard) : null;
+      const isDirectCardDrop = !!dropCard;
+      const isTolerantCellDrop = !!tolerantSwapCard;
+      const canSwap =
+        dragState.intent === "swap" &&
+        (isDirectCardDrop || isTolerantCellDrop) &&
         targetMeta &&
         String(targetMeta.taskId) !== draggedTaskId &&
         dragState.swapCandidate &&
         String(dragState.swapCandidate.targetTaskId) === String(targetMeta.taskId) &&
-        dragState.swapCandidate.eligible &&
-        Number.isFinite(dragState.swapCandidate.targetVersion);
-      const canSwapFromCandidate =
-        !targetMeta &&
-        dragState.swapCandidate &&
-        dragState.swapCandidate.eligible &&
-        Number.isFinite(dragState.swapCandidate.targetVersion) &&
-        String(dragState.swapCandidate.targetTechId) === String(technicianId) &&
-        String(dragState.swapCandidate.targetDate) === String(targetDate);
-      const canSwap = canSwapFromCard || canSwapFromCandidate;
+        String(dragState.hoverTargetCardId || "") === String(targetMeta.taskId);
 
       if (canSwap) {
         const taskId = dragState.taskId;
         const expectedVersion = parseIntSafe(dragState.version);
-        const targetVersion = parseIntSafe(dragState.swapCandidate.targetVersion);
-        if (!taskId || !expectedVersion || !targetVersion) {
+        const swapCandidate = dragState.swapCandidate ? { ...dragState.swapCandidate } : null;
+        const targetTaskId = swapCandidate?.targetTaskId;
+        let sourceVersionForRequest = expectedVersion;
+        let targetVersionForRequest = parseIntSafe(swapCandidate?.targetVersion);
+        let staleRetryAttempted = false;
+        if (!taskId || !expectedVersion || !targetTaskId || !targetVersionForRequest) {
           clearDragState();
           return;
         }
@@ -1035,19 +1120,116 @@
         dragState.busy = true;
         logEvent("ui.drag.drop.swap", {
           taskId,
-          targetTaskId: dragState.swapCandidate.targetTaskId,
+          targetTaskId,
         });
 
+        let smartSwapAttempted = false;
+        let smartSwapFailed = false;
         try {
           if (taskApi?.swapTask) {
-            const result = await taskApi.swapTask(
+            let result = await taskApi.swapTask(
               taskId,
-              dragState.swapCandidate.targetTaskId,
-              expectedVersion,
-              targetVersion
+              targetTaskId,
+              sourceVersionForRequest,
+              targetVersionForRequest
             );
+            if (isStaleSwapFailure(result)) {
+              staleRetryAttempted = true;
+              const query =
+                state?.getQuery?.() ||
+                new URLSearchParams(window.location.search || "");
+              if (!query.has("view")) query.set("view", "day");
+
+              await table?.fetchAndRender?.(query, {
+                updateUrl: false,
+                preserveScroll: true,
+              });
+
+              sourceVersionForRequest =
+                parseIntSafe(result.sourceVersion) ||
+                getBoardTaskVersion(taskId) ||
+                sourceVersionForRequest;
+              targetVersionForRequest =
+                parseIntSafe(result.targetVersion) ||
+                getBoardTaskVersion(targetTaskId) ||
+                targetVersionForRequest;
+
+              if (sourceVersionForRequest && targetVersionForRequest) {
+                result = await taskApi.swapTask(
+                  taskId,
+                  targetTaskId,
+                  sourceVersionForRequest,
+                  targetVersionForRequest
+                );
+              }
+            }
+            logEvent("ui.drag.drop.swap.status", {
+              "swap.status": result.success ? "ok" : "failed",
+              "swap.errorType": result.errorType || "",
+              "swap.staleRetryAttempted": staleRetryAttempted,
+              "smartSwap.attempted": false,
+              "smartSwap.failed": false,
+            });
             if (!result.success) {
-              alert(result.error || "Nepavyko sukeisti uzduociu.");
+              const shouldTrySmartSwap =
+                (result.errorType === "unprocessable" || result.errorType === "conflict") &&
+                !!taskApi?.swapTaskSmart;
+              if (shouldTrySmartSwap) {
+                smartSwapAttempted = true;
+                logEvent("ui.drag.drop.swap.smart.attempt", {
+                  "swap.status": "failed",
+                  "swap.errorType": result.errorType || "",
+                  "smartSwap.attempted": true,
+                  "smartSwap.failed": false,
+                });
+                const smartResult = await taskApi.swapTaskSmart(
+                  taskId,
+                  targetTaskId,
+                  sourceVersionForRequest,
+                  targetVersionForRequest
+                );
+                if (!smartResult.success) {
+                  smartSwapFailed = true;
+                  logEvent("ui.drag.drop.swap.smart.failed", {
+                    "swap.status": "failed",
+                    "swap.errorType": smartResult.errorType || result.errorType || "unknown",
+                    "swap.staleRetryAttempted": staleRetryAttempted,
+                    "smartSwap.attempted": true,
+                    "smartSwap.failed": true,
+                    reason: smartResult.error || result.error || "",
+                  }, "warn");
+                  alert(smartResult.error || result.error || "Nepavyko sukeisti uzduociu.");
+                } else {
+                  logEvent("ui.drag.drop.swap.smart.status", {
+                    "swap.status": "ok",
+                    "swap.errorType": "",
+                    "swap.staleRetryAttempted": staleRetryAttempted,
+                    "smartSwap.attempted": true,
+                    "smartSwap.failed": false,
+                  });
+                  const query =
+                    state?.getQuery?.() ||
+                    new URLSearchParams(window.location.search || "");
+                  if (!query.has("view")) query.set("view", "day");
+
+                  await table?.fetchAndRender?.(query, {
+                    updateUrl: false,
+                    preserveScroll: true,
+                  });
+
+                  await tasks?.refreshOpenTask?.(taskId);
+                }
+              } else {
+                logEvent("ui.drag.drop.swap.failed", {
+                  "swap.status": "failed",
+                  "swap.errorType": result.errorType || "unknown",
+                  "swap.staleRetryAttempted": staleRetryAttempted,
+                  "smartSwap.attempted": false,
+                  "smartSwap.failed": false,
+                  reason: result.error || "",
+                }, "warn");
+                alert(result.error || "Nepavyko sukeisti uzduociu.");
+              }
             } else {
               const query =
                 state?.getQuery?.() ||
@@ -1064,9 +1246,9 @@
           } else {
             const timezoneOffset = -new Date().getTimezoneOffset();
             const body = JSON.stringify({
-              targetTaskId: Number(dragState.swapCandidate.targetTaskId),
-              sourceVersion: expectedVersion,
-              targetVersion: targetVersion,
+              targetTaskId: Number(targetTaskId),
+              sourceVersion: sourceVersionForRequest,
+              targetVersion: targetVersionForRequest,
               timezoneOffsetMinutes: timezoneOffset,
             });
             const resp =
@@ -1077,7 +1259,7 @@
                   headers: { "Content-Type": "application/json" },
                   body,
                 },
-                { event: "ui.task.swap", taskId, targetTaskId: dragState.swapCandidate.targetTaskId }
+                { event: "ui.task.swap", taskId, targetTaskId }
               )) ||
               (await fetch(`/api/tasks/${taskId}/swap`, {
                 method: "PATCH",
@@ -1090,10 +1272,30 @@
 
             if (resp.status === 409 || resp.status === 422 || resp.status === 403 || resp.status === 404) {
               const msg = (await resp.json().catch(() => null))?.message || "Nepavyko sukeisti uzduociu.";
+              logEvent("ui.drag.drop.swap.failed", {
+                "swap.status": "failed",
+                "swap.errorType": resp.status === 409 ? "conflict" : resp.status === 422 ? "unprocessable" : resp.status === 403 ? "forbidden" : "not_found",
+                "smartSwap.attempted": false,
+                "smartSwap.failed": false,
+                reason: msg,
+              }, "warn");
               alert(msg);
             } else if (!resp.ok) {
+              logEvent("ui.drag.drop.swap.failed", {
+                "swap.status": "failed",
+                "swap.errorType": "unknown",
+                "smartSwap.attempted": false,
+                "smartSwap.failed": false,
+                reason: "Nepavyko sukeisti uzduociu.",
+              }, "warn");
               throw new Error("Nepavyko sukeisti uzduociu.");
             } else {
+              logEvent("ui.drag.drop.swap.status", {
+                "swap.status": "ok",
+                "swap.errorType": "",
+                "smartSwap.attempted": false,
+                "smartSwap.failed": false,
+              });
               const query =
                 state?.getQuery?.() ||
                 new URLSearchParams(window.location.search || "");
@@ -1108,31 +1310,20 @@
             }
           }
         } catch (err) {
+          logEvent("ui.drag.drop.swap.failed", {
+            "swap.status": "failed",
+            "swap.errorType": "exception",
+            "swap.staleRetryAttempted": staleRetryAttempted,
+            "smartSwap.attempted": smartSwapAttempted,
+            "smartSwap.failed": smartSwapFailed,
+            reason: err?.message || "Nepavyko sukeisti uzduociu.",
+          }, "warn");
           logEvent("ui.drag.drop.swap.error", { taskId, error: err?.message }, "error");
           alert("Nepavyko sukeisti uzduociu.");
         } finally {
           clearDragState();
         }
         return;
-      }
-
-      if (dragState.swapCandidate && !canSwap) {
-        const isSameLaneCandidate =
-          String(dragState.swapCandidate.targetTechId) === String(technicianId) &&
-          String(dragState.swapCandidate.targetDate) === String(targetDate);
-        if (isSameLaneCandidate && !dragState.swapCandidate.eligible) {
-          alert(dragState.swapCandidate.reason || "Sukeitimas neleidziamas.");
-          clearDragState();
-          return;
-        }
-        logEvent("ui.drag.drop.swap.blocked", {
-          taskId: dragState.taskId,
-          targetTaskId: dragState.swapCandidate?.targetTaskId,
-          eligible: !!dragState.swapCandidate?.eligible,
-          byCard: !!targetMeta,
-          technicianId,
-          targetDate,
-        }, "warn");
       }
 
       const previewOk = applyPreviewRangeByMinutes(

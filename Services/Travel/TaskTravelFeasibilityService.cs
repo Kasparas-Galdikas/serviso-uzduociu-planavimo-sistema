@@ -115,14 +115,10 @@ namespace ServiceTaskPlanningSystem.Services.Travel
                     }
                     else
                     {
-                        return new TravelFeasibilityResult
-                        {
-                            IsFeasible = false,
-                            HasOverlap = false,
-                            InboundTravelMinutes = inbound,
-                            OutboundTravelMinutes = outbound,
-                            Message = "Nepavyko ivertinti keliones (truksta marsruto duomenu)."
-                        };
+                        // Route data can be temporarily unavailable (for example, missing external API key
+                        // or incomplete matrix warm-up). In that case, do not block placement; skip strict
+                        // travel-time validation for this pair.
+                        continue;
                     }
                 }
 

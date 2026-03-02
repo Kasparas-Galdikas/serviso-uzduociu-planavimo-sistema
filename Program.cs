@@ -90,6 +90,7 @@ builder.Services.AddControllersWithViews(options =>
 
 builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
 builder.Services.AddScoped<IPlanService, PlanService>();
+builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap.ISmartSwapPlanner, ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap.SmartSwapPlanner>();
 builder.Services.AddScoped<ITaskTravelFeasibilityService, TaskTravelFeasibilityService>();
 builder.Services.AddScoped<IRouteChainBuilder, RouteChainBuilder>();
 builder.Services.AddScoped<IEvaluationEngine, TaskEvaluationEngine>();

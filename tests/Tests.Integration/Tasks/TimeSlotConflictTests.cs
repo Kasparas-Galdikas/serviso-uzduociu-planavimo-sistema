@@ -348,6 +348,34 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
     }
 
+    [Fact]
+    public async Task SwapTask_WithMiddleGap_CompactsLaterTask()
+    {
+        var techId = await GetTechnicianIdAsync("technician@test.com");
+        var client = CreateClient("manager@test.com");
+        var targetDate = GetFutureDate(14);
+
+        var first = await CreateTaskAsync(client, techId, targetDate, 9 * 60, 10 * 60, "Swap Source");
+        var second = await CreateTaskAsync(client, techId, targetDate, 11 * 60, 12 * 60, "Swap Target");
+        var third = await CreateTaskAsync(client, techId, targetDate, 15 * 60, 16 * 60, "Tail Task");
+        await EnsureTravelRouteFromWorkplaceToTaskAsync(techId, first.Id, minutes: 1);
+        var firstVersion = await GetTaskVersionAsync(first.Id);
+        var secondVersion = await GetTaskVersionAsync(second.Id);
+
+        var response = await client.PatchAsJsonAsync($"/api/tasks/{first.Id}/swap", new SwapTaskRequestDto
+        {
+            TargetTaskId = second.Id,
+            SourceVersion = firstVersion,
+            TargetVersion = secondVersion,
+            TimezoneOffsetMinutes = 0
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var thirdStartUtc = await GetTaskStartUtcAsync(third.Id);
+        thirdStartUtc.TimeOfDay.Should().Be(TimeSpan.FromHours(12));
+    }
+
     #endregion
 
     #region Task Update Conflicts
@@ -546,6 +574,54 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         return await db.Tasks
             .Where(t => t.Id == taskId)
             .Select(t => EF.Property<uint>(t, "xmin"))
+            .FirstAsync();
+    }
+
+    private async Task EnsureTravelRouteFromWorkplaceToTaskAsync(long technicianId, long taskId, int minutes)
+    {
+        using var scope = _fixture.Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+
+        var workplaceAddressId = await db.Technicians
+            .Where(t => t.Id == technicianId)
+            .Select(t => t.WorkplaceAddressId)
+            .FirstAsync();
+
+        var taskAddressId = await db.Tasks
+            .Where(t => t.Id == taskId)
+            .Select(t => t.ServiceObject.AddressId)
+            .FirstAsync();
+
+        var existing = await db.TravelRoutes
+            .FirstOrDefaultAsync(r => r.FromAddressId == workplaceAddressId && r.ToAddressId == taskAddressId);
+        if (existing == null)
+        {
+            db.TravelRoutes.Add(new TravelRouteEntity
+            {
+                FromAddressId = workplaceAddressId,
+                ToAddressId = taskAddressId,
+                DistanceKm = 1m,
+                DurationMinutes = minutes,
+                CalculatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            existing.DurationMinutes = minutes;
+            existing.DistanceKm = 1m;
+            existing.CalculatedAt = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<DateTime> GetTaskStartUtcAsync(long taskId)
+    {
+        using var scope = _fixture.Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+        return await db.Tasks
+            .Where(t => t.Id == taskId)
+            .Select(t => t.StartAt)
             .FirstAsync();
     }
 
