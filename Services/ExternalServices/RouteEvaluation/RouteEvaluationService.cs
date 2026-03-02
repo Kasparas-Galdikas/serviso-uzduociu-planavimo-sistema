@@ -323,18 +323,49 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 var durationSeconds = matrix.DurationsSeconds[pair.MatrixFrom][pair.MatrixTo];
                 var distanceKm = Math.Round((decimal)(distanceMeters / 1000d), 2);
                 var durationMinutes = (int)Math.Ceiling(durationSeconds / 60d);
+                var calculatedAt = DateTime.UtcNow;
 
-                _db.TravelRoutes.Add(new TravelRouteEntity
+                if (_db.Database.IsRelational())
                 {
-                    FromAddressId = pair.FromAddressId,
-                    ToAddressId = pair.ToAddressId,
-                    DistanceKm = distanceKm,
-                    DurationMinutes = durationMinutes,
-                    CalculatedAt = DateTime.UtcNow
-                });
-            }
+                    // Keep route cache writes race-safe: warmup/evaluation can run concurrently.
+                    await _db.Database.ExecuteSqlInterpolatedAsync(
+                        $@"INSERT INTO travel_routes (from_address_id, to_address_id, distance_km, duration_minutes, calculated_at)
+                           VALUES ({pair.FromAddressId}, {pair.ToAddressId}, {distanceKm}, {durationMinutes}, {calculatedAt})
+                           ON CONFLICT (from_address_id, to_address_id)
+                           DO UPDATE SET
+                               distance_km = EXCLUDED.distance_km,
+                               duration_minutes = EXCLUDED.duration_minutes,
+                               calculated_at = EXCLUDED.calculated_at",
+                        cancellationToken);
+                }
+                else
+                {
+                    // Unit tests use InMemory provider (no SQL/ON CONFLICT support).
+                    var existing = await _db.TravelRoutes
+                        .FirstOrDefaultAsync(
+                            r => r.FromAddressId == pair.FromAddressId && r.ToAddressId == pair.ToAddressId,
+                            cancellationToken);
+                    if (existing == null)
+                    {
+                        _db.TravelRoutes.Add(new TravelRouteEntity
+                        {
+                            FromAddressId = pair.FromAddressId,
+                            ToAddressId = pair.ToAddressId,
+                            DistanceKm = distanceKm,
+                            DurationMinutes = durationMinutes,
+                            CalculatedAt = calculatedAt
+                        });
+                    }
+                    else
+                    {
+                        existing.DistanceKm = distanceKm;
+                        existing.DurationMinutes = durationMinutes;
+                        existing.CalculatedAt = calculatedAt;
+                    }
 
-            await _db.SaveChangesAsync(cancellationToken);
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
+            }
         }
 
         private async Task<List<(long FromAddressId, long ToAddressId, int MatrixFrom, int MatrixTo)>> GetMissingSequentialPairsAsync(
@@ -342,7 +373,13 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             CancellationToken cancellationToken)
         {
             var requiredPairs = Enumerable.Range(0, routeAddresses.Count - 1)
-                .Select(i => (FromAddressId: routeAddresses[i].Id, ToAddressId: routeAddresses[i + 1].Id, MatrixFrom: i, MatrixTo: i + 1))
+                .SelectMany(i =>
+                {
+                    var forward = (FromAddressId: routeAddresses[i].Id, ToAddressId: routeAddresses[i + 1].Id, MatrixFrom: i, MatrixTo: i + 1);
+                    var reverse = (FromAddressId: routeAddresses[i + 1].Id, ToAddressId: routeAddresses[i].Id, MatrixFrom: i + 1, MatrixTo: i);
+                    return new[] { forward, reverse };
+                })
+                .Where(p => p.FromAddressId != p.ToAddressId)
                 .Distinct()
                 .ToList();
 

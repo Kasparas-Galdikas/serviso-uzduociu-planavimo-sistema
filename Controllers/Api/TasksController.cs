@@ -525,17 +525,21 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
                     var distanceMeters = matrix.DistancesMeters[fromIdx][toIdx];
                     var durationSeconds = matrix.DurationsSeconds[fromIdx][toIdx];
-                    _db.TravelRoutes.Add(new TravelRouteEntity
-                    {
-                        FromAddressId = pair.FromAddressId,
-                        ToAddressId = pair.ToAddressId,
-                        DistanceKm = Math.Round((decimal)(distanceMeters / 1000d), 2),
-                        DurationMinutes = (int)Math.Ceiling(durationSeconds / 60d),
-                        CalculatedAt = DateTime.UtcNow
-                    });
-                }
+                    var distanceKm = Math.Round((decimal)(distanceMeters / 1000d), 2);
+                    var durationMinutes = (int)Math.Ceiling(durationSeconds / 60d);
+                    var calculatedAt = DateTime.UtcNow;
 
-                await _db.SaveChangesAsync(cancellationToken);
+                    // Warmup may run in parallel with other route evaluators.
+                    await _db.Database.ExecuteSqlInterpolatedAsync(
+                        $@"INSERT INTO travel_routes (from_address_id, to_address_id, distance_km, duration_minutes, calculated_at)
+                           VALUES ({pair.FromAddressId}, {pair.ToAddressId}, {distanceKm}, {durationMinutes}, {calculatedAt})
+                           ON CONFLICT (from_address_id, to_address_id)
+                           DO UPDATE SET
+                               distance_km = EXCLUDED.distance_km,
+                               duration_minutes = EXCLUDED.duration_minutes,
+                               calculated_at = EXCLUDED.calculated_at",
+                        cancellationToken);
+                }
             }
             catch (Exception ex)
             {
@@ -748,6 +752,13 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return ValidationProblem(ModelState);
             }
 
+            _logger.LogInformation(
+                "swap.start sourceTaskId={SourceTaskId} targetTaskId={TargetTaskId} sourceVersion={SourceVersion} targetVersion={TargetVersion}",
+                id,
+                dto.TargetTaskId,
+                dto.SourceVersion,
+                dto.TargetVersion);
+
             var user = _userContextResolver.GetCurrentUser();
             var result = await _planService.SwapTasksAsync(
                 id,
@@ -782,6 +793,89 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                         cancellationToken)
                 });
             }
+
+            _logger.LogWarning(
+                "swap.fail sourceTaskId={SourceTaskId} targetTaskId={TargetTaskId} reason={Reason} message={Message}",
+                id,
+                dto.TargetTaskId,
+                result.Error,
+                result.Message ?? string.Empty);
+
+            return result.Error switch
+            {
+                TaskSwapError.NotFound => NotFound(new { message = result.Message }),
+                TaskSwapError.TargetNotFound => NotFound(new { message = result.Message }),
+                TaskSwapError.NotEditable => StatusCode(403, new { message = result.Message }),
+                TaskSwapError.Stale => Conflict(new
+                {
+                    message = result.Message,
+                    sourceVersion = result.CurrentSourceVersion,
+                    targetVersion = result.CurrentTargetVersion
+                }),
+                TaskSwapError.InvalidSwap => UnprocessableEntity(new { message = result.Message }),
+                TaskSwapError.Overlap => Conflict(new { message = result.Message }),
+                TaskSwapError.TravelInfeasible => UnprocessableEntity(new { message = result.Message }),
+                _ => StatusCode(500, new { message = result.Message ?? "Unknown error" })
+            };
+        }
+
+        [HttpPatch("{id:long}/swap-smart")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> SwapTaskSmart(long id, [FromBody] SwapTaskRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                return ValidationProblem(ModelState);
+            }
+
+            _logger.LogInformation(
+                "swap-smart.start sourceTaskId={SourceTaskId} targetTaskId={TargetTaskId} sourceVersion={SourceVersion} targetVersion={TargetVersion}",
+                id,
+                dto.TargetTaskId,
+                dto.SourceVersion,
+                dto.TargetVersion);
+
+            var user = _userContextResolver.GetCurrentUser();
+            var result = await _planService.SwapTasksSmartAsync(
+                id,
+                dto.TargetTaskId,
+                dto.SourceVersion,
+                dto.TargetVersion,
+                user,
+                dto.TimezoneOffsetMinutes,
+                cancellationToken);
+
+            if (result.Ok && result.SourceTask != null && result.TargetTask != null)
+            {
+                var sourceLocalStart = _timeService.ConvertUtcToLocal(result.SourceTask.StartAt, dto.TimezoneOffsetMinutes);
+                var sourceLocalEnd = _timeService.ConvertUtcToLocal(result.SourceTask.EndAt, dto.TimezoneOffsetMinutes);
+                var targetLocalStart = _timeService.ConvertUtcToLocal(result.TargetTask.StartAt, dto.TimezoneOffsetMinutes);
+                var targetLocalEnd = _timeService.ConvertUtcToLocal(result.TargetTask.EndAt, dto.TimezoneOffsetMinutes);
+
+                return Ok(new TaskSwappedResponseDto
+                {
+                    SourceTaskId = result.SourceTask.Id,
+                    SourceVersion = result.CurrentSourceVersion ?? 0,
+                    SourceStartAt = sourceLocalStart,
+                    SourceEndAt = sourceLocalEnd,
+                    TargetTaskId = result.TargetTask.Id,
+                    TargetVersion = result.CurrentTargetVersion ?? 0,
+                    TargetStartAt = targetLocalStart,
+                    TargetEndAt = targetLocalEnd,
+                    TechnicianId = result.SourceTask.TechnicianId,
+                    Load = await _planService.GetWorkloadSnapshotAsync(
+                        result.SourceTask.TechnicianId,
+                        result.SourceTask.StartAt.Date,
+                        cancellationToken)
+                });
+            }
+
+            _logger.LogWarning(
+                "swap-smart.fail sourceTaskId={SourceTaskId} targetTaskId={TargetTaskId} reason={Reason} message={Message}",
+                id,
+                dto.TargetTaskId,
+                result.Error,
+                result.Message ?? string.Empty);
 
             return result.Error switch
             {

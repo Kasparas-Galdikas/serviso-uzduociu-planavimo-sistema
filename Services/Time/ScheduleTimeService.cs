@@ -67,8 +67,10 @@ namespace ServiceTaskPlanningSystem.Services.Time
 
         public DateTime CreateUtcFromDateAndMinutes(DateTime targetDate, int minutesSinceMidnight, int timezoneOffsetMinutes)
         {
-            // Build local datetime from date + minutes
-            var localDateTime = targetDate.Date.AddMinutes(minutesSinceMidnight);
+            // targetDate is a local calendar day marker; ignore Kind (Utc/Local/Unspecified)
+            // to avoid treating local day boundaries as already-UTC timestamps.
+            var localDate = DateTime.SpecifyKind(targetDate.Date, DateTimeKind.Unspecified);
+            var localDateTime = localDate.AddMinutes(minutesSinceMidnight);
 
             // Convert to UTC for storage
             return ConvertLocalToUtc(localDateTime, timezoneOffsetMinutes);

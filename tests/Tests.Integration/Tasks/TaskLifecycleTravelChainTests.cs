@@ -111,8 +111,8 @@ public sealed class TaskLifecycleTravelChainTests : IAsyncLifetime
         var cId = await EnsureAddressAndObjectAsync(cAddress, "Upd Obj C");
 
         await EnsureRouteAsync(setup.WorkplaceAddressId, bId, 2m, 10);
-        await EnsureRouteAsync(bId, cId, 6m, 100);
-        await EnsureRouteAsync(cId, bId, 6m, 100);
+        await EnsureRouteAsync(bId, cId, 1m, 10);
+        await EnsureRouteAsync(cId, bId, 1m, 10);
 
         var createB = await client.PostAsJsonAsync("/api/tasks",
             TestTaskRequestBuilder.Create(setup.TechnicianId, targetDate, 9 * 60, 10 * 60, "B")
@@ -128,6 +128,10 @@ public sealed class TaskLifecycleTravelChainTests : IAsyncLifetime
                 .WithObjectAddress(cAddress)
                 .Build());
         createC.EnsureSuccessStatusCode();
+
+        // Make route infeasible only after tasks are created, so update revalidation returns 422.
+        await EnsureRouteAsync(bId, cId, 6m, 100);
+        await EnsureRouteAsync(cId, bId, 6m, 100);
 
         var detail = await client.GetFromJsonAsync<TaskDetailResponseDto>($"/api/tasks/{taskB.Id}");
         detail.Should().NotBeNull();

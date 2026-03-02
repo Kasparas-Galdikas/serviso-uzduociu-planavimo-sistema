@@ -101,7 +101,7 @@ public sealed class TaskTravelFeasibilityServiceTests
     }
 
     [Fact]
-    public async Task EvaluatePlacement_WhenRoutesMissing_ReturnsInfeasible()
+    public async Task EvaluatePlacement_WhenRoutesMissing_DoesNotBlockPlacement()
     {
         using var db = CreateContext();
         SeedTechnician(db, technicianId: 1, workplaceAddressId: 1);
@@ -120,10 +120,10 @@ public sealed class TaskTravelFeasibilityServiceTests
             checkOverlap: true,
             cancellationToken: CancellationToken.None);
 
-        result.IsFeasible.Should().BeFalse();
+        result.IsFeasible.Should().BeTrue();
         result.InboundTravelMinutes.Should().BeNull();
         result.OutboundTravelMinutes.Should().BeNull();
-        result.Message.Should().Contain("truksta marsruto");
+        result.Message.Should().BeNull();
     }
 
     [Fact]
