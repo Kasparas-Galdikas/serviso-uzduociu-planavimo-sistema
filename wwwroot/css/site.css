@@ -31,6 +31,11 @@ body {
   transition: max-width 0.30s ease, margin 0.30s ease, padding 0.30s ease;
 }
 
+/* Schedule page: allow the grid to use as much screen width as available */
+.page-container:has(#scheduleTables) {
+  max-width: min(1920px, calc(100vw - 160px));
+}
+
 
 @media (min-width: 992px) {
   .offcanvas-push-open .page-container {
@@ -39,6 +44,10 @@ body {
     margin-right: auto;
     transform: none;
     font-size: 15px;
+  }
+
+  .offcanvas-push-open .page-container:has(#scheduleTables) {
+    max-width: min(1920px, calc(100vw - var(--offcanvas-push) - 32px));
   }
 
   .offcanvas-push-open .page-container .btn {
