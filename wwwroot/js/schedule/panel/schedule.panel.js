@@ -12,9 +12,7 @@
   const getPanelEl = () => document.getElementById("taskDetailModal");
 
   const clearActiveCards = () => {
-    document.querySelectorAll(".task-card.is-active").forEach((el) => {
-      el.classList.remove("is-active");
-    });
+    schedule.ui?.dom?.clearActiveCards?.();
   };
 
   const forceClearPushLayout = () => {

@@ -127,14 +127,8 @@
           card.setAttribute("data-task-version", String(currentVersion));
         }
 
-        // Update detail panel if open
-        const detailPanel = document.getElementById("taskDetailModal");
-        if (detailPanel?.classList?.contains("show") && String(detailPanel.dataset.taskId || "") === String(taskId)) {
-          const startInput = detailPanel.querySelector("#taskDetailStart");
-          const endInput = detailPanel.querySelector("#taskDetailEnd");
-          if (startInput && result.startAt) startInput.value = String(result.startAt).substring(0, 16);
-          if (endInput && result.endAt) endInput.value = String(result.endAt).substring(0, 16);
-        }
+        // Update detail panel times + version via modal module (uses field cache, syncs version)
+        schedule.tasks?.modal?.updatePanelTimes?.(taskId, result.startAt, result.endAt, result.version);
 
         const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
         await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });

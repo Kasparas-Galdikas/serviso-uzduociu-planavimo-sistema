@@ -627,16 +627,10 @@
     modalEl.querySelector("#taskDetailLabel").textContent = "Nauja užduotis";
     modalEl.querySelector("#taskDetailCode").textContent = "";
 
-    const minutesToTime = (m) => {
-      const h = String(Math.floor(m / 60)).padStart(2, "0");
-      const min = String(m % 60).padStart(2, "0");
-      return `${h}:${min}`;
-    };
-
     if (targetDate && startMinutes != null && endMinutes != null) {
       const dateStr = targetDate;
-      const startTime = minutesToTime(startMinutes);
-      const endTime = minutesToTime(endMinutes);
+      const startTime = grid.minutesToTime(startMinutes);
+      const endTime = grid.minutesToTime(endMinutes);
 
       setVal("#taskDetailStart", `${dateStr}T${startTime}`);
       setVal("#taskDetailEnd", `${dateStr}T${endTime}`);
@@ -936,6 +930,26 @@
     Version: null
   };
 
+  // ========== Panel Time Update (used by task.resize after saving new times) ==========
+
+  /**
+   * Update only the start/end time fields in an open panel for a specific task.
+   * Uses the modalFields cache. Also syncs the version on the panel dataset.
+   * @param {string|number} taskId
+   * @param {string} startAt  - ISO datetime string
+   * @param {string} endAt    - ISO datetime string
+   * @param {string|number} [newVersion]
+   */
+  const updatePanelTimes = (taskId, startAt, endAt, newVersion) => {
+    const detailPanel = document.getElementById("taskDetailModal");
+    if (!detailPanel?.classList?.contains("show")) return;
+    if (String(detailPanel.dataset.taskId || "") !== String(taskId || "")) return;
+    populateFieldCache(detailPanel);
+    if (modalFields.start && startAt) modalFields.start.value = String(startAt).substring(0, 16);
+    if (modalFields.end && endAt) modalFields.end.value = String(endAt).substring(0, 16);
+    if (newVersion != null) detailPanel.dataset.version = String(newVersion);
+  };
+
   // ========== Exports ==========
 
   schedule.tasks.modal = {
@@ -954,5 +968,6 @@
     populateFieldCache,
     clearFieldCache,
     getField: (key) => modalFields[key],
+    updatePanelTimes,
   };
 })();

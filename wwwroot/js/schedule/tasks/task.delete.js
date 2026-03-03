@@ -36,9 +36,7 @@
 
   const formatMinutes = (minutes) => {
     if (!Number.isFinite(minutes)) return "";
-    const h = String(Math.floor(minutes / 60)).padStart(2, "0");
-    const m = String(minutes % 60).padStart(2, "0");
-    return `${h}:${m}`;
+    return schedule.grid?.minutesToTime?.(minutes) ?? "";
   };
 
   const getDeleteModal = () => document.getElementById("taskDeleteModal");
@@ -130,6 +128,7 @@
       }
 
       const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
+      if (!query.has("view")) query.set("view", "day");
       await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
       panel?.hide?.();
       clearActiveCards();
@@ -178,6 +177,7 @@
     await resp.json().catch(() => null);
 
     const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
+    if (!query.has("view")) query.set("view", "day");
     await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
     panel?.hide?.();
     clearActiveCards();

@@ -62,23 +62,7 @@
   // ========== Task Fetching ==========
 
   const fetchTask = async (taskId) => {
-    const taskApi = getTaskApi();
-    if (taskApi?.fetchTask) return taskApi.fetchTask(taskId);
-
-    // Fallback implementation
-    const timezoneOffset = -new Date().getTimezoneOffset();
-    const resp = await fetch(`/api/tasks/${taskId}`, {
-      headers: {
-        "X-Requested-With": "XMLHttpRequest",
-        "X-Timezone-Offset": String(timezoneOffset)
-      }
-    });
-
-    if (!resp.ok) {
-      throw new Error("Nepavyko gauti uzduoties duomenu");
-    }
-
-    return await resp.json();
+    return getTaskApi().fetchTask(taskId);
   };
 
   // ========== Task Save ==========
@@ -102,7 +86,7 @@
     }
 
     // Collect and validate form data
-    const formData = modal?.collectFormData?.(modalEl) || collectFormDataFallback(modalEl);
+    const formData = modal.collectFormData(modalEl);
     const isValid = modal?.validateFormData?.(modalEl, formData, isManager) ?? true;
     if (!isValid) return;
 
@@ -193,9 +177,6 @@
           } else if (result?.error) {
             alert(result.error);
           }
-        } else {
-          // Fallback: direct API call (existing implementation)
-          await saveTaskFallback(modalEl, taskId, formData, isManager, version);
         }
 
         logEvent("ui.task.saved", { taskId });
@@ -205,86 +186,6 @@
       alert("Nepavyko issaugoti uzduoties.");
     } finally {
       setBusy(false);
-    }
-  };
-
-  // Fallback form data collection (when modal module not loaded)
-  const collectFormDataFallback = (modalEl) => {
-    return {
-      title: modalEl.querySelector("#taskDetailTitle")?.value || "",
-      location: modalEl.querySelector("#taskDetailLocation")?.value || "",
-      startAt: modalEl.querySelector("#taskDetailStart")?.value || "",
-      endAt: modalEl.querySelector("#taskDetailEnd")?.value || "",
-      priorityRaw: modalEl.querySelector("#taskDetailPriority")?.value || "",
-      priorityVal: parseInt(modalEl.querySelector("#taskDetailPriority")?.value || "", 10),
-      status: modalEl.querySelector("#taskDetailStatus")?.value || "",
-      technicianId: parseInt(modalEl.querySelector("#taskDetailAssignee")?.value || modalEl.dataset.technicianId || "0", 10),
-      skillLevel: modalEl.querySelector("#taskDetailSkill")?.value || null,
-      objectName: modalEl.querySelector("#taskDetailObject option:checked")?.textContent?.trim() || null,
-      objectAddress: modalEl.querySelector("#taskDetailObject option:checked")?.dataset?.address || null,
-      instructions: modalEl.querySelector("#taskDetailInstructions")?.value || null,
-      technicianComment: modalEl.querySelector("#taskDetailTechnicianComment")?.value || null,
-      hasSelectedObject: !!modalEl.querySelector("#taskDetailObject option:checked")?.value,
-    };
-  };
-
-  // Fallback save implementation
-  const saveTaskFallback = async (modalEl, taskId, formData, isManager, version) => {
-    const timezoneOffset = -new Date().getTimezoneOffset();
-    let endpoint, requestBody;
-
-    if (isManager) {
-      endpoint = `/api/tasks/${taskId}`;
-      requestBody = JSON.stringify({
-        title: formData.title,
-        location: formData.location,
-        startAt: formData.startAt,
-        endAt: formData.endAt,
-        priority: Number.isNaN(formData.priorityVal) ? 1 : formData.priorityVal,
-        status: parseInt(formData.status) || 0,
-        version: parseInt(version) || 0,
-        timezoneOffsetMinutes: timezoneOffset,
-        technicianId: formData.technicianId || 0,
-        skillLevel: formData.skillLevel,
-        objectName: formData.objectName,
-        objectAddress: formData.objectAddress,
-        instructions: formData.instructions,
-        technicianComment: formData.technicianComment
-      });
-    } else {
-      endpoint = `/api/tasks/${taskId}/technician-update`;
-      requestBody = JSON.stringify({
-        status: parseInt(formData.status) || 0,
-        comment: formData.technicianComment || "",
-        version: parseInt(version) || 0,
-        timezoneOffsetMinutes: timezoneOffset,
-      });
-    }
-
-    const resp = await fetch(endpoint, {
-      method: "PATCH",
-      headers: {
-        "X-Requested-With": "XMLHttpRequest",
-        "Content-Type": "application/json",
-      },
-      body: requestBody,
-    });
-
-    if (resp.status === 409 || resp.status === 403) {
-      const errorData = await resp.json().catch(() => ({}));
-      alert(errorData.message || "Planas pasikeite. Uzduoties redaguoti negalima.");
-    } else if (!resp.ok) {
-      alert("Įvyko klaida išsaugant užduotį.");
-    } else {
-      const responseData = await resp.json().catch(() => null);
-      if (responseData?.version) {
-        modalEl.dataset.version = responseData.version;
-      }
-
-      const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
-      if (!query.has("view")) query.set("view", "day");
-      await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
-      panel?.hide?.();
     }
   };
 
