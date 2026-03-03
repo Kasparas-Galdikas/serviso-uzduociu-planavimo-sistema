@@ -417,6 +417,80 @@
     return Number.isFinite(n) ? n : null;
   };
 
+  const formatClockMinutes = (totalMinutes) => {
+    const clamped = Math.max(0, totalMinutes);
+    const hours = Math.floor(clamped / 60);
+    const minutes = clamped % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  };
+
+  const formatTravelDurationLabel = (minutesRaw) => {
+    const minutes = Math.max(0, Math.ceil(Number(minutesRaw) || 0));
+    const hours = Math.floor(minutes / 60);
+    const remainder = minutes % 60;
+    if (hours <= 0) return `${minutes} min`;
+    if (remainder <= 0) return `${hours} h`;
+    return `${hours} h ${remainder} min`;
+  };
+
+  const getPreviewRequiredInboundTravelMinutes = (technicianId) => {
+    const states = Array.isArray(dragState.previewData?.previewStates)
+      ? dragState.previewData.previewStates
+      : [];
+    const state = states.find((s) => Number(s?.technicianId) === Number(technicianId));
+    if (!state) return null;
+    const required = Number(state.requiredInboundTravelMinutes);
+    if (!Number.isFinite(required) || required < 0) return null;
+    return Math.ceil(required);
+  };
+
+  const applyOptimisticTravelMetadata = ({
+    taskCard,
+    travelCard,
+    technicianId,
+    targetDate,
+    taskStartMinutes,
+  }) => {
+    if (!taskCard || taskStartMinutes == null) return;
+
+    const previewMinutes = getPreviewRequiredInboundTravelMinutes(technicianId);
+    const taskTravelMinutes = parseIntSafe(taskCard.getAttribute("data-travel-duration-minutes"));
+    const cardTravelMinutes = travelCard
+      ? parseIntSafe(travelCard.getAttribute("data-duration-minutes"))
+      : null;
+    const effectiveTravelMinutes =
+      previewMinutes != null
+        ? previewMinutes
+        : (taskTravelMinutes ?? cardTravelMinutes ?? 0);
+
+    taskCard.setAttribute("data-tech-id", String(technicianId));
+    taskCard.setAttribute("data-date", String(targetDate || ""));
+    taskCard.setAttribute("data-start-minutes", String(taskStartMinutes));
+    taskCard.setAttribute("data-travel-duration-minutes", String(Math.max(0, effectiveTravelMinutes)));
+
+    if (!travelCard) return;
+
+    const travelStartMinutes = Math.max(0, taskStartMinutes - Math.max(0, effectiveTravelMinutes));
+    travelCard.setAttribute("data-tech-id", String(technicianId));
+    travelCard.setAttribute("data-date", String(targetDate || ""));
+    travelCard.setAttribute("data-start-minutes", String(travelStartMinutes));
+    travelCard.setAttribute("data-duration-minutes", String(Math.max(0, effectiveTravelMinutes)));
+
+    const startLabel = formatClockMinutes(travelStartMinutes);
+    const endLabel = formatClockMinutes(taskStartMinutes);
+    travelCard.setAttribute("aria-label", `Kelione ${startLabel} - ${endLabel}`);
+
+    const approxEl = travelCard.querySelector(".travel-slot-approx");
+    if (approxEl) {
+      approxEl.textContent = formatTravelDurationLabel(effectiveTravelMinutes);
+    }
+
+    const rangeEl = travelCard.querySelector(".travel-slot-range");
+    if (rangeEl) {
+      rangeEl.textContent = `${startLabel} - ${endLabel}`;
+    }
+  };
+
   const isStaleSwapFailure = (result) => {
     if (!result || result.success) return false;
     if (result.errorType !== "conflict") return false;
@@ -1125,19 +1199,35 @@
         clearPreviewColors();
         clearSwapPreview();
 
-        // Optimistic swap: snapshot both cells and exchange card positions visually
+        // Optimistic swap: snapshot both task cells + travel cells, then exchange all
         const cellA = refresh?.findTaskCell?.(taskId);
         const cellB = refresh?.findTaskCell?.(targetTaskId);
         const cardA = refresh?.findTaskCard?.(taskId);
         const cardB = refresh?.findTaskCard?.(targetTaskId);
 
+        // Find linked travel cards (may not exist for every task)
+        const travelCardA = tables.querySelector(`.task-travel[data-travel-for-task-id="${taskId}"]`);
+        const travelCardB = tables.querySelector(`.task-travel[data-travel-for-task-id="${targetTaskId}"]`);
+        const travelCellA = travelCardA?.closest("td") ?? null;
+        const travelCellB = travelCardB?.closest("td") ?? null;
+
         let swapSnapshot = null;
         if (cellA && cellB && cardA && cardB) {
-          swapSnapshot = refresh?.createSnapshot?.([cellA, cellB]);
+          const cellsToSnapshot = [cellA, cellB];
+          if (travelCellA) cellsToSnapshot.push(travelCellA);
+          if (travelCellB) cellsToSnapshot.push(travelCellB);
+          swapSnapshot = refresh?.createSnapshot?.(cellsToSnapshot);
+
           cellA.appendChild(cardB);
           cellB.appendChild(cardA);
           cardA.classList.add("task-card--moving");
           cardB.classList.add("task-card--moving");
+
+          // Swap travel cards alongside their tasks
+          if (travelCardA && travelCardB && travelCellA && travelCellB) {
+            travelCellA.appendChild(travelCardB);
+            travelCellB.appendChild(travelCardA);
+          }
         }
 
         dragState.busy = true;
@@ -1367,20 +1457,126 @@
         targetDate,
       });
 
+      // Optimistic: move task card + travel card instantly using the drop cell
+      // directly (avoids findSlotCell which fails for mid-span drops).
+      const moveTaskCard = refresh?.findTaskCard?.(taskId);
+      const moveOriginCell = moveTaskCard?.closest("td");
+      const moveTravelCard = tables.querySelector(`.task-travel[data-travel-for-task-id="${taskId}"]`);
+      const moveTravelOriginCell = moveTravelCard?.closest("td");
+
+      const previewTravelMinutes = getPreviewRequiredInboundTravelMinutes(technicianId);
+      const taskTravelMinutes = parseIntSafe(moveTaskCard?.getAttribute("data-travel-duration-minutes"));
+      const cardTravelMinutes = parseIntSafe(moveTravelCard?.getAttribute("data-duration-minutes"));
+      const effectiveTravelMinutes =
+        previewTravelMinutes != null
+          ? previewTravelMinutes
+          : (taskTravelMinutes ?? cardTravelMinutes ?? 0);
+
+      let moveTravelTargetCell = dragState.highlightedTravelCells.find((td) =>
+        td.classList.contains("is-drop-travel-start")
+      ) || dragState.highlightedTravelCells[dragState.highlightedTravelCells.length - 1] || null;
+
+      if (!moveTravelTargetCell && effectiveTravelMinutes > 0) {
+        const travelSlotStartMinutes =
+          Math.max(0, startMinutes - (Math.max(1, Math.ceil(effectiveTravelMinutes / 30)) * 30));
+        const targetTravelSlot = row.querySelector(
+          `.schedule-slot[data-tech-id="${techId}"][data-date="${date}"][data-slot-start-minutes="${travelSlotStartMinutes}"]`
+        );
+        moveTravelTargetCell = targetTravelSlot?.closest("td") || null;
+      }
+
       // Clear all drag preview visuals before touching the DOM.
       clearPreview();
       clearTravelPreview();
       clearPreviewColors();
 
-      // Optimistic: immediately show card in new position
-      const optimistic = refresh?.optimisticallyMoveTask?.(
-        taskId,
-        technicianId,
-        targetDate,
-        startMinutes
-      );
+      const moveSnapshotCells = [
+        moveOriginCell,
+        cell,
+        moveTravelOriginCell,
+        moveTravelTargetCell,
+      ].filter(Boolean);
+      const moveSnapshot = refresh?.createSnapshot?.(moveSnapshotCells) ?? null;
+
+      let optimistic = { success: false, rollback: () => {} };
+
+      if (moveTaskCard && moveOriginCell) {
+        try {
+          moveTaskCard.classList.add("task-card--moving");
+          moveTaskCard.style.pointerEvents = "none";
+
+          cell.querySelector(".schedule-slot")?.remove();
+          cell.appendChild(moveTaskCard);
+          cell.classList.remove("empty-slot", "is-drop-range", "is-drop-range-invalid");
+
+          if (moveOriginCell.querySelectorAll(".task-card").length === 0) {
+            moveOriginCell.classList.add("empty-slot");
+            const emptySlot = document.createElement("div");
+            emptySlot.className = "schedule-slot";
+            emptySlot.setAttribute("role", "button");
+            emptySlot.setAttribute("tabindex", "0");
+            ["data-date", "data-tech-id", "data-slot-start-minutes"].forEach(attr => {
+              const v = moveOriginCell.getAttribute(attr);
+              if (v) emptySlot.setAttribute(attr, v);
+            });
+            moveOriginCell.appendChild(emptySlot);
+          }
+
+          // Place travel card into the previewed travel-start cell so optimistic UI
+          // matches the final server-rendered placement.
+          if (
+            moveTravelCard &&
+            moveTravelOriginCell &&
+            moveTravelTargetCell &&
+            moveTravelTargetCell !== cell &&
+            !moveTravelTargetCell.querySelector(".task-card")
+          ) {
+            moveTravelTargetCell.querySelector(".schedule-slot")?.remove();
+            moveTravelTargetCell.appendChild(moveTravelCard);
+            moveTravelTargetCell.classList.remove("empty-slot", "is-drop-range", "is-drop-range-invalid");
+          }
+
+          applyOptimisticTravelMetadata({
+            taskCard: moveTaskCard,
+            travelCard: moveTravelCard,
+            technicianId,
+            targetDate,
+            taskStartMinutes: startMinutes,
+          });
+
+          optimistic = {
+            success: true,
+            card: moveTaskCard,
+            rollback: () => {
+              moveTaskCard.classList.remove("task-card--moving");
+              moveTaskCard.classList.add("task-card--rollback");
+              setTimeout(() => {
+                if (moveSnapshot) refresh?.rollbackSnapshot?.(moveSnapshot);
+                moveTaskCard.classList.remove("task-card--rollback");
+                moveTaskCard.style.pointerEvents = "";
+              }, 150);
+            },
+          };
+        } catch (_err) {
+          if (moveSnapshot) refresh?.rollbackSnapshot?.(moveSnapshot);
+          moveTaskCard.classList.remove("task-card--moving");
+          moveTaskCard.style.pointerEvents = "";
+        }
+      }
 
       try {
+        const refreshAfterFailedMove = async () => {
+          const query =
+            state?.getQuery?.() ||
+            new URLSearchParams(window.location.search || "");
+          if (!query.has("view")) query.set("view", "day");
+
+          await table?.fetchAndRender?.(query, {
+            updateUrl: false,
+            preserveScroll: true,
+          });
+        };
+
         // Use task.api module if available
         if (taskApi?.moveTask) {
           const result = await taskApi.moveTask(taskId, {
@@ -1395,6 +1591,7 @@
               await new Promise(r => setTimeout(r, 350));
             }
             alert(result.error || "Nepavyko perkelti užduoties.");
+            await refreshAfterFailedMove();
           } else {
             const query =
               state?.getQuery?.() ||
@@ -1452,6 +1649,7 @@
               await new Promise(r => setTimeout(r, 350));
             }
             alert(msg);
+            await refreshAfterFailedMove();
           } else if (!resp.ok) {
             throw new Error("Nepavyko perkelti užduoties.");
           } else {
