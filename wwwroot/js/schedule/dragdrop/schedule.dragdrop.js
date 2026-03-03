@@ -1170,21 +1170,20 @@
       const isDirectCardDrop = !!dropCard;
       const isTolerantCellDrop = !!tolerantSwapCard;
       const canSwap =
-        dragState.intent === "swap" &&
         (isDirectCardDrop || isTolerantCellDrop) &&
         targetMeta &&
-        String(targetMeta.taskId) !== draggedTaskId &&
-        dragState.swapCandidate &&
-        String(dragState.swapCandidate.targetTaskId) === String(targetMeta.taskId) &&
-        String(dragState.hoverTargetCardId || "") === String(targetMeta.taskId);
+        String(targetMeta.taskId) !== draggedTaskId;
 
       if (canSwap) {
         const taskId = dragState.taskId;
-        const expectedVersion = parseIntSafe(dragState.version);
+        const expectedVersion = parseIntSafe(dragState.version) || getBoardTaskVersion(taskId);
         const swapCandidate = dragState.swapCandidate ? { ...dragState.swapCandidate } : null;
-        const targetTaskId = swapCandidate?.targetTaskId;
+        const targetTaskId = swapCandidate?.targetTaskId || targetMeta?.taskId;
         let sourceVersionForRequest = expectedVersion;
-        let targetVersionForRequest = parseIntSafe(swapCandidate?.targetVersion);
+        let targetVersionForRequest =
+          parseIntSafe(swapCandidate?.targetVersion) ||
+          targetMeta?.version ||
+          getBoardTaskVersion(targetTaskId);
         let staleRetryAttempted = false;
         if (!taskId || !expectedVersion || !targetTaskId || !targetVersionForRequest) {
           clearDragState();
@@ -1223,8 +1222,22 @@
           cardA.classList.add("task-card--moving");
           cardB.classList.add("task-card--moving");
 
-          // Swap travel cards alongside their tasks
-          if (travelCardA && travelCardB && travelCellA && travelCellB) {
+          // Swap travel cards alongside their tasks, but never place travel
+          // into cells that currently contain actual task cards (prevents
+          // transient travel/task stacking during optimistic phase).
+          const safeTravelSwapTargets =
+            travelCardA &&
+            travelCardB &&
+            travelCellA &&
+            travelCellB &&
+            travelCellA !== cellA &&
+            travelCellA !== cellB &&
+            travelCellB !== cellA &&
+            travelCellB !== cellB &&
+            !travelCellA.querySelector(".task-card:not(.task-travel)") &&
+            !travelCellB.querySelector(".task-card:not(.task-travel)");
+
+          if (safeTravelSwapTargets) {
             travelCellA.appendChild(travelCardB);
             travelCellB.appendChild(travelCardA);
           }
@@ -1239,6 +1252,17 @@
         let smartSwapAttempted = true;
         let smartSwapFailed = false;
         try {
+          const refreshAfterFailedSwap = async () => {
+            const query =
+              state?.getQuery?.() ||
+              new URLSearchParams(window.location.search || "");
+            if (!query.has("view")) query.set("view", "day");
+            await table?.fetchAndRender?.(query, {
+              updateUrl: false,
+              preserveScroll: true,
+            });
+          };
+
           if (taskApi?.swapTaskSmart) {
             let result = await taskApi.swapTaskSmart(
               taskId,
@@ -1296,6 +1320,7 @@
                 swapSnapshot = null;
               }
               alert(result.error || "Nepavyko sukeisti uzduociu.");
+              await refreshAfterFailedSwap();
             } else {
               logEvent("ui.drag.drop.swap.status", {
                 "swap.status": "ok",
@@ -1359,6 +1384,7 @@
                 swapSnapshot = null;
               }
               alert(msg);
+              await refreshAfterFailedSwap();
             } else if (!resp.ok) {
               smartSwapFailed = true;
               logEvent("ui.drag.drop.swap.failed", {
@@ -1405,6 +1431,14 @@
             swapSnapshot = null;
           }
           alert("Nepavyko sukeisti uzduociu.");
+          const query =
+            state?.getQuery?.() ||
+            new URLSearchParams(window.location.search || "");
+          if (!query.has("view")) query.set("view", "day");
+          await table?.fetchAndRender?.(query, {
+            updateUrl: false,
+            preserveScroll: true,
+          });
         } finally {
           clearDragState();
         }
