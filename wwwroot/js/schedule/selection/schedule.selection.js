@@ -18,19 +18,7 @@
 
   const isDayView = () => (state?.getView?.() || "day") === "day";
 
-  // Use shared grid utilities (with fallbacks for load order)
-  const getGrid = () => grid?.getConfig?.() || {
-    slotSizeMinutes: 30,
-    dayStartMinutes: 8 * 60,
-    dayEndMinutes: 20 * 60,
-  };
-  const minutesToTime = (m) => grid?.minutesToTime?.(m) || (() => {
-    const mm = Math.max(0, m | 0);
-    const h = String(Math.floor(mm / 60)).padStart(2, "0");
-    const min = String(mm % 60).padStart(2, "0");
-    return `${h}:${min}`;
-  })();
-  const formatRange = (start, end) => grid?.formatRange?.(start, end) || `${minutesToTime(start)}–${minutesToTime(end)}`;
+  const formatRange = (start, end) => grid.formatRange(start, end);
 
   // Use shared DOM utilities (with fallbacks for load order)
   const isEmptySlotCell = (td) => dom?.isEmptySlotCell?.(td) ??
@@ -85,8 +73,29 @@
   // Use shared DOM utility for reading slot data (stable load order guaranteed)
   const readSlotData = dom.readSlotData;
 
+  // Sync current selection start/end to the panel form if it is already open in create mode.
+  // Called after every resize/extend so the panel stays in step without resetting other fields.
+  const syncSelectionToPanel = () => {
+    const modal = document.getElementById("taskDetailModal");
+    if (!modal?.classList?.contains("show")) return;
+    if (modal.dataset.mode !== "create") return;
+
+    const { startMinutes, endMinutes, date } = selection;
+    if (startMinutes == null || endMinutes == null || !date) return;
+
+    modal.dataset.startMinutes = startMinutes;
+    modal.dataset.endMinutes = endMinutes;
+
+    const startTime = grid.minutesToTime(startMinutes);
+    const endTime = grid.minutesToTime(endMinutes);
+    const startInput = modal.querySelector("#taskDetailStart");
+    const endInput = modal.querySelector("#taskDetailEnd");
+    if (startInput) startInput.value = `${date}T${startTime}`;
+    if (endInput) endInput.value = `${date}T${endTime}`;
+  };
+
   const applySelectionRange = (startTd, durationSlots) => {
-    const { slotSizeMinutes } = getGrid();
+    const { slotSizeMinutes } = grid.getConfig();
 
     if (!startTd || !durationSlots || durationSlots <= 0) return false;
     if (!isEmptySlotCell(startTd)) return false;
@@ -126,6 +135,7 @@
     ensureBar();
     renderBar();
     syncHandleDisabled();
+    syncSelectionToPanel();
     return true;
   };
 
@@ -146,7 +156,7 @@
 
   const syncHandleDisabled = () => {
     if (!selection.active || !selection.startTd) return;
-    const { slotSizeMinutes, dayStartMinutes, dayEndMinutes } = getGrid();
+    const { slotSizeMinutes, dayStartMinutes, dayEndMinutes } = grid.getConfig();
     const leftHandle = selection.barEl?.querySelector?.('[data-slot-handle="left"]');
     const rightHandle = selection.barEl?.querySelector?.('[data-slot-handle="right"]');
 
@@ -332,69 +342,14 @@
       return;
     }
 
-    // Open task detail modal in CREATE mode
-    const modal = document.getElementById("taskDetailModal");
-    if (!modal) return;
-
-    // Clear the form and set to CREATE mode
-    const form = {
+    await schedule.tasks?.openTaskPanel?.({
       technicianId: selection.techId,
       targetDate: selection.date,
       startMinutes: selection.startMinutes,
       endMinutes: selection.endMinutes,
-      date: selection.date,
-      startTime: minutesToTimeString(selection.startMinutes),
-      endTime: minutesToTimeString(selection.endMinutes),
-    };
-
-    // Store selection data for later submission
-    modal.dataset.mode = "create";
-    modal.dataset.technicianId = selection.techId;
-    modal.dataset.targetDate = selection.date;
-    modal.dataset.startMinutes = selection.startMinutes;
-    modal.dataset.endMinutes = selection.endMinutes;
-    delete modal.dataset.taskId;
-    delete modal.dataset.version;
-
-    // Calculate datetime-local values for form inputs
-    const startDateTime = `${selection.date}T${form.startTime}`;
-    const endDateTime = `${selection.date}T${form.endTime}`;
-
-    // Populate form fields
-    modal.querySelector("#taskDetailTitle").value = "";
-    modal.querySelector("#taskDetailLocation").value = "";
-    modal.querySelector("#taskDetailStart").value = startDateTime;
-    modal.querySelector("#taskDetailEnd").value = endDateTime;
-    modal.querySelector("#taskDetailPriority").value = ""; // force user to choose
-    modal.querySelector("#taskDetailStatus").value = "0"; // Planned
-
-    // Set title
-    modal.querySelector("#taskDetailLabel").textContent = "Nauja užduotis";
-    modal.querySelector("#taskDetailCode").textContent = `Laikas: ${form.startTime} - ${form.endTime}`;
-
-    // Enable all inputs
-    const inputs = modal.querySelectorAll("input, select, textarea");
-    inputs.forEach((el) => el.removeAttribute("disabled"));
-
-    // Show save button
-    const saveBtn = modal.querySelector("#taskDetailSave");
-    if (saveBtn) {
-      saveBtn.classList.remove("d-none");
-      saveBtn.textContent = "Sukurti";
-    }
-
-    // Open the modal
-    const bsModal = window.bootstrap?.Offcanvas?.getOrCreateInstance?.(modal);
-    bsModal?.show?.();
+    });
 
     logEvent("ui.task.create.form.open", { techId: selection.techId, date: selection.date });
-  };
-
-  // Helper to convert minutes to HH:MM format
-  const minutesToTimeString = (minutes) => {
-    const h = String(Math.floor(minutes / 60)).padStart(2, "0");
-    const m = String(minutes % 60).padStart(2, "0");
-    return `${h}:${m}`;
   };
 
   // Export the createTask function so tasks.js can call the API
@@ -624,16 +579,19 @@
 
   const hit = evt.target?.closest?.("[data-slot-hit]");
   if (hit && selection.active) {
-    // ✅ OPEN PANEL IN CREATE MODE
-    const { techId, date, startMinutes, endMinutes } = selection;
-
+    const modal = document.getElementById("taskDetailModal");
+    // Panel already open in create mode — sync times without resetting the form
+    if (modal?.classList?.contains("show") && modal.dataset.mode === "create") {
+      syncSelectionToPanel();
+      return;
+    }
+    // Panel not open yet — open fresh create mode
     schedule.tasks?.openTaskPanel?.({
-      technicianId: techId,
-      targetDate: date,
-      startMinutes,
-      endMinutes,
+      technicianId: selection.techId,
+      targetDate: selection.date,
+      startMinutes: selection.startMinutes,
+      endMinutes: selection.endMinutes,
     });
-
     return;
   }
 

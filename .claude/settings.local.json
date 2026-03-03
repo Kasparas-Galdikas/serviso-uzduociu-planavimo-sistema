@@ -3,7 +3,8 @@
     "allow": [
       "Bash(dotnet ef migrations:*)",
       "Bash(taskkill //F //PID 11772)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(grep -l \"dragstart\\\\|dragend\\\\|dragdrop\" /c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/wwwroot/js/schedule/**/*.js)"
     ]
   }
 }
