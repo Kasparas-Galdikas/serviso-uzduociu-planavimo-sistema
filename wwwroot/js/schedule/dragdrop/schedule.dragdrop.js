@@ -1117,6 +1117,29 @@
           return;
         }
 
+        // Clear all drag preview visuals before touching the DOM.
+        // Must happen before the optimistic swap so swap-preview transforms
+        // (translateX) are removed before cards are physically moved.
+        clearPreview();
+        clearTravelPreview();
+        clearPreviewColors();
+        clearSwapPreview();
+
+        // Optimistic swap: snapshot both cells and exchange card positions visually
+        const cellA = refresh?.findTaskCell?.(taskId);
+        const cellB = refresh?.findTaskCell?.(targetTaskId);
+        const cardA = refresh?.findTaskCard?.(taskId);
+        const cardB = refresh?.findTaskCard?.(targetTaskId);
+
+        let swapSnapshot = null;
+        if (cellA && cellB && cardA && cardB) {
+          swapSnapshot = refresh?.createSnapshot?.([cellA, cellB]);
+          cellA.appendChild(cardB);
+          cellB.appendChild(cardA);
+          cardA.classList.add("task-card--moving");
+          cardB.classList.add("task-card--moving");
+        }
+
         dragState.busy = true;
         logEvent("ui.drag.drop.swap", {
           taskId,
@@ -1135,6 +1158,10 @@
             );
             if (isStaleSwapFailure(result)) {
               staleRetryAttempted = true;
+              if (swapSnapshot) {
+                refresh?.rollbackSnapshot?.(swapSnapshot);
+                swapSnapshot = null;
+              }
               const query =
                 state?.getQuery?.() ||
                 new URLSearchParams(window.location.search || "");
@@ -1173,6 +1200,11 @@
                 "smartSwap.failed": true,
                 reason: result.error || "",
               }, "warn");
+              if (swapSnapshot) {
+                refresh?.rollbackSnapshot?.(swapSnapshot);
+                await new Promise(r => setTimeout(r, 350));
+                swapSnapshot = null;
+              }
               alert(result.error || "Nepavyko sukeisti uzduociu.");
             } else {
               logEvent("ui.drag.drop.swap.status", {
@@ -1231,6 +1263,11 @@
                 "smartSwap.failed": true,
                 reason: msg,
               }, "warn");
+              if (swapSnapshot) {
+                refresh?.rollbackSnapshot?.(swapSnapshot);
+                await new Promise(r => setTimeout(r, 350));
+                swapSnapshot = null;
+              }
               alert(msg);
             } else if (!resp.ok) {
               smartSwapFailed = true;
@@ -1272,6 +1309,11 @@
             reason: err?.message || "Nepavyko sukeisti uzduociu.",
           }, "warn");
           logEvent("ui.drag.drop.swap.error", { taskId, error: err?.message }, "error");
+          if (swapSnapshot) {
+            refresh?.rollbackSnapshot?.(swapSnapshot);
+            await new Promise(r => setTimeout(r, 350));
+            swapSnapshot = null;
+          }
           alert("Nepavyko sukeisti uzduociu.");
         } finally {
           clearDragState();
@@ -1325,6 +1367,19 @@
         targetDate,
       });
 
+      // Clear all drag preview visuals before touching the DOM.
+      clearPreview();
+      clearTravelPreview();
+      clearPreviewColors();
+
+      // Optimistic: immediately show card in new position
+      const optimistic = refresh?.optimisticallyMoveTask?.(
+        taskId,
+        technicianId,
+        targetDate,
+        startMinutes
+      );
+
       try {
         // Use task.api module if available
         if (taskApi?.moveTask) {
@@ -1335,12 +1390,20 @@
           }, expectedVersion);
 
           if (!result.success) {
+            if (optimistic?.success) {
+              optimistic.rollback();
+              await new Promise(r => setTimeout(r, 350));
+            }
             alert(result.error || "Nepavyko perkelti užduoties.");
           } else {
             const query =
               state?.getQuery?.() ||
               new URLSearchParams(window.location.search || "");
             if (!query.has("view")) query.set("view", "day");
+
+            if (optimistic?.success) {
+              refresh?.finalizeTaskMove?.(taskId, result.version);
+            }
 
             await table?.fetchAndRender?.(query, {
               updateUrl: false,
@@ -1384,6 +1447,10 @@
             const msg =
               (await resp.json().catch(() => null))?.message ||
               "Nepavyko perkelti užduoties.";
+            if (optimistic?.success) {
+              optimistic.rollback();
+              await new Promise(r => setTimeout(r, 350));
+            }
             alert(msg);
           } else if (!resp.ok) {
             throw new Error("Nepavyko perkelti užduoties.");
@@ -1407,6 +1474,10 @@
           { taskId, error: err?.message },
           "error"
         );
+        if (optimistic?.success) {
+          optimistic.rollback();
+          await new Promise(r => setTimeout(r, 350));
+        }
         alert("Nepavyko perkelti užduoties.");
 
         const query =
