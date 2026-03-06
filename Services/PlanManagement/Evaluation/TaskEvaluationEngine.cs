@@ -58,7 +58,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .Where(t => t != null)
                 .GroupBy(t => t!.Id)
                 .ToDictionary(g => g.Key, g => g.First()!);
-            var now = _timeService.GetCurrentUtcTime();
             var evaluations = new List<TaskEvaluationEntity>();
             var tracked = await _db.TaskEvaluations
                 .Where(e => tasks.Select(t => t.Id).Contains(e.TaskId))
@@ -104,47 +103,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     var conflictSet = snapshot.Conflicts;
                     conflictCount += conflictSet.Count;
 
-                    var activeDayTasks = dayTasks
-                        .Where(t => WorkloadCalculator.CountsTowardsWorkload(t.Status))
-                        .OrderBy(t => t.StartAt)
-                        .ToList();
-                    var travelViolations = WorkloadCalculator.DetectTravelViolations(activeDayTasks, travelMinutesByTaskId);
-
                     foreach (var task in dayTasks)
                     {
-                        var hasConflict = conflictSet.Contains(task.Id);
-                        var taskDuration = (task.EndAt - task.StartAt).TotalHours;
-
                         var eval = trackedLookup.TryGetValue(task.Id, out var existing)
                             ? existing
                             : new TaskEvaluationEntity { TaskId = task.Id };
-
-                        eval.HasConflict = status == LoadState.Conflict;
-                        eval.ConflictReason = hasConflict ? "Overlapping tasks" : null;
-                        eval.DailyHours = (decimal)Math.Round(snapshot.DailyHours, 2);
-                        eval.WeeklyHours = (decimal)Math.Round(snapshot.WeeklyHours, 2);
                         eval.OverloadHours = overloadHours > 0d ? (decimal)Math.Round(overloadHours, 2) : null;
                         eval.Status = status;
-                        eval.IsConflict = status == LoadState.Conflict;
-                        eval.IsOverloaded = status != LoadState.Normal;
-                        eval.LoadHours = (decimal)Math.Round(taskDuration, 2);
-                        eval.RiskLevel = status == LoadState.Conflict
-                            ? RiskLevel.High
-                            : status == LoadState.Load ? RiskLevel.Medium : (RiskLevel?)null;
-                        eval.EvaluatedAt = now;
-
-                        if (travelViolations.TryGetValue(task.Id, out var violation))
-                        {
-                            eval.IsTravelInfeasible = true;
-                            eval.RequiredTravelMinutes = violation.Required;
-                            eval.AvailableGapMinutes = violation.Available;
-                        }
-                        else
-                        {
-                            eval.IsTravelInfeasible = false;
-                            eval.RequiredTravelMinutes = null;
-                            eval.AvailableGapMinutes = null;
-                        }
 
                         evaluations.Add(eval);
                     }

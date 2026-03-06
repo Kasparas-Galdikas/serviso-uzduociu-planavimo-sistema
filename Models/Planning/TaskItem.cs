@@ -23,7 +23,6 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public bool IsEditable { get; set; }
         public bool CanDelete { get; set; }
         public bool IsTimeExpired { get; set; }
-        public string? Risk { get; set; }
         public decimal OverloadHours { get; set; }
         public string LoadStatus { get; set; } = string.Empty;
         public decimal? TravelDurationMinutes { get; set; }

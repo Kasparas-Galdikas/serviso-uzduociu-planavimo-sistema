@@ -22,7 +22,6 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             public string City { get; set; } = string.Empty;
             public decimal DailyLimit { get; set; }
             public decimal WeeklyLimit { get; set; }
-            public string? RulesSummary { get; set; }
             public string WorkplaceAddress { get; set; } = string.Empty;
         }
 
@@ -70,22 +69,22 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
         public static List<MockTechnician> GetTechnicians() => new()
         {
-            new() { Name = "Austeja J.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h, savaites 40h", WorkplaceAddress = "Gedimino pr. 1, Vilnius" },
-            new() { Name = "Dovydas K.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, RulesSummary = "Dienos limitas 8h, savaites 45h", WorkplaceAddress = "Laisves al. 10, Kaunas" },
-            new() { Name = "Gabija P.", City = "Siauliai", DailyLimit = 8, WeeklyLimit = 42, RulesSummary = "Dienos limitas 8h, savaites 42h", WorkplaceAddress = "Vilniaus g. 100, Siauliai" },
-            new() { Name = "Lukas V.", City = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "H. Manto g. 5, Klaipeda" },
-            new() { Name = "Monika S.", City = "Panevezys", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Respublikos g. 2, Panevezys" },
-            new() { Name = "Rokas M.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 35, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Ozo g. 25, Vilnius" },
-            new() { Name = "Greta B.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Savanoriu pr. 255, Kaunas" },
-            new() { Name = "Mantas P.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Ukmerges g. 369, Vilnius" },
-            new() { Name = "Ieva Z.", City = "Alytus", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Naujoji g. 50, Alytus" },
-            new() { Name = "Paulius T.", City = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Taikos pr. 141, Klaipeda" },
-            new() { Name = "Jurate R.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Pilies g. 10, Vilnius" },
-            new() { Name = "Tomas G.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "K. Donelaicio g. 50, Kaunas" },
-            new() { Name = "Elze K.", City = "Siauliai", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Tilzes g. 50, Siauliai" },
-            new() { Name = "Vaidotas L.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Zalgirio g. 90, Vilnius" },
-            new() { Name = "Karolina N.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Kestucio g. 15, Kaunas" },
-            new() { Name = "Technician", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, RulesSummary = "Dienos limitas 8h", WorkplaceAddress = "Vytauto pr. 24, Kaunas" }
+            new() { Name = "Austeja J.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Gedimino pr. 1, Vilnius" },
+            new() { Name = "Dovydas K.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, WorkplaceAddress = "Laisves al. 10, Kaunas" },
+            new() { Name = "Gabija P.", City = "Siauliai", DailyLimit = 8, WeeklyLimit = 42, WorkplaceAddress = "Vilniaus g. 100, Siauliai" },
+            new() { Name = "Lukas V.", City = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "H. Manto g. 5, Klaipeda" },
+            new() { Name = "Monika S.", City = "Panevezys", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Respublikos g. 2, Panevezys" },
+            new() { Name = "Rokas M.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 35, WorkplaceAddress = "Ozo g. 25, Vilnius" },
+            new() { Name = "Greta B.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, WorkplaceAddress = "Savanoriu pr. 255, Kaunas" },
+            new() { Name = "Mantas P.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Ukmerges g. 369, Vilnius" },
+            new() { Name = "Ieva Z.", City = "Alytus", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Naujoji g. 50, Alytus" },
+            new() { Name = "Paulius T.", City = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Taikos pr. 141, Klaipeda" },
+            new() { Name = "Jurate R.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Pilies g. 10, Vilnius" },
+            new() { Name = "Tomas G.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "K. Donelaicio g. 50, Kaunas" },
+            new() { Name = "Elze K.", City = "Siauliai", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Tilzes g. 50, Siauliai" },
+            new() { Name = "Vaidotas L.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Zalgirio g. 90, Vilnius" },
+            new() { Name = "Karolina N.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Kestucio g. 15, Kaunas" },
+            new() { Name = "Technician", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Vytauto pr. 24, Kaunas" }
         };
 
         public static List<MockObject> GetObjects() => new()
