@@ -220,7 +220,6 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.Instructions)
                 .HasMaxLength(2000)
                 .HasDefaultValue(string.Empty);
-            entity.Property(e => e.PreviousTaskId);
 
             entity.HasOne(e => e.Plan)
                 .WithMany(p => p.Tasks)
@@ -237,11 +236,6 @@ namespace ServiceTaskPlanningSystem.Data
                 .HasForeignKey(e => e.ServiceObjectId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            entity.HasOne(e => e.PreviousTask)
-                .WithMany()
-                .HasForeignKey(e => e.PreviousTaskId)
-                .OnDelete(DeleteBehavior.SetNull);
-
             entity.HasIndex(e => new { e.PlanId, e.TechnicianId, e.StartAt });
             entity.HasIndex(e => new { e.PlanId, e.StartAt });
             entity.HasIndex(e => new { e.TechnicianId, e.StartAt });
@@ -254,11 +248,6 @@ namespace ServiceTaskPlanningSystem.Data
             entity.ToTable("task_evaluations");
             entity.HasKey(e => e.TaskId);
 
-            entity.Property(e => e.RiskLevel)
-                .HasColumnType("risk_level");
-            entity.Property(e => e.EvaluatedAt)
-                .HasColumnType("timestamptz")
-                .HasDefaultValueSql("NOW()");
             entity.Property(e => e.Status)
                 .HasColumnType("load_state");
 

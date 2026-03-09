@@ -41,11 +41,12 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
 
             var user = loginResult.User!;
             var trimmedEmail = user.Email;
+            var displayName = string.IsNullOrWhiteSpace(user.Name) ? trimmedEmail : user.Name.Trim();
             var roleString = _loginService.GetRoleString(user);
 
             var claims = new List<Claim>
             {
-                new Claim(ClaimTypes.Name, trimmedEmail),
+                new Claim(ClaimTypes.Name, displayName),
                 new Claim(ClaimTypes.Role, roleString),
                 new Claim(ClaimTypes.NameIdentifier, trimmedEmail)
             };
@@ -73,3 +74,4 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
         }
     }
 }
+

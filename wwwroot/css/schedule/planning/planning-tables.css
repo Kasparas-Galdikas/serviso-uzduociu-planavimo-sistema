@@ -952,6 +952,66 @@ td.is-drag-origin .task-card.is-dragging {
 }
 
 /* =========================================================
+   Responsive – layout integrity on small screens
+   The table keeps min-column widths and scrolls horizontally
+   rather than collapsing to unusable sizes.
+   ========================================================= */
+
+/* Enforce a minimum width on every time-slot column so the
+   table overflows its container and the table-responsive /
+   table-fixed-head wrapper shows a horizontal scrollbar
+   instead of squishing cells below a usable size.           */
+@media (max-width: 1024px) {
+  .schedule-table .time-header {
+    min-width: 72px;
+  }
+
+  .schedule-table th.tech-cell,
+  .schedule-table td.tech-cell {
+    min-width: 130px;
+    max-width: 130px;
+    width: 130px;
+  }
+}
+
+@media (max-width: 768px) {
+  .schedule-table .time-header {
+    min-width: 68px;
+  }
+
+  .schedule-table th.tech-cell,
+  .schedule-table td.tech-cell {
+    min-width: 110px;
+    max-width: 110px;
+    width: 110px;
+  }
+
+  /* Keep task cards at a readable minimum – they will scroll with the table */
+  .task-card {
+    min-width: 100px;
+  }
+
+  .travel-slot-card {
+    min-width: 100px;
+  }
+}
+
+@media (max-width: 576px) {
+  .schedule-table .time-header {
+    min-width: 62px;
+    font-size: 0.78rem;
+    padding: 6px 3px;
+  }
+
+  .schedule-table th.tech-cell,
+  .schedule-table td.tech-cell {
+    min-width: 96px;
+    max-width: 96px;
+    width: 96px;
+  }
+}
+
+/* =========================================================
    Responsive (visual only)
    ========================================================= */
 @media (min-width: 1440px) {

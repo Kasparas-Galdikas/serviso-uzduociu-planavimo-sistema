@@ -1,4 +1,4 @@
-Ôªø<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="lt">
 <head>
     <meta charset="utf-8" />
@@ -17,13 +17,15 @@
 <body>
     @{
         var isAuthPage = Context?.Request?.Path.StartsWithSegments("/Authentication") ?? false;
-        var currentRole = Context?.User?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value?.ToLowerInvariant() ?? string.Empty;
         var currentEmail = Context?.Request?.Cookies["stsps_email"] ?? string.Empty;
         var isLoggedIn = Context?.User?.Identity?.IsAuthenticated == true;
-        var roleLabel = currentRole == "technician" ? "Technikas" : "Vadovas";
-        var initial = !string.IsNullOrWhiteSpace(currentEmail)
-            ? currentEmail.Trim().Substring(0, 1).ToUpperInvariant()
-            : "A";
+        var currentName = Context?.User?.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value?.Trim() ?? string.Empty;
+        var displayName = !string.IsNullOrWhiteSpace(currentName)
+            ? currentName
+            : (!string.IsNullOrWhiteSpace(currentEmail) ? currentEmail.Split("@")[0] : "Vartotojas");
+        var initial = !string.IsNullOrWhiteSpace(displayName)
+            ? displayName.Substring(0, 1).ToUpperInvariant()
+            : "V";
     }
     <header>
         <nav class="navbar navbar-expand-sm navbar-light bg-white border-bottom box-shadow mb-3">
@@ -35,14 +37,49 @@
                 </button>
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
                     <ul class="navbar-nav flex-grow-1">
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Schedule" asp-action="Index">Tvarkara≈°tis</a>
-                        </li>
-                    </ul>
-                    <div class="d-flex align-items-center gap-2">
+
+                        <li class="d-sm-none"><hr class="my-0" /></li>
+
                         @if (!isAuthPage && isLoggedIn)
                         {
+                            <li class="d-sm-none nav-mobile-account-inline">
+                                <span class="nav-mobile-label">Prisijungta kaip</span>
+                                <span class="nav-mobile-identity">
+                                    <span class="nav-mobile-role">@displayName</span>
+                                    @if (!string.IsNullOrWhiteSpace(currentEmail))
+                                    {
+                                        <span class="nav-mobile-email-inline">@currentEmail</span>
+                                    }
+                                </span>
+                            </li>
+                            <li class="d-sm-none"><hr class="my-1" /></li>
+                        }
 
+                        <li class="nav-item text-center">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Schedule" asp-action="Index">Tvarkaraötis</a>
+                        </li>
+
+                        @if (!isAuthPage && isLoggedIn)
+                        {
+                            <li class="d-sm-none"><hr class="my-1" /></li>
+                            <li class="d-sm-none">
+                                <a class="nav-link nav-mobile-logout" asp-controller="Authentication" asp-action="Logout">
+                                    <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Atsijungti
+                                </a>
+                            </li>
+                        }
+                        else if (isAuthPage || !isLoggedIn)
+                        {
+                            <li class="d-sm-none"><hr class="my-1" /></li>
+                            <li class="nav-item d-sm-none text-center">
+                                <a class="nav-link text-dark" asp-controller="Authentication" asp-action="Index">Prisijungti</a>
+                            </li>
+                        }
+                    </ul>
+                    <!-- Avatar dropdown ñ sm+ only -->
+                    <div class="d-none d-sm-flex align-items-center gap-2">
+                        @if (!isAuthPage && isLoggedIn)
+                        {
                             <div class="dropdown">
                                 <button class="btn p-0 border-0 bg-transparent nav-avatar-btn dropdown-toggle d-flex align-items-center"
                                         type="button"
@@ -57,19 +94,16 @@
                                 <ul class="dropdown-menu dropdown-menu-end shadow-sm nav-account-menu">
                                     <li class="nav-account-header">
                                         <div class="small text-muted">Prisijungta kaip</div>
-                                        <div class="fw-semibold">@roleLabel</div>
+                                        <div class="fw-semibold">@displayName</div>
                                         @if (!string.IsNullOrWhiteSpace(currentEmail))
                                         {
                                             <div class="small text-muted">@currentEmail</div>
                                         }
                                     </li>
                                     <li><hr class="dropdown-divider" /></li>
-                                    <li><a class="dropdown-item" href="#">Profilis</a></li>
-                                    <li><a class="dropdown-item" href="#">Nustatymai</a></li>
-                                    <li><hr class="dropdown-divider" /></li>
                                     <li>
                                         <a class="dropdown-item text-danger" asp-controller="Authentication" asp-action="Logout">
-                                            Atsijungti
+                                            <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Atsijungti
                                         </a>
                                     </li>
                                 </ul>
@@ -105,3 +139,12 @@
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
+
+
+
+
+
+
+
+
+

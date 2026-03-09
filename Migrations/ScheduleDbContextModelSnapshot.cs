@@ -217,10 +217,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("plan_id");
 
-                    b.Property<long?>("PreviousTaskId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("previous_task_id");
-
                     b.Property<TaskPriority>("Priority")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("task_priority")
@@ -272,9 +268,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.HasKey("Id")
                         .HasName("pk_tasks");
 
-                    b.HasIndex("PreviousTaskId")
-                        .HasDatabaseName("ix_tasks_previous_task_id");
-
                     b.HasIndex("PlanId", "StartAt")
                         .HasDatabaseName("ix_tasks_plan_id_start_at");
 
@@ -299,71 +292,13 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("task_id");
 
-                    b.Property<int?>("AvailableGapMinutes")
-                        .HasColumnType("integer")
-                        .HasColumnName("available_gap_minutes");
-
-                    b.Property<string>("ConflictReason")
-                        .HasColumnType("text")
-                        .HasColumnName("conflict_reason");
-
-                    b.Property<decimal?>("DailyHours")
-                        .HasColumnType("numeric")
-                        .HasColumnName("daily_hours");
-
-                    b.Property<DateTime>("EvaluatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamptz")
-                        .HasColumnName("evaluated_at")
-                        .HasDefaultValueSql("NOW()");
-
-                    b.Property<bool?>("HasConflict")
-                        .HasColumnType("boolean")
-                        .HasColumnName("has_conflict");
-
-                    b.Property<bool>("IsConflict")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_conflict");
-
-                    b.Property<bool>("IsOverloaded")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_overloaded");
-
-                    b.Property<bool>("IsTravelInfeasible")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_travel_infeasible");
-
-                    b.Property<decimal?>("LoadHours")
-                        .HasColumnType("numeric")
-                        .HasColumnName("load_hours");
-
                     b.Property<decimal?>("OverloadHours")
                         .HasColumnType("numeric")
                         .HasColumnName("overload_hours");
 
-                    b.Property<int?>("RequiredTravelMinutes")
-                        .HasColumnType("integer")
-                        .HasColumnName("required_travel_minutes");
-
-                    b.Property<RiskLevel?>("RiskLevel")
-                        .HasColumnType("risk_level")
-                        .HasColumnName("risk_level");
-
                     b.Property<LoadState?>("Status")
                         .HasColumnType("load_state")
                         .HasColumnName("status");
-
-                    b.Property<int?>("SwitchCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("switch_count");
-
-                    b.Property<bool>("TravelRequired")
-                        .HasColumnType("boolean")
-                        .HasColumnName("travel_required");
-
-                    b.Property<decimal?>("WeeklyHours")
-                        .HasColumnType("numeric")
-                        .HasColumnName("weekly_hours");
 
                     b.HasKey("TaskId")
                         .HasName("pk_task_evaluations");
@@ -391,10 +326,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("numeric(5,2)")
                         .HasDefaultValue(8m)
                         .HasColumnName("daily_limit");
-
-                    b.Property<string>("RulesSummary")
-                        .HasColumnType("text")
-                        .HasColumnName("rules_summary");
 
                     b.Property<long?>("UserId")
                         .HasColumnType("bigint")
@@ -555,12 +486,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_tasks_plans_plan_id");
 
-                    b.HasOne("ServiceTaskPlanningSystem.Data.TaskEntity", "PreviousTask")
-                        .WithMany()
-                        .HasForeignKey("PreviousTaskId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_tasks_tasks_previous_task_id");
-
                     b.HasOne("ServiceTaskPlanningSystem.Data.ServiceObjectEntity", "ServiceObject")
                         .WithMany("Tasks")
                         .HasForeignKey("ServiceObjectId")
@@ -576,8 +501,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasConstraintName("fk_tasks_technicians_technician_id");
 
                     b.Navigation("Plan");
-
-                    b.Navigation("PreviousTask");
 
                     b.Navigation("ServiceObject");
 

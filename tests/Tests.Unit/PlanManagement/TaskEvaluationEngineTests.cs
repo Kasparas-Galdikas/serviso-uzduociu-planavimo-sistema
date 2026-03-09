@@ -18,7 +18,7 @@ namespace Tests.Unit.PlanManagement;
 public sealed class TaskEvaluationEngineTests
 {
     [Fact]
-    public async Task RecalculateTasks_SetsTravelViolationFields_WhenGapIsInsufficient()
+    public async Task RecalculateTasks_SetsStatusAndOverloadHours()
     {
         await using var db = CreateContext();
         var day = DateTime.UtcNow.Date.AddDays(1);
@@ -101,13 +101,10 @@ public sealed class TaskEvaluationEngineTests
         var first = evals.Single(e => e.TaskId == 100);
         var second = evals.Single(e => e.TaskId == 101);
 
-        first.IsTravelInfeasible.Should().BeFalse();
-        first.RequiredTravelMinutes.Should().BeNull();
-        first.AvailableGapMinutes.Should().BeNull();
-
-        second.IsTravelInfeasible.Should().BeTrue();
-        second.RequiredTravelMinutes.Should().Be(60);
-        second.AvailableGapMinutes.Should().Be(30);
+        first.Status.Should().Be(LoadState.Normal);
+        second.Status.Should().Be(LoadState.Normal);
+        first.OverloadHours.Should().BeNull();
+        second.OverloadHours.Should().BeNull();
     }
 
     private static ScheduleDbContext CreateContext()

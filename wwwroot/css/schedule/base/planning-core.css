@@ -27,3 +27,55 @@ body { background: var(--neutral-50); color: var(--neutral-900); }
 .form-layout .form-select,
 .form-layout textarea { border-radius: var(--radius-md); border-color: var(--neutral-200); }
 
+/* =========================================================
+   Schedule card – reduce padding on small screens so the
+   table-responsive area gets maximum available width
+   ========================================================= */
+@media (max-width: 768px) {
+  #scheduleTables .card.p-3 {
+    padding: 8px !important;
+  }
+}
+
+@media (max-width: 576px) {
+  #scheduleTables .card.p-3 {
+    padding: 4px !important;
+  }
+}
+
+/* =========================================================
+   Legend – truncate text with ellipsis on small screens,
+   keep the flex row (no wrapping), icons/dots stay visible.
+   display: block + overflow: hidden + white-space: nowrap
+   + text-overflow: ellipsis on each item truncates the text
+   node while keeping the inline dot/icon visible.
+   ========================================================= */
+@media (max-width: 768px) {
+  .legend {
+    flex-wrap: nowrap;
+    gap: 6px;
+    margin-bottom: 0.5rem;
+  }
+
+  .legend-item {
+    display: block;        /* text-overflow only works on block/inline-block */
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 0.75rem;
+    line-height: 1.6;      /* vertically centres the inline dot with text */
+  }
+
+  /* dots are inline-block already, just keep them from shrinking visually */
+  .legend-item .legend-dot {
+    vertical-align: middle;
+    flex-shrink: 0;
+  }
+
+  .legend-item .legend-icon-travel {
+    vertical-align: middle;
+  }
+}
+

@@ -163,8 +163,16 @@ using (var scope = app.Services.CreateScope())
     {
         Console.WriteLine("Starting database migration...");
         var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
-        await db.Database.MigrateAsync();
-        Console.WriteLine("Database migration completed");
+        var pendingMigrations = await db.Database.GetPendingMigrationsAsync();
+        if (pendingMigrations.Any())
+        {
+            await db.Database.MigrateAsync();
+            Console.WriteLine($"Database migration completed (applied {pendingMigrations.Count()} migrations)");
+        }
+        else
+        {
+            Console.WriteLine("Database migration skipped (no pending migrations)");
+        }
 
         Console.WriteLine("Starting database seeding...");
         var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();

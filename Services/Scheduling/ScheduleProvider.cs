@@ -64,7 +64,6 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                         ? (!string.IsNullOrWhiteSpace(t.User.Name) ? t.User.Name : t.User.Email)
                         : string.Empty,
                     Location = t.WorkplaceAddress.City,
-                    RulesSummary = t.RulesSummary ?? string.Empty,
                     WeeklyHours = 0,
                     WeeklyLimit = (int)t.WeeklyLimit,
                     DailyHours = 0,
@@ -270,7 +269,6 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 IsConflict = status == LoadState.Conflict,
                 IsLoad = status == LoadState.Load,
                 IsNewPlan = false,
-                Risk = eval?.RiskLevel?.ToString().ToLowerInvariant(),
                 OverloadHours = eval?.OverloadHours ?? 0,
                 LoadStatus = status.ToString().ToLowerInvariant(),
                 TravelDurationMinutes = travelMetrics.DurationMinutes.HasValue ? (decimal)travelMetrics.DurationMinutes.Value : null,
@@ -660,7 +658,6 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                         IsEditable = false,
                         CanDelete = false,
                         IsTimeExpired = false,
-                        Risk = null,
                         OverloadHours = 0,
                         LoadStatus = string.Empty,
                         // Keep evaluated duration visible in UI; block width may still be clamped by free gap.

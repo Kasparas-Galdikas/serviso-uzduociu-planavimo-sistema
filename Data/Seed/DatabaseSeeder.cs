@@ -147,7 +147,6 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                     WorkplaceAddressId = address.Id,
                     DailyLimit = mockTech.DailyLimit,
                     WeeklyLimit = mockTech.WeeklyLimit,
-                    RulesSummary = mockTech.RulesSummary,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -299,24 +298,6 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             _db.Tasks.AddRange(taskEntities);
             await _db.SaveChangesAsync();
 
-            // Wire previous task chain for each technician per day.
-            foreach (var techGroup in taskEntities.GroupBy(t => t.TechnicianId))
-            {
-                foreach (var dayGroup in techGroup.OrderBy(t => t.StartAt).GroupBy(t => t.StartAt.Date))
-                {
-                    TaskEntity? prev = null;
-                    foreach (var task in dayGroup.OrderBy(t => t.StartAt))
-                    {
-                        task.PreviousTaskId = prev?.Id;
-
-                        prev = task;
-                    }
-                }
-            }
-
-            _db.Tasks.UpdateRange(taskEntities);
-            await _db.SaveChangesAsync();
-
             // Create task evaluations
             foreach (var task in taskEntities)
             {
@@ -327,14 +308,8 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                 evaluations.Add(new TaskEvaluationEntity
                 {
                     TaskId = task.Id,
-                    RiskLevel = isConflict ? RiskLevel.High : isLoad ? RiskLevel.Medium : RiskLevel.Low,
-                    IsConflict = isConflict,
-                    HasConflict = isConflict,
                     Status = isConflict ? LoadState.Conflict : isLoad ? LoadState.Load : LoadState.Normal,
-                    IsOverloaded = isConflict || isLoad,
-                    TravelRequired = false,
-                    LoadHours = (decimal)duration,
-                    EvaluatedAt = DateTime.UtcNow
+                    OverloadHours = isConflict || isLoad ? (decimal)duration : null
                 });
             }
 

@@ -448,16 +448,19 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return 0.0;
 
             // Build a LoadScoreContext from existing evaluation
+            var status = task.Evaluation.Status ?? LoadState.Normal;
+            var isConflict = status == LoadState.Conflict;
+            var isOverloaded = status != LoadState.Normal;
             var ctx = new LoadScoreContext
             {
-                HasConflict = task.Evaluation.IsConflict,
-                IsDailyLimitExceeded = task.Evaluation.IsOverloaded && task.Evaluation.Status == LoadState.Conflict,
+                HasConflict = isConflict,
+                IsDailyLimitExceeded = isConflict,
                 IsWeeklyLimitExceeded = false, // Would need full week context
                 DailyOverHours = (double)(task.Evaluation.OverloadHours ?? 0),
                 WeeklyOverHours = 0,
                 TravelTimeHours = 0,
-                DailyUtilization = task.Evaluation.IsOverloaded ? 0.9 : 0.6,
-                WeeklyUtilization = task.Evaluation.IsOverloaded ? 0.85 : 0.5
+                DailyUtilization = isOverloaded ? 0.9 : 0.6,
+                WeeklyUtilization = isOverloaded ? 0.85 : 0.5
             };
 
             return LoadScoreCalculator.ComputeLoadScore(ctx, weights);
