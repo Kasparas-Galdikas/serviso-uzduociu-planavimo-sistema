@@ -895,6 +895,29 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             };
         }
 
+        [HttpPost("{id:long}/swap-smart/preview")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> PreviewSwapSmart(long id, [FromBody] SwapSmartPreviewRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return ValidationProblem(ModelState);
+
+            var timezoneOffset = dto.TimezoneOffsetMinutes != 0
+                ? dto.TimezoneOffsetMinutes
+                : _timeService.GetBrowserTimezoneOffset(Request);
+
+            var result = await _planService.PreviewSwapSmartAsync(
+                id, dto.TargetTaskId, timezoneOffset, cancellationToken);
+
+            return Ok(new
+            {
+                feasible = result.Feasible,
+                reason = result.Reason.ToString(),
+                requiresSmartAdjustment = result.RequiresSmartAdjustment,
+                message = result.Message
+            });
+        }
+
         [HttpPatch("{id:long}/technician-update")]
         [Authorize] // Allow any authenticated user (not just managers)
         public async Task<IActionResult> TechnicianUpdateTask(long id, [FromBody] TechnicianUpdateTaskRequestDto dto, CancellationToken cancellationToken)

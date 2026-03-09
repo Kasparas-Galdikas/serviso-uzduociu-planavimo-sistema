@@ -149,6 +149,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap
             starts[targetTaskId] = source.StartAt;
 
             var maxIterations = Math.Max(8, dayTasks.Count * 6);
+            // Set once when we pull the whole chain back to the earliest feasible start.
+            // Prevents re-triggering the pull on subsequent iterations.
+            var chainPulledBack = false;
             for (var iter = 0; iter < maxIterations; iter++)
             {
                 var changed = false;
@@ -216,8 +219,52 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap
 
                     currentStart = starts[taskId];
                     currentEnd = currentStart + durations[taskId];
+
                     if (currentEnd > dayEndUtc)
                     {
+                        // Task overflows the day window. If it is anchored later than its
+                        // earliest feasible slot (e.g. a longer task placed at the original
+                        // start of a shorter task), pull it back to that earliest slot before
+                        // declaring failure. Only this task is moved; the suffix stays put
+                        // and will be re-evaluated on the next iteration.
+                        if (currentStart > minStartUtc)
+                        {
+                            var minutesFromDayStart = (int)Math.Ceiling((minStartUtc - dayStartUtc).TotalMinutes);
+                            var alignedStart = dayStartUtc.AddMinutes(AlignToSlot(minutesFromDayStart));
+                            if (alignedStart + durations[taskId] <= dayEndUtc)
+                            {
+                                starts[taskId] = alignedStart;
+                                changed = true;
+                                continue;
+                            }
+                        }
+
+                        // Per-task pull-back didn't help.  As a last resort, pull the
+                        // entire chain back to the earliest feasible start for the first
+                        // task (dayStart + workplace→firstTask travel).  This recovers the
+                        // case where the swap anchored the first task later than necessary,
+                        // leaving unused slack at the beginning of the day that could
+                        // absorb the overflow at the end.
+                        if (!chainPulledBack)
+                        {
+                            var firstId   = ordered[0];
+                            var firstTask = byId[firstId];
+                            var wTravel   = TryResolveRouteMinutes(routeLookup, workplaceAddressId, firstTask.ServiceObject.AddressId) ?? 0;
+                            var earliestStart = dayStartUtc.AddMinutes(AlignToSlot(wTravel));
+                            var pullBackMinutes = (int)(starts[firstId] - earliestStart).TotalMinutes;
+                            if (pullBackMinutes > 0)
+                            {
+                                _logger.LogInformation(
+                                    "swap-smart.planner.chain-pullback firstTaskId={FirstTaskId} pullBackMinutes={PullBackMinutes} earliestStart={EarliestStart:o}",
+                                    firstId, pullBackMinutes, earliestStart);
+                                foreach (var id in ordered)
+                                    starts[id] = starts[id].AddMinutes(-pullBackMinutes);
+                                chainPulledBack = true;
+                                changed = true;
+                                break; // restart outer iteration with the compacted chain
+                            }
+                        }
+
                         return SmartSwapPlan.Fail("Nepakanka laisvo laiko dienos pabaigoje smart swap taisymui.");
                     }
                 }
@@ -271,7 +318,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap
             long toAddressId)
         {
             if (fromAddressId == toAddressId) return 0;
-            if (!routeLookup.TryGetValue((fromAddressId, toAddressId), out var minutes) || minutes <= 0)
+            // Allow 0-minute routes (same area / co-located addresses).
+            // Only treat absent or negative durations as missing data.
+            if (!routeLookup.TryGetValue((fromAddressId, toAddressId), out var minutes) || minutes < 0)
             {
                 return null;
             }

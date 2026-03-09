@@ -65,5 +65,16 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             UserContext user,
             int timezoneOffsetMinutes,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Dry-run feasibility check for a smart swap without persisting any changes.
+        /// Returns whether the swap is feasible and, if the smart planner would be needed,
+        /// what adjustments it would produce.
+        /// </summary>
+        Task<SwapSmartPreviewResult> PreviewSwapSmartAsync(
+            long sourceTaskId,
+            long targetTaskId,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default);
     }
 }

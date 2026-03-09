@@ -1072,7 +1072,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (sourceNewStartLocal.Date != sourceNewEndLocal.Date || targetNewStartLocal.Date != targetNewEndLocal.Date)
             {
-                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Uzduotis turi tilpti viena diena.");
+                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Uzduotis turi tilpti viena diena.",
+                    InvalidSwapReason: InvalidSwapReason.SpansMidnight);
             }
 
             var sourceStartMinutes = (int)sourceNewStartLocal.TimeOfDay.TotalMinutes;
@@ -1084,7 +1085,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             if (sourceStartMinutes < window.StartMinutes || sourceEndMinutes > window.EndMinutes ||
                 targetStartMinutes < window.StartMinutes || targetEndMinutes > window.EndMinutes)
             {
-                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Uzduotis netelpa i darbo laika.");
+                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Uzduotis netelpa i darbo laika.",
+                    InvalidSwapReason: InvalidSwapReason.WorkWindow);
             }
 
             var excludedTaskIds = new[] { source.Id, target.Id };
@@ -1234,7 +1236,18 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 strict.Error,
                 strict.Message ?? string.Empty);
 
-            if (strict.Error != TaskSwapError.TravelInfeasible && strict.Error != TaskSwapError.Overlap)
+            // Allow smart-planner fallback for recoverable failures:
+            //   • TravelInfeasible – adjacent travel times don't fit; planner can reorder.
+            //   • Overlap         – another task is in the way; planner can shift it.
+            //   • WorkWindow      – longer task overflows window at target slot; planner
+            //                       can pull it back to its earliest feasible slot.
+            var isRecoverable =
+                strict.Error == TaskSwapError.TravelInfeasible ||
+                strict.Error == TaskSwapError.Overlap ||
+                (strict.Error == TaskSwapError.InvalidSwap &&
+                 strict.InvalidSwapReason == InvalidSwapReason.WorkWindow);
+
+            if (!isRecoverable)
             {
                 return strict;
             }
@@ -1376,6 +1389,71 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 }
                 throw;
             }
+        }
+
+        public async Task<SwapSmartPreviewResult> PreviewSwapSmartAsync(
+            long sourceTaskId,
+            long targetTaskId,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default)
+        {
+            if (sourceTaskId == targetTaskId)
+                return SwapSmartPreviewResult.Hard("Negalima sukeisti uzduoties su pacia savimi.");
+
+            var source = await _db.Tasks.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == sourceTaskId, cancellationToken);
+            if (source == null)
+                return SwapSmartPreviewResult.Hard($"Task {sourceTaskId} was not found.");
+
+            var target = await _db.Tasks.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == targetTaskId, cancellationToken);
+            if (target == null)
+                return SwapSmartPreviewResult.Hard($"Task {targetTaskId} was not found.");
+
+            if (source.TechnicianId != target.TechnicianId)
+                return SwapSmartPreviewResult.Hard("Sukeitimas galimas tik to paties techniko uzduotims.");
+            if (source.StartAt.Date != target.StartAt.Date)
+                return SwapSmartPreviewResult.Hard("Sukeitimas galimas tik tame paciame dienos grafike.");
+            if (source.PlanId != target.PlanId)
+                return SwapSmartPreviewResult.Hard("Sukeitimas galimas tik to paties plano viduje.");
+            if (source.Status == ScheduleTaskStatus.Canceled || target.Status == ScheduleTaskStatus.Canceled)
+                return SwapSmartPreviewResult.Hard("Atsauktu uzduociu sukeisti negalima.");
+
+            // Check if a strict slot-swap would fit within the work window.
+            var sourceDuration = source.EndAt - source.StartAt;
+            var targetDuration = target.EndAt - target.StartAt;
+            if (sourceDuration <= TimeSpan.Zero || targetDuration <= TimeSpan.Zero)
+                return SwapSmartPreviewResult.Hard("Netinkama uzduoties trukme.");
+
+            var sourceNewEndLocal = target.StartAt.AddMinutes(timezoneOffsetMinutes) + sourceDuration;
+            var targetNewEndLocal = source.StartAt.AddMinutes(timezoneOffsetMinutes) + targetDuration;
+            var sourceNewStartLocal = target.StartAt.AddMinutes(timezoneOffsetMinutes);
+            var targetNewStartLocal = source.StartAt.AddMinutes(timezoneOffsetMinutes);
+
+            var window = GetWorkingWindow(source.TechnicianId, sourceNewStartLocal.Date);
+            var strictFits =
+                sourceNewEndLocal.Date == sourceNewStartLocal.Date &&   // no midnight overflow
+                targetNewEndLocal.Date == targetNewStartLocal.Date &&
+                (int)sourceNewStartLocal.TimeOfDay.TotalMinutes >= window.StartMinutes &&
+                (int)sourceNewEndLocal.TimeOfDay.TotalMinutes <= window.EndMinutes &&
+                (int)targetNewStartLocal.TimeOfDay.TotalMinutes >= window.StartMinutes &&
+                (int)targetNewEndLocal.TimeOfDay.TotalMinutes <= window.EndMinutes;
+
+            if (strictFits)
+            {
+                // Strict swap would pass the window check; it may still fail on travel
+                // or overlap, but report tentatively feasible without doing a full check.
+                return SwapSmartPreviewResult.Ok(smartRequired: false);
+            }
+
+            // Strict swap fails on window; try whether the smart planner can recover.
+            var plan = await _smartSwapPlanner.BuildPlanAsync(
+                sourceTaskId, targetTaskId, timezoneOffsetMinutes, cancellationToken);
+
+            if (plan.IsSuccess && plan.Adjustments.Count > 0)
+                return SwapSmartPreviewResult.Ok(smartRequired: true);
+
+            return SwapSmartPreviewResult.Fail(plan.Message ?? "Nepakanka laisvo laiko.");
         }
 
         public async Task<TaskTimeUpdateResult> UpdateTaskTimeAsync(long taskId, DateTime targetDate, int targetSlotStartMinutes, int targetSlotEndMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)

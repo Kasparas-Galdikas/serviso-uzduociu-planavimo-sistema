@@ -49,6 +49,8 @@
     swapCandidate: null,
     swapPreviewActive: false,
     swapPreviewKey: null,
+    swapPreviewDebounceTimer: null,
+    lastSwapPreviewKey: null,
     highlightedCells: [],
     highlightedTravelCells: [],
     scroll: {
@@ -302,6 +304,40 @@
     }, 150);
   };
 
+  /**
+   * Debounced server-side swap feasibility pre-check.
+   * Updates dragState.swapCandidate.eligible and refreshes the visual state
+   * once the response arrives.
+   */
+  const scheduleSwapPreview = (sourceTaskId, targetTaskId, sourceCard, targetCard) => {
+    const key = `${sourceTaskId}|${targetTaskId}`;
+    if (dragState.lastSwapPreviewKey === key) return;
+    dragState.lastSwapPreviewKey = key;
+
+    if (dragState.swapPreviewDebounceTimer) {
+      clearTimeout(dragState.swapPreviewDebounceTimer);
+    }
+
+    dragState.swapPreviewDebounceTimer = setTimeout(async () => {
+      dragState.swapPreviewDebounceTimer = null;
+      if (!taskApi?.fetchSwapPreview) return;
+
+      const result = await taskApi.fetchSwapPreview(sourceTaskId, targetTaskId);
+
+      // Only apply if this pair is still the active candidate.
+      if (
+        dragState.swapCandidate &&
+        String(dragState.swapCandidate.targetTaskId) === String(targetTaskId) &&
+        !dragState.busy
+      ) {
+        dragState.swapCandidate.eligible = result.feasible;
+        dragState.swapCandidate.reason = result.message || "";
+        // Re-apply swap preview with updated eligibility so colour updates.
+        applySwapPreview(sourceCard, targetCard, result.feasible);
+      }
+    }, 250);
+  };
+
   const getScrollContainer = () =>
     tables.querySelector(".table-responsive") || tables.closest(".table-responsive") || null;
 
@@ -395,9 +431,14 @@
     dragState.swapCandidate = null;
     dragState.swapPreviewActive = false;
     dragState.swapPreviewKey = null;
+    dragState.lastSwapPreviewKey = null;
     if (dragState.previewDebounceTimer) {
       clearTimeout(dragState.previewDebounceTimer);
       dragState.previewDebounceTimer = null;
+    }
+    if (dragState.swapPreviewDebounceTimer) {
+      clearTimeout(dragState.swapPreviewDebounceTimer);
+      dragState.swapPreviewDebounceTimer = null;
     }
     stopAutoScroll();
     document.querySelectorAll(".task-card.is-dragging").forEach((el) => el.classList.remove("is-dragging"));
@@ -939,22 +980,30 @@
           const sourceMeta = getCardMeta(dragState.sourceCard);
           if (!sourceMeta) return;
 
-          // Do not hard-block swap on travel-duration heuristic.
-          // Server-side feasibility + smart-swap should decide final validity.
-          const swapEligible = true;
           dragState.intent = "swap";
           dragState.hoverTargetCardId = String(targetMeta.taskId);
+
+          // Preserve eligibility from a completed preview check; default to true
+          // (optimistic) so the user sees a positive preview immediately while
+          // the async server check runs.
+          const existingEligible = dragState.swapCandidate?.targetTaskId === targetMeta.taskId
+            ? dragState.swapCandidate.eligible
+            : true;
+
           dragState.swapCandidate = {
             targetTaskId: targetMeta.taskId,
             targetVersion: targetMeta.version,
             targetStartMinutes: targetMeta.startMinutes,
             targetTechId: targetMeta.techId,
             targetDate: targetMeta.date,
-            eligible: swapEligible,
+            eligible: existingEligible,
             reason: "",
           };
 
-          applySwapPreview(dragState.sourceCard, hoveredTaskCard, swapEligible);
+          // Kick off a debounced server-side feasibility check for this pair.
+          scheduleSwapPreview(dragState.taskId, targetMeta.taskId, dragState.sourceCard, hoveredTaskCard);
+
+          applySwapPreview(dragState.sourceCard, hoveredTaskCard, existingEligible);
           const swapPreviewStartMinutes = targetMeta.startMinutes;
           applyPreviewRangeByMinutes(
             row,
@@ -1175,6 +1224,15 @@
         String(targetMeta.taskId) !== draggedTaskId;
 
       if (canSwap) {
+        // If the server preview already determined this swap is infeasible, block
+        // the drop immediately rather than sending a doomed execute request.
+        if (dragState.swapCandidate?.eligible === false) {
+          const reason = dragState.swapCandidate.reason || "Sukeitimas neimanomas.";
+          clearDragState();
+          alert(reason);
+          return;
+        }
+
         const taskId = dragState.taskId;
         const expectedVersion = parseIntSafe(dragState.version) || getBoardTaskVersion(taskId);
         const swapCandidate = dragState.swapCandidate ? { ...dragState.swapCandidate } : null;
