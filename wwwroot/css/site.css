@@ -1,4 +1,4 @@
-ï»¿@import url("./tokens/theme-tokens.css");
+@import url("./tokens/theme-tokens.css");
 
 /* =========================================================
    Base document
@@ -31,9 +31,19 @@ body {
   transition: max-width 0.30s ease, margin 0.30s ease, padding 0.30s ease;
 }
 
-/* Schedule page: allow the grid to use as much screen width as available */
+/* Schedule page: allow the grid to use as much screen width as available.
+   On small screens drop the 160px sidebar offset – the table scrolls
+   horizontally inside its own container so we just need full viewport width. */
 .page-container:has(#scheduleTables) {
   max-width: min(1920px, calc(100vw - 160px));
+}
+
+@media (max-width: 1024px) {
+  .page-container:has(#scheduleTables) {
+    max-width: calc(100vw - 24px);
+    padding-left: 12px;
+    padding-right: 12px;
+  }
 }
 
 
@@ -75,7 +85,6 @@ body {
   letter-spacing: -0.01em;
   margin-bottom: 0.25rem;
 }
-
 @media (max-width: 768px) {
   .page-header {
     flex-direction: column;
@@ -91,6 +100,7 @@ body {
     flex-wrap: wrap;
     gap: 8px;
   }
+
 }
 
 .page-section {
@@ -135,6 +145,73 @@ body {
 /* =========================================================
    Navbar & Footer
    ========================================================= */
+
+.nav-mobile-account-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 0 8px;
+  align-items: flex-start;
+}
+
+.nav-mobile-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--neutral-400);
+}
+
+.nav-mobile-role {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--neutral-900);
+  line-height: 1.2;
+}
+
+.nav-mobile-email {
+  font-size: 0.9rem;
+  color: var(--neutral-500);
+  line-height: 1.25;
+}
+.nav-mobile-identity {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nav-mobile-email-inline {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--neutral-500);
+}
+
+
+.nav-mobile-logout {
+  color: var(--danger-600) !important;
+  font-weight: 500;
+  text-align: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  transition: background-color 0.18s ease;
+}
+
+.navbar .nav-mobile-logout:hover,
+.navbar .nav-mobile-logout:focus {
+  color: var(--danger-600) !important;
+  background-color: var(--danger-100) !important;
+}
+
+.navbar-nav .nav-item.text-center .nav-link {
+  transition: background-color 0.18s ease;
+  border-radius: var(--radius-md);
+}
+
+.navbar-nav .nav-item.text-center .nav-link:hover {
+  background: var(--neutral-100);
+  color: inherit !important;
+}
+
 .navbar {
   background: var(--neutral-0);
   border-bottom: 1px solid var(--neutral-200);
@@ -771,6 +848,41 @@ textarea:focus {
 }
 
 
+
+
+
+
+
+
+
+@media (max-width: 576px) {
+  .navbar .navbar-toggler {
+    padding: 0.3rem 0.45rem;
+    border-radius: 0.55rem;
+  }
+
+  .navbar .navbar-toggler .navbar-toggler-icon {
+    width: 1.05em;
+    height: 1.05em;
+    background-size: 1.05em 1.05em;
+  }
+
+  .navbar .nav-mobile-account-inline {
+    text-align: left;
+  }
+
+  .navbar .navbar-collapse .nav-item.text-center,
+  .navbar .navbar-collapse .nav-item.text-center .nav-link,
+  .navbar .nav-mobile-logout {
+    text-align: center !important;
+    justify-content: center;
+  }
+
+  .navbar .navbar-collapse .nav-link {
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+  }
+}
 
 
 

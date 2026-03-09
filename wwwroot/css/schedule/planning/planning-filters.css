@@ -120,8 +120,16 @@
 }
 
 /* =========================================================
-   Tablet  landscape ( 1024px)
+   Tablet & phone: hide the floating trigger button
+   (inline filter bar is already hidden on these sizes;
+   the floating button is not needed on small screens)
    ========================================================= */
+
+@media (max-width: 1024px) {
+  .filter-console-trigger {
+    display: none;
+  }
+}
 
 /* =========================================================
    Inline filter bar (desktop/tablet)
