@@ -46,6 +46,19 @@ namespace ServiceTaskPlanningSystem.Services.Time
         bool IsTravelStartFeasible(DateTime taskStartUtc, int inboundTravelMinutes);
 
         /// <summary>
+        /// Rounds minutes up to the nearest slot boundary.
+        /// Example: 10:01 with 30-min slot -> 10:30 (630 minutes).
+        /// </summary>
+        int CeilingToSlot(int minutesSinceMidnight, int slotSizeMinutes);
+
+        /// <summary>
+        /// Returns the earliest local start-minute allowed for task creation on the selected date.
+        /// For today (in user's timezone), this is "now" rounded up to the slot boundary.
+        /// For future dates, returns dayStartMinutes.
+        /// </summary>
+        int GetEarliestCreatableStartMinutes(DateTime targetDate, int timezoneOffsetMinutes, int slotSizeMinutes, int dayStartMinutes);
+
+        /// <summary>
         /// Gets the start of week (Monday) for a given date.
         /// </summary>
         DateTime GetWeekStart(DateTime date);

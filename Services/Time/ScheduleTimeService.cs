@@ -52,6 +52,25 @@ namespace ServiceTaskPlanningSystem.Services.Time
             return travelStartUtc >= GetCurrentUtcTime();
         }
 
+        public int CeilingToSlot(int minutesSinceMidnight, int slotSizeMinutes)
+        {
+            if (slotSizeMinutes <= 0) throw new ArgumentOutOfRangeException(nameof(slotSizeMinutes));
+            if (minutesSinceMidnight < 0) return 0;
+            return ((minutesSinceMidnight + slotSizeMinutes - 1) / slotSizeMinutes) * slotSizeMinutes;
+        }
+
+        public int GetEarliestCreatableStartMinutes(DateTime targetDate, int timezoneOffsetMinutes, int slotSizeMinutes, int dayStartMinutes)
+        {
+            var userLocalNow = ConvertUtcToLocal(GetCurrentUtcTime(), timezoneOffsetMinutes);
+            if (targetDate.Date != userLocalNow.Date)
+            {
+                return dayStartMinutes;
+            }
+
+            var nowMinutes = (int)Math.Ceiling(userLocalNow.TimeOfDay.TotalMinutes);
+            var roundedNow = CeilingToSlot(nowMinutes, slotSizeMinutes);
+            return Math.Max(dayStartMinutes, roundedNow);
+        }
         public DateTime GetWeekStart(DateTime date)
         {
             var dayOfWeek = (int)date.DayOfWeek;

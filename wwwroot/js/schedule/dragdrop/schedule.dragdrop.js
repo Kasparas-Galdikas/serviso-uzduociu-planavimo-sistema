@@ -40,6 +40,8 @@
     originTd: null,
     originStartMinutes: null,
     previewData: null,
+    previewRejectCode: null,
+    previewRejectMessage: null,
     previewDebounceTimer: null,
     lastPreviewSlot: null,
     lastPreviewMinutes: null,
@@ -261,12 +263,18 @@
         dragState.previewData = data;
         applyPreviewCardColors(data);
 
-        const states = Array.isArray(data?.previewStates) ? data.previewStates : [];
-        const state = states.find((s) => Number(s.technicianId) === Number(technicianId));
+        const state = getPreviewStateForTechnician(technicianId);
         if (state && Number.isFinite(state.requiredInboundTravelMinutes)) {
           dragState.travelSlots = Math.max(1, Math.ceil(Number(state.requiredInboundTravelMinutes) / 30));
         } else {
           dragState.travelSlots = dragState.baseTravelSlots || 0;
+        }
+
+        dragState.previewRejectCode = null;
+        dragState.previewRejectMessage = null;
+        if (state && state.isPlacementAllowed === false) {
+          dragState.previewRejectCode = state.rejectionCode || "InvalidWindow";
+          dragState.previewRejectMessage = state.rejectionMessage || "Negalima planuoti pasirinktame laike.";
         }
 
         if (row) {
@@ -423,6 +431,8 @@
     dragState.originTd = null;
     dragState.originStartMinutes = null;
     dragState.previewData = null;
+    dragState.previewRejectCode = null;
+    dragState.previewRejectMessage = null;
     dragState.lastPreviewSlot = null;
     dragState.lastPreviewMinutes = null;
     dragState.lastPreviewRow = null;
@@ -474,11 +484,15 @@
     return `${hours} h ${remainder} min`;
   };
 
-  const getPreviewRequiredInboundTravelMinutes = (technicianId) => {
+  const getPreviewStateForTechnician = (technicianId) => {
     const states = Array.isArray(dragState.previewData?.previewStates)
       ? dragState.previewData.previewStates
       : [];
-    const state = states.find((s) => Number(s?.technicianId) === Number(technicianId));
+    return states.find((s) => Number(s?.technicianId) === Number(technicianId)) || null;
+  };
+
+  const getPreviewRequiredInboundTravelMinutes = (technicianId) => {
+    const state = getPreviewStateForTechnician(technicianId);
     if (!state) return null;
     const required = Number(state.requiredInboundTravelMinutes);
     if (!Number.isFinite(required) || required < 0) return null;
@@ -1511,6 +1525,19 @@
         techId,
         date
       );
+
+      const previewState = getPreviewStateForTechnician(techId);
+      if (previewState && previewState.isPlacementAllowed === false) {
+        const message = previewState.rejectionMessage || dragState.previewRejectMessage || "Negalima planuoti pasirinktame laike.";
+        logEvent(
+          "ui.drag.drop.blocked.preview-rejection",
+          { taskId: dragState.taskId, rejectionCode: previewState.rejectionCode || dragState.previewRejectCode },
+          "warn"
+        );
+        alert(message);
+        clearDragState();
+        return;
+      }
 
       applyTravelPreviewRangeByMinutes(
         row,

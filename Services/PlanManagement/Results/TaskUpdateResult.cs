@@ -8,6 +8,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         NotFound,
         NotEditable,
         TechnicianNotFound,
+        InvalidWindow,
         TravelInfeasible
     }
 
@@ -19,3 +20,4 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public bool Ok => Error == TaskUpdateError.None;
     }
 }
+

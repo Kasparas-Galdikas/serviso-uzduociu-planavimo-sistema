@@ -93,6 +93,73 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private static WorkingWindow GetWorkingWindow(long technicianId, DateTime date) =>
             new WorkingWindow(ScheduleGrid.DayStartMinutes, ScheduleGrid.DayEndMinutes);
 
+        private enum TimingTravelViolationKind
+        {
+            None,
+            InvalidWindow,
+            TravelInfeasible
+        }
+
+        private readonly record struct TimingTravelValidationResult(TimingTravelViolationKind ViolationKind, string? Message)
+        {
+            public bool IsValid => ViolationKind == TimingTravelViolationKind.None;
+            public bool IsInvalidWindow => ViolationKind == TimingTravelViolationKind.InvalidWindow;
+            public static TimingTravelValidationResult Success => new(TimingTravelViolationKind.None, null);
+        }
+
+        private async Task<TimingTravelValidationResult> ValidateTimingAndTravelAsync(
+            DateTime taskDateLocal,
+            int startMinutesLocal,
+            int timezoneOffsetMinutes,
+            long technicianId,
+            DateTime startAtUtc,
+            DateTime endAtUtc,
+            long serviceAddressId,
+            long? excludeTaskId,
+            CancellationToken cancellationToken)
+        {
+            var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
+            if (taskDateLocal < userLocalToday)
+            {
+                return new TimingTravelValidationResult(TimingTravelViolationKind.InvalidWindow, "Negalima planuoti praeityje.");
+            }
+
+            var earliestStartMinutes = _timeService.GetEarliestCreatableStartMinutes(
+                taskDateLocal,
+                timezoneOffsetMinutes,
+                ScheduleGrid.SlotSizeMinutes,
+                ScheduleGrid.DayStartMinutes);
+            if (taskDateLocal == userLocalToday && startMinutesLocal < earliestStartMinutes)
+            {
+                return new TimingTravelValidationResult(TimingTravelViolationKind.InvalidWindow, "Negalima planuoti ankstesniame nei artimiausias galimas 30 min. laiko langas.");
+            }
+
+            var travelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
+                technicianId,
+                startAtUtc,
+                endAtUtc,
+                serviceAddressId,
+                startMinutesLocal,
+                excludeTaskId,
+                checkOverlap: false,
+                cancellationToken);
+
+            if (!travelCheck.IsFeasible)
+            {
+                return new TimingTravelValidationResult(
+                    TimingTravelViolationKind.TravelInfeasible,
+                    travelCheck.Message ?? "Nepakanka laiko kelionei.");
+            }
+
+            var inboundTravelMinutes = Math.Max(0, travelCheck.InboundTravelMinutes ?? 0);
+            if (!_timeService.IsTravelStartFeasible(startAtUtc, inboundTravelMinutes))
+            {
+                return new TimingTravelValidationResult(TimingTravelViolationKind.TravelInfeasible, "Nepakanka laiko kelionei nuo dabartinio laiko.");
+            }
+
+            return TimingTravelValidationResult.Success;
+        }
+
         private async Task<long> FindOrCreateServiceObjectAsync(string? objectName, string? objectAddress, string city, CancellationToken cancellationToken = default)
         {
             var normalizedName = string.IsNullOrWhiteSpace(objectName) ? null : objectName.Trim();
@@ -280,7 +347,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             // Prevent placing tasks with start time in the past
             if (!_timeService.IsTaskStillEditable(startAt))
             {
-                return (PlacementError.InvalidWindow, "Negalima nustatyti pradÅ¾ios laiko praeityje.", default, default, string.Empty);
+                return (PlacementError.InvalidWindow, "Negalima nustatyti užduoties pradžios laiko praeityje.", default, default, string.Empty);
             }
 
             var hasOverlap = await _db.Tasks
@@ -647,12 +714,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             // Calculate user's local "today" from server UTC (security: prevent clock manipulation)
             var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
 
-            // Validate: Cannot create tasks in the past
-            if (taskDate < userLocalToday)
-            {
-                return new TaskCreateResult(TaskCreateError.InvalidWindow, "Negalima kurti uÅ¾duoÄiÅ³ praeityje.");
-            }
-
             // Get all plans to determine target plan
             var draftPlan = await _db.Plans
                 .AsNoTracking()
@@ -752,25 +813,27 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             await _db.SaveChangesAsync(cancellationToken);
 
             await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "create", cancellationToken);
-
-            var travelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
-                task.TechnicianId,
-                task.StartAt,
-                task.EndAt,
-                serviceObjectMeta.AddressId,
-                startMinutes,
-                task.Id,
-                checkOverlap: false,
-                cancellationToken);
-            if (!travelCheck.IsFeasible)
+            var timingTravelValidation = await ValidateTimingAndTravelAsync(
+                taskDateLocal: taskDate,
+                startMinutesLocal: startMinutes,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                technicianId: task.TechnicianId,
+                startAtUtc: task.StartAt,
+                endAtUtc: task.EndAt,
+                serviceAddressId: serviceObjectMeta.AddressId,
+                excludeTaskId: task.Id,
+                cancellationToken: cancellationToken);
+            if (!timingTravelValidation.IsValid)
             {
                 if (transaction != null)
                 {
                     await transaction.RollbackAsync(cancellationToken);
                 }
-                return new TaskCreateResult(TaskCreateError.TravelInfeasible, travelCheck.Message ?? "Nepakanka laiko kelionei.");
-            }
 
+                return new TaskCreateResult(
+                    timingTravelValidation.IsInvalidWindow ? TaskCreateError.InvalidWindow : TaskCreateError.TravelInfeasible,
+                    timingTravelValidation.Message);
+            }
             if (transaction != null)
             {
                 await transaction.CommitAsync(cancellationToken);
@@ -838,26 +901,26 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .Where(o => o.Id == task.ServiceObjectId)
                 .Select(o => o.AddressId)
                 .FirstAsync(cancellationToken);
-
-            var startMinutesLocal = (int)task.StartAt.AddMinutes(timezoneOffsetMinutes).TimeOfDay.TotalMinutes;
-            var travelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
-                task.TechnicianId,
-                task.StartAt,
-                task.EndAt,
-                finalAddressId,
-                startMinutesLocal,
-                taskId,
-                checkOverlap: false,
-                cancellationToken);
-            if (!travelCheck.IsFeasible)
+            var localStartAt = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffsetMinutes);
+            var startMinutesLocal = (int)localStartAt.TimeOfDay.TotalMinutes;
+            var timingTravelValidation = await ValidateTimingAndTravelAsync(
+                taskDateLocal: localStartAt.Date,
+                startMinutesLocal: startMinutesLocal,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                technicianId: task.TechnicianId,
+                startAtUtc: task.StartAt,
+                endAtUtc: task.EndAt,
+                serviceAddressId: finalAddressId,
+                excludeTaskId: taskId,
+                cancellationToken: cancellationToken);
+            if (!timingTravelValidation.IsValid)
             {
                 if (transaction != null)
                 {
                     await transaction.RollbackAsync(cancellationToken);
                 }
-                return new TaskUpdateResult(TaskUpdateError.TravelInfeasible, travelCheck.Message ?? "Nepakanka laiko kelionei.");
+                return new TaskUpdateResult(timingTravelValidation.IsInvalidWindow ? TaskUpdateError.InvalidWindow : TaskUpdateError.TravelInfeasible, timingTravelValidation.Message);
             }
-
             if (transaction != null)
             {
                 await transaction.CommitAsync(cancellationToken);
@@ -946,25 +1009,27 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .Where(o => o.Id == task.ServiceObjectId)
                 .Select(o => o.AddressId)
                 .FirstAsync(cancellationToken);
-
-            var moveTravelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
-                targetTechnicianId,
-                validation.StartAt,
-                validation.EndAt,
-                moveServiceAddressId,
-                targetSlotStartMinutes,
-                taskId,
-                checkOverlap: false,
-                cancellationToken);
-            if (!moveTravelCheck.IsFeasible)
+            var moveTimingTravelValidation = await ValidateTimingAndTravelAsync(
+                taskDateLocal: targetDate.Date,
+                startMinutesLocal: targetSlotStartMinutes,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                technicianId: targetTechnicianId,
+                startAtUtc: validation.StartAt,
+                endAtUtc: validation.EndAt,
+                serviceAddressId: moveServiceAddressId,
+                excludeTaskId: taskId,
+                cancellationToken: cancellationToken);
+            if (!moveTimingTravelValidation.IsValid)
             {
                 if (transaction != null)
                 {
                     await transaction.RollbackAsync(cancellationToken);
                 }
-                return new TaskMoveResult(TaskMoveError.TravelInfeasible, moveTravelCheck.Message ?? "Nepakanka laiko kelionei.");
-            }
 
+                return new TaskMoveResult(
+                    moveTimingTravelValidation.IsInvalidWindow ? TaskMoveError.InvalidWindow : TaskMoveError.TravelInfeasible,
+                    moveTimingTravelValidation.Message);
+            }
             if (transaction != null)
             {
                 await transaction.CommitAsync(cancellationToken);
@@ -1537,25 +1602,27 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .Where(o => o.Id == task.ServiceObjectId)
                 .Select(o => o.AddressId)
                 .FirstAsync(cancellationToken);
-
-            var timeTravelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
-                task.TechnicianId,
-                validation.StartAt,
-                validation.EndAt,
-                timeServiceAddressId,
-                targetSlotStartMinutes,
-                task.Id,
-                checkOverlap: false,
-                cancellationToken);
-            if (!timeTravelCheck.IsFeasible)
+            var timeTimingTravelValidation = await ValidateTimingAndTravelAsync(
+                taskDateLocal: targetDate.Date,
+                startMinutesLocal: targetSlotStartMinutes,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                technicianId: task.TechnicianId,
+                startAtUtc: validation.StartAt,
+                endAtUtc: validation.EndAt,
+                serviceAddressId: timeServiceAddressId,
+                excludeTaskId: task.Id,
+                cancellationToken: cancellationToken);
+            if (!timeTimingTravelValidation.IsValid)
             {
                 if (transaction != null)
                 {
                     await transaction.RollbackAsync(cancellationToken);
                 }
-                return new TaskTimeUpdateResult(TaskTimeUpdateError.TravelInfeasible, timeTravelCheck.Message ?? "Nepakanka laiko kelionei.");
-            }
 
+                return new TaskTimeUpdateResult(
+                    timeTimingTravelValidation.IsInvalidWindow ? TaskTimeUpdateError.InvalidWindow : TaskTimeUpdateError.TravelInfeasible,
+                    timeTimingTravelValidation.Message);
+            }
             if (transaction != null)
             {
                 await transaction.CommitAsync(cancellationToken);
@@ -1830,6 +1897,24 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     g => g.Key,
                     g => g.OrderByDescending(x => x.DurationMinutes).First().DurationMinutes);
 
+            var targetPreviewValidation = TimingTravelValidationResult.Success;
+            if (targetTask.ServiceObject != null)
+            {
+                var localTargetStartAt = _timeService.ConvertUtcToLocal(targetStartAt, timezoneOffsetMinutes);
+                var localTargetStartMinutes = (int)localTargetStartAt.TimeOfDay.TotalMinutes;
+
+                targetPreviewValidation = await ValidateTimingAndTravelAsync(
+                    taskDateLocal: localTargetStartAt.Date,
+                    startMinutesLocal: localTargetStartMinutes,
+                    timezoneOffsetMinutes: timezoneOffsetMinutes,
+                    technicianId: targetTechnicianId,
+                    startAtUtc: targetStartAt,
+                    endAtUtc: targetEndAt,
+                    serviceAddressId: targetTask.ServiceObject.AddressId,
+                    excludeTaskId: targetTask.Id,
+                    cancellationToken: cancellationToken);
+            }
+
             foreach (var tech in visibleTechs)
             {
                 var loadSnapshot = BuildLoadSnapshotForSimulation(
@@ -1877,7 +1962,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     DailyUtilization = Math.Round(loadSnapshot.DailyUtilization, 2),
                     WeeklyUtilization = Math.Round(loadSnapshot.WeeklyUtilization, 2),
                     TravelTimeHours = Math.Round(travelHoursToShow, 2),
-                    RequiredInboundTravelMinutes = requiredInboundTravelMinutes
+                    RequiredInboundTravelMinutes = requiredInboundTravelMinutes,
+                    IsPlacementAllowed = tech.Id != targetTechnicianId || targetPreviewValidation.IsValid,
+                    RejectionCode = tech.Id == targetTechnicianId && !targetPreviewValidation.IsValid
+                        ? (targetPreviewValidation.IsInvalidWindow ? "InvalidWindow" : "TravelInfeasible")
+                        : null,
+                    RejectionMessage = tech.Id == targetTechnicianId && !targetPreviewValidation.IsValid
+                        ? targetPreviewValidation.Message
+                        : null
                 });
             }
 

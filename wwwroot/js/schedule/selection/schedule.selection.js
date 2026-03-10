@@ -1,4 +1,4 @@
-(() => {
+﻿(() => {
   const tables = document.getElementById("scheduleTables");
   if (!tables) return;
 
@@ -329,6 +329,43 @@
     pointerEvent?.stopPropagation?.();
   };
 
+
+  const syncCreateRangeFromPanel = ({ technicianId, targetDate, startMinutes, endMinutes }) => {
+    if (!isDayView()) return { ok: false, reason: "not-day" };
+
+    const techIdNum = Number.parseInt(String(technicianId || ""), 10);
+    const start = Number.parseInt(String(startMinutes || ""), 10);
+    const end = Number.parseInt(String(endMinutes || ""), 10);
+    if (!Number.isFinite(techIdNum) || !targetDate || !Number.isFinite(start) || !Number.isFinite(end)) {
+      return { ok: false, reason: "invalid-input" };
+    }
+    if (end <= start) return { ok: false, reason: "invalid-range" };
+
+    const { slotSizeMinutes } = grid.getConfig();
+    if (start % slotSizeMinutes !== 0 || end % slotSizeMinutes !== 0) {
+      return { ok: false, reason: "unaligned" };
+    }
+
+    const durationSlots = Math.max(1, Math.round((end - start) / slotSizeMinutes));
+    const slot = tables.querySelector(
+      `.schedule-slot[data-tech-id="${techIdNum}"][data-date="${targetDate}"][data-slot-start-minutes="${start}"]`
+    );
+    const td = slot?.closest?.("td");
+    if (!td || !isEmptySlotCell(td)) {
+      return { ok: false, reason: "slot-unavailable" };
+    }
+    if (!canApplyRange(td, durationSlots)) {
+      return { ok: false, reason: "range-unavailable" };
+    }
+
+    const applied = applySelectionRange(td, durationSlots);
+    if (!applied) {
+      return { ok: false, reason: "apply-failed" };
+    }
+
+    clearChooser();
+    return { ok: true };
+  };
   const canCreateInCurrentContext = () => {
     const isManager = (tables.dataset.isManager || "false") === "true";
     const status = (tables.dataset.planStatus || "").toLowerCase();
@@ -429,7 +466,7 @@
         if (errorData.errors && typeof errorData.errors === "object") {
           return { success: false, validationErrors: errorData.errors, errorType: "validation" };
         }
-        const msg = errorData.message || "Patikrinkite įvestus duomenis.";
+        const msg = errorData.message || "Patikrinkite Ä¯vestus duomenis.";
         return { success: false, error: msg, errorType: "validation" };
       }
 
@@ -444,7 +481,7 @@
       }
 
       if (!resp.ok) {
-        return { success: false, error: "Įvyko klaida kuriant užduotį.", errorType: "unknown" };
+        return { success: false, error: "Ä®vyko klaida kuriant uÅ¾duotÄ¯.", errorType: "unknown" };
       }
 
       const responseData = await resp.json().catch(() => null);
@@ -464,7 +501,7 @@
       return { success: true, id };
     } catch (err) {
       logEvent("ui.task.create.error", { error: err?.message }, "error");
-      return { success: false, error: err?.message || "Įvyko nenumatyta klaida.", errorType: "exception" };
+      return { success: false, error: err?.message || "Ä®vyko nenumatyta klaida.", errorType: "exception" };
     }
   };
 
@@ -487,8 +524,8 @@
         <button type="button" class="btn btn-sm btn-primary" data-slot-action="create" ${
           createDisabled ? "disabled" : ""
         }>+ Kurti uzduoti</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-slot-action="assign" disabled>⇄ Priskirti esama</button>
-        <button type="button" class="btn btn-sm btn-outline-danger" data-slot-action="cancel">✕ Atsaukti</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-slot-action="assign" disabled>â‡„ Priskirti esama</button>
+        <button type="button" class="btn btn-sm btn-outline-danger" data-slot-action="cancel">âœ• Atsaukti</button>
       </div>
     `;
 
@@ -580,12 +617,12 @@
   const hit = evt.target?.closest?.("[data-slot-hit]");
   if (hit && selection.active) {
     const modal = document.getElementById("taskDetailModal");
-    // Panel already open in create mode — sync times without resetting the form
+    // Panel already open in create mode â€” sync times without resetting the form
     if (modal?.classList?.contains("show") && modal.dataset.mode === "create") {
       syncSelectionToPanel();
       return;
     }
-    // Panel not open yet — open fresh create mode
+    // Panel not open yet â€” open fresh create mode
     schedule.tasks?.openTaskPanel?.({
       technicianId: selection.techId,
       targetDate: selection.date,
@@ -674,5 +711,8 @@
     initOnce,
     clearSelection,
     submitCreateTask,
+    syncCreateRangeFromPanel,
   };
 })();
+
+

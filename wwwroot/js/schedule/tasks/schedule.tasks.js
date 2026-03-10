@@ -1,4 +1,4 @@
-/**
+﻿/**
  * schedule.tasks.js
  *
  * Main orchestrator for task-related functionality.
@@ -104,15 +104,17 @@
 
       if (mode === "create") {
         // CREATE MODE
-        const targetDate = modalEl.dataset.targetDate;
-        const startMinutes = parseInt(modalEl.dataset.startMinutes);
-        const endMinutes = parseInt(modalEl.dataset.endMinutes);
+        const placement = modal?.collectCreatePlacement?.(modalEl);
+        if (!placement?.ok) {
+          modal?.setFieldError?.(modalEl, "#taskDetailStart", placement?.error || "Netinkamas laiko langas.");
+          return;
+        }
 
         const createData = {
-          technicianId: formData.technicianId,
-          targetDate,
-          startMinutes,
-          endMinutes,
+          technicianId: placement.technicianId,
+          targetDate: placement.targetDate,
+          startMinutes: placement.startMinutes,
+          endMinutes: placement.endMinutes,
           title: formData.title,
           location: formData.location,
           priority: Number.isNaN(formData.priorityVal) ? 1 : formData.priorityVal,
@@ -217,7 +219,7 @@
         panel?.show?.();
       } catch (err) {
         logEvent("ui.task.fetch.error", { taskId, error: err?.message }, "error");
-        alert("Nepavyko atidaryti užduoties.");
+        alert("Nepavyko atidaryti uÅ¾duoties.");
       }
     } else {
       // CREATE MODE
@@ -357,3 +359,4 @@
     fetchTask,
   });
 })();
+

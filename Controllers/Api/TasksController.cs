@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Authorization;
@@ -661,6 +661,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     TaskUpdateError.NotFound => NotFound(new { message = updateResult.Message }),
                     TaskUpdateError.NotEditable => StatusCode(403, new { message = updateResult.Message }),
                     TaskUpdateError.TechnicianNotFound => UnprocessableEntity(new { message = updateResult.Message }),
+                    TaskUpdateError.InvalidWindow => UnprocessableEntity(new { message = updateResult.Message }),
                     TaskUpdateError.TravelInfeasible => UnprocessableEntity(new { message = updateResult.Message }),
                     _ => UnprocessableEntity(new { message = updateResult.Message })
                 };
