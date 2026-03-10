@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -211,7 +211,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     CreatedAt = DateTime.UtcNow
                 };
                 _db.Addresses.Add(existingAddress);
-                await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
             }
 
             // Try to find existing service object by name and address
@@ -273,6 +273,84 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             NotEditable
         }
 
+        private readonly record struct PlacementValidationResult(
+            PlacementError Error,
+            string Message,
+            DateTime StartAtUtc,
+            DateTime EndAtUtc,
+            string City)
+        {
+            public bool IsValid => Error == PlacementError.None;
+            public static PlacementValidationResult Success(DateTime startAtUtc, DateTime endAtUtc, string city) =>
+                new(PlacementError.None, string.Empty, startAtUtc, endAtUtc, city);
+            public static PlacementValidationResult Failure(PlacementError error, string message) =>
+                new(error, message, default, default, string.Empty);
+        }
+
+        private async Task<PlacementValidationResult> ValidatePlacementForActionAsync(
+            long? ignoreTaskId,
+            long targetTechnicianId,
+            DateTime targetDate,
+            int startMinutes,
+            int endMinutes,
+            PlanEntity? plan,
+            ScheduleTaskStatus status,
+            UserContext user,
+            int timezoneOffsetMinutes,
+            bool requireEndAligned,
+            CancellationToken cancellationToken)
+        {
+            var validation = await ValidatePlacementAsync(
+                ignoreTaskId,
+                targetTechnicianId,
+                targetDate,
+                startMinutes,
+                endMinutes,
+                plan,
+                status,
+                user,
+                timezoneOffsetMinutes,
+                requireEndAligned,
+                cancellationToken);
+
+            return validation.Error == PlacementError.None
+                ? PlacementValidationResult.Success(validation.StartAt, validation.EndAt, validation.City)
+                : PlacementValidationResult.Failure(validation.Error, validation.Message);
+        }
+
+        private static TaskCreateResult MapPlacementErrorForCreate(PlacementValidationResult validation) =>
+            validation.Error switch
+            {
+                PlacementError.NotEditable => new TaskCreateResult(TaskCreateError.NotEditable, validation.Message),
+                PlacementError.TechnicianNotFound => new TaskCreateResult(TaskCreateError.TechnicianNotFound, validation.Message),
+                PlacementError.Overlap => new TaskCreateResult(TaskCreateError.Overlap, validation.Message),
+                _ => new TaskCreateResult(TaskCreateError.InvalidWindow, validation.Message)
+            };
+
+        private static TaskUpdateResult MapPlacementErrorForUpdate(PlacementValidationResult validation) =>
+            validation.Error switch
+            {
+                PlacementError.NotEditable => new TaskUpdateResult(TaskUpdateError.NotEditable, validation.Message),
+                PlacementError.TechnicianNotFound => new TaskUpdateResult(TaskUpdateError.TechnicianNotFound, validation.Message),
+                _ => new TaskUpdateResult(TaskUpdateError.InvalidWindow, validation.Message)
+            };
+
+        private static TaskMoveResult MapPlacementErrorForMove(PlacementValidationResult validation) =>
+            validation.Error switch
+            {
+                PlacementError.NotEditable => new TaskMoveResult(TaskMoveError.NotEditable, "Neturite teisiu perkelti sios uzduoties."),
+                PlacementError.TechnicianNotFound => new TaskMoveResult(TaskMoveError.TechnicianNotFound, validation.Message),
+                PlacementError.Overlap => new TaskMoveResult(TaskMoveError.Overlap, validation.Message),
+                _ => new TaskMoveResult(TaskMoveError.InvalidWindow, validation.Message)
+            };
+
+        private static TaskTimeUpdateResult MapPlacementErrorForTimeUpdate(PlacementValidationResult validation) =>
+            validation.Error switch
+            {
+                PlacementError.NotEditable => new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, validation.Message),
+                PlacementError.Overlap => new TaskTimeUpdateResult(TaskTimeUpdateError.Overlap, validation.Message),
+                _ => new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, validation.Message)
+            };
         private async Task<(PlacementError Error, string Message, DateTime StartAt, DateTime EndAt, string City)> ValidatePlacementAsync(
             long? ignoreTaskId,
             long targetTechnicianId,
@@ -546,8 +624,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             task.TechnicianComment = comment ?? string.Empty;
 
             try
-            {
-                await _db.SaveChangesAsync(cancellationToken);
+            {await _db.SaveChangesAsync(cancellationToken);
 
                 // Recalculate evaluations when status changes
                 if (task.PlanId.HasValue)
@@ -608,7 +685,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             if (seededTasks.Any())
             {
                 _db.Tasks.AddRange(seededTasks);
-                await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
 
                 // Align PeriodStart and PeriodEnd to actual task span (true inclusive horizon)
                 var actualStart = seededTasks.Min(t => t.StartAt.Date);
@@ -622,7 +699,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 var totalDays = (draftPlan.PeriodEnd - draftPlan.PeriodStart).Days + 1;
                 draftPlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
                 _db.Plans.Update(draftPlan);
-                await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
             }
             else
             {
@@ -646,7 +723,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     var totalDays = (activePlan.PeriodEnd - activePlan.PeriodStart).Days + 1;
                     activePlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
                     _db.Plans.Update(activePlan);
-                    await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
                     _logger.LogInformation("svc.plan.extend-active planId={PlanId} newEnd={NewEnd}", activePlan.Id, activePlan.PeriodEnd);
                     return activePlan;
                 }
@@ -656,7 +733,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     var totalDays = (activePlan.PeriodEnd - activePlan.PeriodStart).Days + 1;
                     activePlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
                     _db.Plans.Update(activePlan);
-                    await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
                     _logger.LogInformation("svc.plan.extend-active planId={PlanId} newStart={NewStart}", activePlan.Id, activePlan.PeriodStart);
                     return activePlan;
                 }
@@ -676,7 +753,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 var totalDays = (newActivePlan.PeriodEnd - newActivePlan.PeriodStart).Days + 1;
                 newActivePlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
                 _db.Plans.Add(newActivePlan);
-                await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("svc.plan.create-active planId={PlanId} start={Start} end={End}", newActivePlan.Id, newActivePlan.PeriodStart, newActivePlan.PeriodEnd);
                 return newActivePlan;
             }
@@ -762,7 +839,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var normalizedSkill = string.IsNullOrWhiteSpace(skillLevel) ? string.Empty : skillLevel.Trim();
             var normalizedInstructions = string.IsNullOrWhiteSpace(instructions) ? string.Empty : instructions.Trim();
 
-            var validation = await ValidatePlacementAsync(
+            var placementValidation = await ValidatePlacementForActionAsync(
                 ignoreTaskId: null,
                 targetTechnicianId: technicianId,
                 targetDate: targetDate,
@@ -775,19 +852,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 requireEndAligned: true,
                 cancellationToken: cancellationToken);
 
-            if (validation.Error != PlacementError.None)
+            if (!placementValidation.IsValid)
             {
-                return validation.Error switch
-                {
-                    PlacementError.NotEditable => new TaskCreateResult(TaskCreateError.NotEditable, validation.Message),
-                    PlacementError.TechnicianNotFound => new TaskCreateResult(TaskCreateError.TechnicianNotFound, validation.Message),
-                    PlacementError.Overlap => new TaskCreateResult(TaskCreateError.Overlap, validation.Message),
-                    _ => new TaskCreateResult(TaskCreateError.InvalidWindow, validation.Message)
-                };
+                return MapPlacementErrorForCreate(placementValidation);
             }
 
             // Find or create service object
-            var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, validation.City, cancellationToken);
+            var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, placementValidation.City, cancellationToken);
             var serviceObjectMeta = await _db.ServiceObjects
                 .Where(o => o.Id == serviceObjectId)
                 .Select(o => new { o.AddressId })
@@ -801,8 +872,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 Title = normalizedTitle,
                 SkillLevel = normalizedSkill,
                 Instructions = normalizedInstructions,
-                StartAt = validation.StartAt,
-                EndAt = validation.EndAt,
+                StartAt = placementValidation.StartAtUtc,
+                EndAt = placementValidation.EndAtUtc,
                 Priority = priority,
                 Status = status,
                 CreatedAt = DateTime.UtcNow
@@ -890,6 +961,33 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, city, cancellationToken);
                 task.ServiceObjectId = serviceObjectId;
             }
+            var localPlacementStartAt = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffsetMinutes);
+            var localPlacementEndAt = _timeService.ConvertUtcToLocal(task.EndAt, timezoneOffsetMinutes);
+            var updatePlacementValidation = await ValidatePlacementForActionAsync(
+                ignoreTaskId: taskId,
+                targetTechnicianId: task.TechnicianId,
+                targetDate: localPlacementStartAt.Date,
+                startMinutes: (int)localPlacementStartAt.TimeOfDay.TotalMinutes,
+                endMinutes: (int)localPlacementEndAt.TimeOfDay.TotalMinutes,
+                plan: task.Plan,
+                status: task.Status,
+                user: user,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                requireEndAligned: true,
+                cancellationToken: cancellationToken);
+
+            if (!updatePlacementValidation.IsValid)
+            {
+                if (transaction != null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                }
+
+                return MapPlacementErrorForUpdate(updatePlacementValidation);
+            }
+
+            task.StartAt = updatePlacementValidation.StartAtUtc;
+            task.EndAt = updatePlacementValidation.EndAtUtc;
 
             await _db.SaveChangesAsync(cancellationToken);
             await TriggerTaskRouteImpactSafelyAsync(task.Id, "update", cancellationToken);
@@ -961,8 +1059,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var durationMinutes = (int)Math.Round(durationMinutesRaw);
             var endMinutes = targetSlotStartMinutes + durationMinutes;
-
-            var validation = await ValidatePlacementAsync(
+            var placementValidation = await ValidatePlacementForActionAsync(
                 ignoreTaskId: taskId,
                 targetTechnicianId: targetTechnicianId,
                 targetDate: targetDate,
@@ -975,23 +1072,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 requireEndAligned: false,
                 cancellationToken: cancellationToken);
 
-            if (validation.Error != PlacementError.None)
+            if (!placementValidation.IsValid)
             {
-                return validation.Error switch
-                {
-                    PlacementError.NotEditable => new TaskMoveResult(TaskMoveError.NotEditable, "Neturite teisiu perkelti sios uzduoties."),
-                    PlacementError.TechnicianNotFound => new TaskMoveResult(TaskMoveError.TechnicianNotFound, validation.Message),
-                    PlacementError.Overlap => new TaskMoveResult(TaskMoveError.Overlap, validation.Message),
-                    _ => new TaskMoveResult(TaskMoveError.InvalidWindow, validation.Message)
-                };
+                return MapPlacementErrorForMove(placementValidation);
             }
 
             var oldTechnicianId = task.TechnicianId;
             var oldDay = task.StartAt.Date;
 
             task.TechnicianId = targetTechnicianId;
-            task.StartAt = validation.StartAt;
-            task.EndAt = validation.EndAt;
+            task.StartAt = placementValidation.StartAtUtc;
+            task.EndAt = placementValidation.EndAtUtc;
 
             await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
             try
@@ -1014,8 +1105,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 startMinutesLocal: targetSlotStartMinutes,
                 timezoneOffsetMinutes: timezoneOffsetMinutes,
                 technicianId: targetTechnicianId,
-                startAtUtc: validation.StartAt,
-                endAtUtc: validation.EndAt,
+                startAtUtc: placementValidation.StartAtUtc,
+                endAtUtc: placementValidation.EndAtUtc,
                 serviceAddressId: moveServiceAddressId,
                 excludeTaskId: taskId,
                 cancellationToken: cancellationToken);
@@ -1192,8 +1283,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
             try
-            {
-                await _db.SaveChangesAsync(cancellationToken);
+            {await _db.SaveChangesAsync(cancellationToken);
 
                 await TryCompactSwapDayScheduleAsync(
                     source.TechnicianId,
@@ -1310,9 +1400,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 strict.Message ?? string.Empty);
 
             // Allow smart-planner fallback for recoverable failures:
-            //   • TravelInfeasible – adjacent travel times don't fit; planner can reorder.
-            //   • Overlap         – another task is in the way; planner can shift it.
-            //   • WorkWindow      – longer task overflows window at target slot; planner
+            //    TravelInfeasible  adjacent travel times don't fit; planner can reorder.
+            //    Overlap         another task is in the way; planner can shift it.
+            //   WorkWindow      longer task overflows window at target slot; planner
             //                       can pull it back to its earliest feasible slot.
             var isRecoverable =
                 strict.Error == TaskSwapError.TravelInfeasible ||
@@ -1399,8 +1489,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     task.StartAt = adjustment.StartAt;
                     task.EndAt = adjustment.EndAt;
                 }
-
-                await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
 
                 await TryCompactSwapDayScheduleAsync(
                     source.TechnicianId,
@@ -1558,7 +1647,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, "Neturite teisiu keisti uzduoties laiko.");
             }
 
-            var validation = await ValidatePlacementAsync(
+            var placementValidation = await ValidatePlacementForActionAsync(
                 ignoreTaskId: task.Id,
                 targetTechnicianId: task.TechnicianId,
                 targetDate: targetDate,
@@ -1571,20 +1660,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 requireEndAligned: true,
                 cancellationToken: cancellationToken);
 
-            if (validation.Error != PlacementError.None)
+            if (!placementValidation.IsValid)
             {
-                return validation.Error switch
-                {
-                    PlacementError.NotEditable => new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, validation.Message),
-                    PlacementError.Overlap => new TaskTimeUpdateResult(TaskTimeUpdateError.Overlap, validation.Message),
-                    _ => new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, validation.Message)
-                };
+                return MapPlacementErrorForTimeUpdate(placementValidation);
             }
 
             var oldDay = task.StartAt.Date;
 
-            task.StartAt = validation.StartAt;
-            task.EndAt = validation.EndAt;
+            task.StartAt = placementValidation.StartAtUtc;
+            task.EndAt = placementValidation.EndAtUtc;
 
             await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
             try
@@ -1607,8 +1691,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 startMinutesLocal: targetSlotStartMinutes,
                 timezoneOffsetMinutes: timezoneOffsetMinutes,
                 technicianId: task.TechnicianId,
-                startAtUtc: validation.StartAt,
-                endAtUtc: validation.EndAt,
+                startAtUtc: placementValidation.StartAtUtc,
+                endAtUtc: placementValidation.EndAtUtc,
                 serviceAddressId: timeServiceAddressId,
                 excludeTaskId: task.Id,
                 cancellationToken: cancellationToken);
@@ -1756,7 +1840,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             draft.Status = PlanStatus.Active;
             _db.Plans.Update(draft);
-
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             _logger.LogInformation("svc.plan.publish.ok draftId={DraftId} superseded={ActiveId}", draft.Id, active?.Id);
@@ -1817,7 +1900,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (targetTask.PlanId == null)
             {
-                return new DragPreviewResult(DragPreviewError.NoPlan, "UÅ¾duotis neturi plano.");
+                return new DragPreviewResult(DragPreviewError.NoPlan, "Užduotis neturi plano.");
             }
 
             var hoverTech = await _db.Technicians
@@ -2316,7 +2399,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 LogSwapCompactionSkipped("NoImprovement", technicianId, utcDay);
                 return false;
             }
-
             await _db.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation(
