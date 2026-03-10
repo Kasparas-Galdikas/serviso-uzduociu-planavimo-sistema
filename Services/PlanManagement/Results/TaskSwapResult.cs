@@ -30,7 +30,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         DifferentPlan,
         CanceledTask,
         InvalidDuration,
-        SpansMidnight
+        SpansMidnight,
+        /// <summary>One or both tasks (or the travel leg leading into them) would land in the past.
+        /// The smart planner cannot recover this — it is a hard constraint.</summary>
+        PastTime
     }
 
     public sealed record TaskSwapResult(

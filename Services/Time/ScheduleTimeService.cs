@@ -45,6 +45,13 @@ namespace ServiceTaskPlanningSystem.Services.Time
             return taskEndUtc > now;
         }
 
+        public bool IsTravelStartFeasible(DateTime taskStartUtc, int inboundTravelMinutes)
+        {
+            if (inboundTravelMinutes <= 0) return true;
+            var travelStartUtc = taskStartUtc.AddMinutes(-inboundTravelMinutes);
+            return travelStartUtc >= GetCurrentUtcTime();
+        }
+
         public DateTime GetWeekStart(DateTime date)
         {
             var dayOfWeek = (int)date.DayOfWeek;

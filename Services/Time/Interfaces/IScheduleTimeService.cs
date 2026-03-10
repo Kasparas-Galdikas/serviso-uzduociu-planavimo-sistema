@@ -39,6 +39,13 @@ namespace ServiceTaskPlanningSystem.Services.Time
         bool IsTaskStillEditable(DateTime taskEndUtc);
 
         /// <summary>
+        /// Checks that the travel leg leading into a task would not start in the past.
+        /// Returns true if inboundTravelMinutes is zero/negative (no travel required)
+        /// or if taskStartUtc - inboundTravelMinutes >= now.
+        /// </summary>
+        bool IsTravelStartFeasible(DateTime taskStartUtc, int inboundTravelMinutes);
+
+        /// <summary>
         /// Gets the start of week (Monday) for a given date.
         /// </summary>
         DateTime GetWeekStart(DateTime date);

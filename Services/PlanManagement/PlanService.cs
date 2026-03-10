@@ -1089,6 +1089,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     InvalidSwapReason: InvalidSwapReason.WorkWindow);
             }
 
+            var nowUtc = _timeService.GetCurrentUtcTime();
+            if (sourceNewStartAt <= nowUtc || targetNewStartAt <= nowUtc)
+            {
+                return new TaskSwapResult(TaskSwapError.InvalidSwap,
+                    "Negalima sukeisti uzduociu i praejusi laika.",
+                    InvalidSwapReason: InvalidSwapReason.PastTime);
+            }
+
             var excludedTaskIds = new[] { source.Id, target.Id };
             var sourceHasOverlap = await HasTaskOverlapExcludingAsync(
                 excludedTaskIds,
