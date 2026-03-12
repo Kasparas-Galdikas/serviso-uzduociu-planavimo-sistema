@@ -422,12 +422,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return (PlacementError.NotEditable, "Neturite teisiu atlikti sio veiksmo.", default, default, string.Empty);
             }
 
-            // Prevent placing tasks with start time in the past
-            if (!_timeService.IsTaskStillEditable(startAt))
-            {
-                return (PlacementError.InvalidWindow, "Negalima nustatyti užduoties pradžios laiko praeityje.", default, default, string.Empty);
-            }
-
             var hasOverlap = await _db.Tasks
                 .AsNoTracking()
                 .Where(t => ignoreTaskId == null || t.Id != ignoreTaskId.Value)
@@ -1403,7 +1397,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             //    TravelInfeasible  adjacent travel times don't fit; planner can reorder.
             //    Overlap         another task is in the way; planner can shift it.
             //   WorkWindow      longer task overflows window at target slot; planner
-            //                       can pull it back to its earliest feasible slot.
+            //   can pull it back to its earliest feasible slot.
             var isRecoverable =
                 strict.Error == TaskSwapError.TravelInfeasible ||
                 strict.Error == TaskSwapError.Overlap ||
@@ -2681,3 +2675,4 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         }
     }
 }
+

@@ -9,7 +9,7 @@ namespace ServiceTaskPlanningSystem.Services.Time
     /// </summary>
     public class ScheduleTimeService : IScheduleTimeService
     {
-        public DateTime GetCurrentUtcTime()
+        public virtual DateTime GetCurrentUtcTime()
         {
             return DateTime.UtcNow;
         }
@@ -122,3 +122,4 @@ namespace ServiceTaskPlanningSystem.Services.Time
         }
     }
 }
+

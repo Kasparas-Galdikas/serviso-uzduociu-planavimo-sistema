@@ -47,6 +47,16 @@ public class PlanServiceRouteTriggerTests
                 return DateTime.SpecifyKind(date.AddMinutes(minutes), DateTimeKind.Utc);
             });
         _time.IsTaskStillEditable(Arg.Any<DateTime>()).Returns(true);
+        _time.ConvertUtcToLocal(Arg.Any<DateTime>(), Arg.Any<int>())
+            .Returns(call =>
+            {
+                var utc = DateTime.SpecifyKind((DateTime)call[0], DateTimeKind.Utc);
+                var offsetMinutes = (int)call[1];
+                return utc.AddMinutes(offsetMinutes);
+            });
+        _time.GetEarliestCreatableStartMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(ScheduleGrid.DayStartMinutes);
+        _time.IsTravelStartFeasible(Arg.Any<DateTime>(), Arg.Any<int>()).Returns(true);
         _travelFeasibility.EvaluatePlacementAsync(
                 Arg.Any<long>(),
                 Arg.Any<DateTime>(),
@@ -288,4 +298,6 @@ public class PlanServiceRouteTriggerTests
         return task;
     }
 }
+
+
 
