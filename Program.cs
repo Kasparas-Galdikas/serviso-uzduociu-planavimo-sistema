@@ -3,6 +3,7 @@ using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Authentication;
@@ -90,7 +91,8 @@ builder.Services.AddControllersWithViews(options =>
 
 builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
 builder.Services.AddScoped<IPlanService, PlanService>();
-builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap.ISmartSwapPlanner, ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap.SmartSwapPlanner>();
+builder.Services.AddScoped<IDayScheduleFitCore, DayScheduleFitCore>();
+builder.Services.AddScoped<IScheduleRepairAdapter, ScheduleRepairAdapter>();
 builder.Services.AddScoped<ITaskTravelFeasibilityService, TaskTravelFeasibilityService>();
 builder.Services.AddScoped<IRouteChainBuilder, RouteChainBuilder>();
 builder.Services.AddScoped<IEvaluationEngine, TaskEvaluationEngine>();
@@ -196,4 +198,6 @@ if (migrateOnly)
 }
 
 await app.RunAsync();
+
+
 

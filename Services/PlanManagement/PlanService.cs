@@ -17,6 +17,7 @@ using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap;
+using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -29,18 +30,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private readonly IScheduleTimeService _timeService;
         private readonly IRouteEvaluationService _routeEvaluationService;
         private readonly ITaskTravelFeasibilityService _travelFeasibilityService;
-        private readonly ISmartSwapPlanner _smartSwapPlanner;
+        private readonly IScheduleRepairAdapter _scheduleRepairAdapter;
         private readonly ILogger<PlanService> _logger;
 
-        private sealed class NoopSmartSwapPlanner : ISmartSwapPlanner
+        private sealed class NoopScheduleRepairAdapter : IScheduleRepairAdapter
         {
-            public Task<SmartSwapPlan> BuildPlanAsync(
-                long sourceTaskId,
-                long targetTaskId,
-                int timezoneOffsetMinutes,
-                CancellationToken cancellationToken = default)
+            public Task<ScheduleRepairPlan> BuildPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken = default)
             {
-                return Task.FromResult(SmartSwapPlan.Fail("Smart swap planuoklis nesukonfiguruotas."));
+                return Task.FromResult(ScheduleRepairPlan.Fail("Planavimo taisymo adapteris nesukonfiguruotas."));
             }
         }
 
@@ -61,7 +58,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 timeService,
                 routeEvaluationService,
                 travelFeasibilityService,
-                new NoopSmartSwapPlanner(),
+                new NoopScheduleRepairAdapter(),
                 logger)
         {
         }
@@ -74,7 +71,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             IScheduleTimeService timeService,
             IRouteEvaluationService routeEvaluationService,
             ITaskTravelFeasibilityService travelFeasibilityService,
-            ISmartSwapPlanner smartSwapPlanner,
+            IScheduleRepairAdapter scheduleRepairAdapter,
             ILogger<PlanService> logger)
         {
             _db = db;
@@ -84,10 +81,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _timeService = timeService;
             _routeEvaluationService = routeEvaluationService;
             _travelFeasibilityService = travelFeasibilityService;
-            _smartSwapPlanner = smartSwapPlanner;
+            _scheduleRepairAdapter = scheduleRepairAdapter;
             _logger = logger;
         }
-
         private sealed record WorkingWindow(int StartMinutes, int EndMinutes);
 
         private static WorkingWindow GetWorkingWindow(long technicianId, DateTime date) =>
@@ -100,11 +96,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             TravelInfeasible
         }
 
-        private readonly record struct TimingTravelValidationResult(TimingTravelViolationKind ViolationKind, string? Message)
+        private readonly record struct TimingTravelValidationResult(TimingTravelViolationKind ViolationKind, string? Message, ScheduleRepairPlan? RepairPlan)
         {
             public bool IsValid => ViolationKind == TimingTravelViolationKind.None;
             public bool IsInvalidWindow => ViolationKind == TimingTravelViolationKind.InvalidWindow;
-            public static TimingTravelValidationResult Success => new(TimingTravelViolationKind.None, null);
+            public static TimingTravelValidationResult Success => new(TimingTravelViolationKind.None, null, null);
         }
 
         private async Task<TimingTravelValidationResult> ValidateTimingAndTravelAsync(
@@ -121,7 +117,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
             if (taskDateLocal < userLocalToday)
             {
-                return new TimingTravelValidationResult(TimingTravelViolationKind.InvalidWindow, "Negalima planuoti praeityje.");
+                return new TimingTravelValidationResult(TimingTravelViolationKind.InvalidWindow, "Negalima planuoti praeityje.", null);
             }
 
             var earliestStartMinutes = _timeService.GetEarliestCreatableStartMinutes(
@@ -131,7 +127,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 ScheduleGrid.DayStartMinutes);
             if (taskDateLocal == userLocalToday && startMinutesLocal < earliestStartMinutes)
             {
-                return new TimingTravelValidationResult(TimingTravelViolationKind.InvalidWindow, "Negalima planuoti ankstesniame nei artimiausias galimas 30 min. laiko langas.");
+                return new TimingTravelValidationResult(TimingTravelViolationKind.InvalidWindow, "Negalima planuoti ankstesniame nei artimiausias galimas 30 min. laiko langas.", null);
             }
 
             var travelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
@@ -146,18 +142,84 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (!travelCheck.IsFeasible)
             {
+                var repairPlan = await TryBuildPlacementRepairPlanAsync(
+                    technicianId,
+                    startAtUtc,
+                    endAtUtc,
+                    serviceAddressId,
+                    timezoneOffsetMinutes,
+                    excludeTaskId,
+                    cancellationToken);
+
                 return new TimingTravelValidationResult(
                     TimingTravelViolationKind.TravelInfeasible,
-                    travelCheck.Message ?? "Nepakanka laiko kelionei.");
+                    travelCheck.Message ?? "Nepakanka laiko kelionei.",
+                    repairPlan);
             }
 
             var inboundTravelMinutes = Math.Max(0, travelCheck.InboundTravelMinutes ?? 0);
             if (!_timeService.IsTravelStartFeasible(startAtUtc, inboundTravelMinutes))
             {
-                return new TimingTravelValidationResult(TimingTravelViolationKind.TravelInfeasible, "Nepakanka laiko kelionei nuo dabartinio laiko.");
+                var repairPlan = await TryBuildPlacementRepairPlanAsync(technicianId, startAtUtc, endAtUtc, serviceAddressId, timezoneOffsetMinutes, excludeTaskId, cancellationToken);
+                return new TimingTravelValidationResult(TimingTravelViolationKind.TravelInfeasible, "Nepakanka laiko kelionei nuo dabartinio laiko.", repairPlan);
             }
 
             return TimingTravelValidationResult.Success;
+        }
+
+        private async Task<SmartSwapPlan> BuildSmartSwapPlanAsync(long sourceTaskId, long targetTaskId, int timezoneOffsetMinutes, CancellationToken cancellationToken)
+        {
+            var repairPlan = await _scheduleRepairAdapter.BuildPlanAsync(
+                new ScheduleRepairRequest
+                {
+                    ScenarioKind = ScheduleRepairScenarioKind.Swap,
+                    SourceTaskId = sourceTaskId,
+                    TargetTaskId = targetTaskId,
+                    TimezoneOffsetMinutes = timezoneOffsetMinutes
+                },
+                cancellationToken);
+
+            if (!repairPlan.Success)
+            {
+                return SmartSwapPlan.Fail(repairPlan.Message ?? "Smart swap planavimas nepavyko.");
+            }
+
+            var adjustments = repairPlan.Adjustments
+                .Select(x => new SmartSwapAdjustment(x.TaskId, x.StartAt, x.EndAt))
+                .ToList();
+
+            if (adjustments.Count == 0)
+            {
+                return SmartSwapPlan.Fail("Smart swap nerado reikalingu pakeitimu.");
+            }
+
+            return new SmartSwapPlan(true, null, adjustments);
+        }
+
+        private Task<ScheduleRepairPlan> TryBuildPlacementRepairPlanAsync(
+            long technicianId,
+            DateTime startAtUtc,
+            DateTime endAtUtc,
+            long serviceAddressId,
+            int timezoneOffsetMinutes,
+            long? excludeTaskId,
+            CancellationToken cancellationToken)
+        {
+            return _scheduleRepairAdapter.BuildPlanAsync(
+                new ScheduleRepairRequest
+                {
+                    ScenarioKind = ScheduleRepairScenarioKind.Move,
+                    TechnicianId = technicianId,
+                    DayUtc = startAtUtc.Date,
+                    TimezoneOffsetMinutes = timezoneOffsetMinutes,
+                    ExcludeTaskId = excludeTaskId,
+                    ProposedPlacement = new ScheduleRepairPlacement(
+                        0,
+                        serviceAddressId,
+                        startAtUtc,
+                        endAtUtc)
+                },
+                cancellationToken);
         }
 
         private async Task<long> FindOrCreateServiceObjectAsync(string? objectName, string? objectAddress, string city, CancellationToken cancellationToken = default)
@@ -1413,11 +1475,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             // Reset tracked state so smart planning/version checks read actual DB values.
             _db.ChangeTracker.Clear();
 
-            var smartPlan = await _smartSwapPlanner.BuildPlanAsync(
-                sourceTaskId,
-                targetTaskId,
-                timezoneOffsetMinutes,
-                cancellationToken);
+            var smartPlan = await BuildSmartSwapPlanAsync(sourceTaskId, targetTaskId, timezoneOffsetMinutes, cancellationToken);
 
             if (!smartPlan.IsSuccess || smartPlan.Adjustments.Count == 0)
             {
@@ -1603,8 +1661,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             // Strict swap fails on window; try whether the smart planner can recover.
-            var plan = await _smartSwapPlanner.BuildPlanAsync(
-                sourceTaskId, targetTaskId, timezoneOffsetMinutes, cancellationToken);
+            var plan = await BuildSmartSwapPlanAsync(sourceTaskId, targetTaskId, timezoneOffsetMinutes, cancellationToken);
 
             if (plan.IsSuccess && plan.Adjustments.Count > 0)
                 return SwapSmartPreviewResult.Ok(smartRequired: true);
@@ -2675,4 +2732,3 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         }
     }
 }
-
