@@ -60,8 +60,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         Task<DragPreviewResult> PreviewDragAsync(
             long taskId,
             long targetTechnicianId,
-            DateTime targetStartAt,
-            DateTime targetEndAt,
+            DateTime targetDate,
+            int targetSlotStartMinutes,
             UserContext user,
             int timezoneOffsetMinutes,
             CancellationToken cancellationToken = default);
@@ -78,3 +78,5 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             CancellationToken cancellationToken = default);
     }
 }
+
+

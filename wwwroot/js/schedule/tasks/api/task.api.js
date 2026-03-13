@@ -514,18 +514,13 @@
    */
   const fetchDragPreview = async (previewData) => {
     const timezoneOffset = grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
-    const durationMinutes = (previewData.durationSlots || 1) * 30;
-
-    // Convert the local grid slot to UTC for the API
-    const localDate = new Date(previewData.targetDate + "T00:00:00");
-    const targetStartAt = new Date(localDate.getTime() + previewData.startMinutes * 60000 + timezoneOffset * 60000);
-    const targetEndAt = new Date(targetStartAt.getTime() + durationMinutes * 60000);
 
     const body = {
       taskId: previewData.taskId,
       targetTechnicianId: previewData.technicianId,
-      targetStartAt: targetStartAt.toISOString(),
-      targetEndAt: targetEndAt.toISOString(),
+      targetDate: previewData.targetDate,
+      targetSlotStartMinutes: previewData.startMinutes,
+      timezoneOffsetMinutes: timezoneOffset,
     };
 
     try {
@@ -671,3 +666,5 @@
     clearCache,
   };
 })();
+
+

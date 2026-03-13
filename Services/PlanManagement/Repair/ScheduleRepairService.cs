@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
@@ -16,7 +17,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
         Create,
         Move,
         Drag,
-        Update
+        Update,
+        Compact
     }
 
     public sealed record ScheduleRepairPlacement(
@@ -37,6 +39,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
         public long? TargetTaskId { get; init; }
         public long? ExcludeTaskId { get; init; }
         public ScheduleRepairPlacement? ProposedPlacement { get; init; }
+        public IReadOnlySet<long>? FixedTaskIds { get; init; }
     }
 
     public sealed record ScheduleRepairPlan(
@@ -50,12 +53,25 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             new(false, message, ScheduleRepairKind.NoFit, Array.Empty<DayScheduleFitAdjustment>(), null);
     }
 
-    public interface IScheduleRepairAdapter
+    public sealed record ScheduleRepairApplyResult(
+        bool Success,
+        string? Message,
+        IReadOnlyList<long> AppliedTaskIds)
     {
-        Task<ScheduleRepairPlan> BuildPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken = default);
+        public static ScheduleRepairApplyResult Fail(string message) =>
+            new(false, message, Array.Empty<long>());
     }
 
-    public sealed class ScheduleRepairAdapter : IScheduleRepairAdapter
+    public interface IScheduleRepairService
+    {
+        Task<ScheduleRepairPlan> BuildPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken = default);
+        Task<ScheduleRepairApplyResult> ApplyPlanAsync(
+            ScheduleRepairPlan plan,
+            long? primaryTaskId,
+            CancellationToken cancellationToken = default);
+    }
+
+    public sealed class ScheduleRepairService : IScheduleRepairService
     {
         private const long ProposedTaskId = -1;
 
@@ -63,17 +79,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
         private readonly IScheduleTimeService _timeService;
         private readonly IRouteChainBuilder _routeChainBuilder;
         private readonly IDayScheduleFitCore _fitCore;
+        private readonly ITravelTimeResolver _travelResolver;
 
-        public ScheduleRepairAdapter(
+        public ScheduleRepairService(
             ScheduleDbContext db,
             IScheduleTimeService timeService,
             IRouteChainBuilder routeChainBuilder,
-            IDayScheduleFitCore fitCore)
+            IDayScheduleFitCore fitCore,
+            ITravelTimeResolver travelResolver)
         {
             _db = db;
             _timeService = timeService;
             _routeChainBuilder = routeChainBuilder;
             _fitCore = fitCore;
+            _travelResolver = travelResolver;
         }
 
         public async Task<ScheduleRepairPlan> BuildPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken = default)
@@ -81,8 +100,63 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             return request.ScenarioKind switch
             {
                 ScheduleRepairScenarioKind.Swap => await BuildSwapPlanAsync(request, cancellationToken),
+                ScheduleRepairScenarioKind.Compact => await BuildCompactPlanAsync(request, cancellationToken),
                 _ => await BuildPlacementPlanAsync(request, cancellationToken)
             };
+        }
+
+        public async Task<ScheduleRepairApplyResult> ApplyPlanAsync(
+            ScheduleRepairPlan plan,
+            long? primaryTaskId,
+            CancellationToken cancellationToken = default)
+        {
+            if (!plan.Success)
+            {
+                return ScheduleRepairApplyResult.Fail(plan.Message ?? "Nepavyko pritaikyti taisymo plano.");
+            }
+
+            var appliedIds = new List<long>();
+
+            if (plan.PrimaryPlacement != null && primaryTaskId.HasValue)
+            {
+                var primaryTask = await _db.Tasks.FirstOrDefaultAsync(t => t.Id == primaryTaskId.Value, cancellationToken);
+                if (primaryTask == null)
+                {
+                    return ScheduleRepairApplyResult.Fail("Nepavyko rasti pagrindines uzduoties taisymo pritaikymui.");
+                }
+
+                primaryTask.StartAt = plan.PrimaryPlacement.StartAt;
+                primaryTask.EndAt = plan.PrimaryPlacement.EndAt;
+                appliedIds.Add(primaryTask.Id);
+            }
+
+            var realAdjustments = plan.Adjustments
+                .Where(x => x.TaskId > 0 && (!primaryTaskId.HasValue || x.TaskId != primaryTaskId.Value))
+                .ToList();
+
+            if (realAdjustments.Count > 0)
+            {
+                var adjustmentIds = realAdjustments.Select(x => x.TaskId).Distinct().ToList();
+                var tasksById = await _db.Tasks
+                    .Where(t => adjustmentIds.Contains(t.Id))
+                    .ToDictionaryAsync(t => t.Id, cancellationToken);
+
+                if (tasksById.Count != adjustmentIds.Count)
+                {
+                    return ScheduleRepairApplyResult.Fail("Nepavyko rasti visu uzduociu taisymo pritaikymui.");
+                }
+
+                foreach (var adjustment in realAdjustments)
+                {
+                    var task = tasksById[adjustment.TaskId];
+                    task.StartAt = adjustment.StartAt;
+                    task.EndAt = adjustment.EndAt;
+                    appliedIds.Add(task.Id);
+                }
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+            return new ScheduleRepairApplyResult(true, null, appliedIds.Distinct().ToList());
         }
 
         private async Task<ScheduleRepairPlan> BuildSwapPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken)
@@ -156,6 +230,52 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             return MapFitResult(fitResult, null);
         }
 
+        private async Task<ScheduleRepairPlan> BuildCompactPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken)
+        {
+            var tasks = await LoadDayTaskSnapshotsAsync(
+                request.TechnicianId,
+                request.DayUtc,
+                request.FilterByPlanId ? request.PlanId : null,
+                null,
+                cancellationToken);
+
+            if (tasks.Count <= 1)
+            {
+                return ScheduleRepairPlan.Fail("Nepakanka uzduociu suglaudinimui.");
+            }
+
+            var workplaceAddressId = await ResolveWorkplaceAddressIdAsync(request.TechnicianId, cancellationToken);
+            if (workplaceAddressId <= 0)
+            {
+                return ScheduleRepairPlan.Fail("Techniko darbo vietos adresas nerastas.");
+            }
+
+            var fixedIds = request.FixedTaskIds ?? new HashSet<long>();
+
+            // Anchor fixed tasks to their current positions (immovable).
+            // Anchor non-fixed tasks to DayStartUtc so the core packs them as early as possible.
+            var localDay = request.DayUtc.AddMinutes(request.TimezoneOffsetMinutes).Date;
+            var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, Services.Scheduling.ScheduleGrid.DayStartMinutes, request.TimezoneOffsetMinutes);
+
+            var anchors = tasks
+                .Select(t => new ScheduleRepairAnchor(
+                    t.TaskId,
+                    fixedIds.Contains(t.TaskId) ? t.StartAt : dayStartUtc))
+                .ToList();
+
+            var fitRequest = await BuildFitRequestAsync(
+                tasks,
+                request.DayUtc.Date,
+                request.TimezoneOffsetMinutes,
+                workplaceAddressId,
+                anchors,
+                cancellationToken,
+                immovableTaskIds: fixedIds.Count > 0 ? fixedIds : null);
+
+            var fitResult = await _fitCore.FitAsync(fitRequest, cancellationToken);
+            return MapFitResult(fitResult, null);
+        }
+
         private async Task<ScheduleRepairPlan> BuildPlacementPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken)
         {
             if (request.ProposedPlacement == null)
@@ -200,7 +320,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             int timezoneOffsetMinutes,
             long workplaceAddressId,
             IReadOnlyList<ScheduleRepairAnchor> anchors,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IReadOnlySet<long>? immovableTaskIds = null)
         {
             var routeLookup = await BuildRouteLookupAsync(tasks, workplaceAddressId, cancellationToken);
             var localDay = utcDay.AddMinutes(timezoneOffsetMinutes).Date;
@@ -214,7 +335,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 workplaceAddressId,
                 dayStartUtc,
                 dayEndUtc,
-                timezoneOffsetMinutes);
+                timezoneOffsetMinutes,
+                NowUtc: _timeService.GetCurrentUtcTime(),
+                ImmovableTaskIds: immovableTaskIds);
         }
 
         private static ScheduleRepairPlan MapFitResult(DayScheduleFitResult fitResult, long? primaryTaskId, long? primaryAddressId = null)
@@ -316,19 +439,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             var addressIds = tasks
                 .Select(t => t.AddressId)
                 .Append(workplaceAddressId)
-                .Distinct()
-                .ToList();
+                .Distinct();
 
-            var routes = await _db.TravelRoutes
-                .AsNoTracking()
-                .Where(r => addressIds.Contains(r.FromAddressId) && addressIds.Contains(r.ToAddressId))
-                .ToListAsync(cancellationToken);
-
-            return routes
-                .GroupBy(r => (r.FromAddressId, r.ToAddressId))
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.OrderByDescending(x => x.DurationMinutes).First().DurationMinutes);
+            return await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
         }
     }
 }

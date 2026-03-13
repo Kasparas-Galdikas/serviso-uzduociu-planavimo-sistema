@@ -281,19 +281,24 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return ValidationProblem(ModelState);
             }
 
-            if (dto.TargetEndAt <= dto.TargetStartAt)
+            if (!TryParseDate(dto.TargetDate, out var targetDate))
             {
-                return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlesnis už pradžia." });
+                return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
             }
 
-            var timezoneOffset = _timeService.GetBrowserTimezoneOffset(Request);
+            if (dto.TargetSlotStartMinutes < 0 || dto.TargetSlotStartMinutes >= 24 * 60)
+            {
+                return UnprocessableEntity(new { message = "Netinkamas pradzios laikas." });
+            }
+
+            var timezoneOffset = dto.TimezoneOffsetMinutes;
             var user = _userContextResolver.GetCurrentUser();
 
             var result = await _planService.PreviewDragAsync(
                 dto.TaskId,
                 dto.TargetTechnicianId,
-                dto.TargetStartAt,
-                dto.TargetEndAt,
+                targetDate,
+                dto.TargetSlotStartMinutes,
                 user,
                 timezoneOffset,
                 cancellationToken);
@@ -986,4 +991,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
     }
 }
+
+
 

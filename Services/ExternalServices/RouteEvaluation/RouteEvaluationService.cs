@@ -152,7 +152,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 "route.evaluation.technician-day.chain technicianId={TechnicianId} day={Day} chain=[{Chain}]",
                 technicianId,
                 dayUtc.Date,
-                string.Join(" -> ", dayTasks.Select(t => $"{t.Id}@{t.StartAt:HH:mm}")));
+                string.Join(" -> ", dayTasks.Select(t => $"{t.Id}@{t.StartAt:HH:mm}UTC")));
 
             if (dayTasks.Count == 0)
             {

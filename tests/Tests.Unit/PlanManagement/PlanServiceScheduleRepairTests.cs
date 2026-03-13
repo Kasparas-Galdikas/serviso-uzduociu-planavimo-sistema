@@ -15,7 +15,6 @@ using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel;
-using ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap;
 using Xunit;
 
 namespace Tests.Unit.PlanManagement;
@@ -28,7 +27,7 @@ public sealed class PlanServiceScheduleRepairTests
     private readonly IScheduleTimeService _time = Substitute.For<IScheduleTimeService>();
     private readonly IRouteEvaluationService _routeEvaluation = Substitute.For<IRouteEvaluationService>();
     private readonly ITaskTravelFeasibilityService _travelFeasibility = Substitute.For<ITaskTravelFeasibilityService>();
-    private readonly IScheduleRepairAdapter _repairAdapter = Substitute.For<IScheduleRepairAdapter>();
+    private readonly IScheduleRepairService _repairService = Substitute.For<IScheduleRepairService>();
     private readonly ILogger<PlanService> _logger = Substitute.For<ILogger<PlanService>>();
 
     public PlanServiceScheduleRepairTests()
@@ -51,12 +50,17 @@ public sealed class PlanServiceScheduleRepairTests
                 var minutes = (int)call[1];
                 return DateTime.SpecifyKind(date.AddMinutes(minutes), DateTimeKind.Utc);
             });
-        _repairAdapter.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
+        _time.ConvertUtcToLocal(Arg.Any<DateTime>(), Arg.Any<int>())
+            .Returns(call => ((DateTime)call[0]).AddMinutes((int)call[1]));
+
+        _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
             .Returns(ScheduleRepairPlan.Fail("no repair"));
+        _repairService.ApplyPlanAsync(Arg.Any<ScheduleRepairPlan>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new ScheduleRepairApplyResult(true, null, Array.Empty<long>()));
     }
 
     [Fact]
-    public async Task CreateTask_WhenTravelIsFeasible_DoesNotInvokeRepairPlanner()
+    public async Task CreateTask_WhenTravelIsFeasible_DoesNotInvokeRepairService()
     {
         using var db = CreateContext();
         SeedTechnicianAndPlan(db);
@@ -90,11 +94,12 @@ public sealed class PlanServiceScheduleRepairTests
             CancellationToken.None);
 
         result.Ok.Should().BeTrue();
-        await _repairAdapter.DidNotReceive().BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>());
+        await _repairService.DidNotReceive().BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>());
+        await _repairService.DidNotReceive().ApplyPlanAsync(Arg.Any<ScheduleRepairPlan>(), Arg.Any<long?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task CreateTask_WhenTravelIsInfeasible_InvokesRepairPlanner()
+    public async Task CreateTask_WhenTravelIsInfeasibleAndRepairExists_AppliesRepairAndReturnsSuccess()
     {
         using var db = CreateContext();
         SeedTechnicianAndPlan(db);
@@ -108,6 +113,15 @@ public sealed class PlanServiceScheduleRepairTests
                 Arg.Any<bool>(),
                 Arg.Any<CancellationToken>())
             .Returns(new TravelFeasibilityResult { IsFeasible = false, Message = "travel fail" });
+        _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ScheduleRepairPlan(
+                true,
+                null,
+                ScheduleRepairKind.Shifted,
+                Array.Empty<DayScheduleFitAdjustment>(),
+                new ScheduleRepairPlacement(-1, 2, DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(10), DateTimeKind.Utc), DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(11), DateTimeKind.Utc))));
+        _repairService.ApplyPlanAsync(Arg.Any<ScheduleRepairPlan>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new ScheduleRepairApplyResult(true, null, Array.Empty<long>()));
 
         var sut = CreateService(db);
 
@@ -127,14 +141,16 @@ public sealed class PlanServiceScheduleRepairTests
             0,
             CancellationToken.None);
 
-        result.Ok.Should().BeFalse();
-        await _repairAdapter.Received(1).BuildPlanAsync(
+        result.Ok.Should().BeTrue();
+        result.Message.Should().Contain("travel fail");
+        await _repairService.Received(1).BuildPlanAsync(
             Arg.Is<ScheduleRepairRequest>(x => x.TechnicianId == 1 && x.ScenarioKind == ScheduleRepairScenarioKind.Move),
             Arg.Any<CancellationToken>());
+        await _repairService.Received(1).ApplyPlanAsync(Arg.Any<ScheduleRepairPlan>(), Arg.Any<long?>(), Arg.Any<CancellationToken>());
     }
 
     private PlanService CreateService(ScheduleDbContext db) =>
-        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _repairAdapter, _logger);
+        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _repairService, _logger);
 
     private static ScheduleDbContext CreateContext()
     {
@@ -152,6 +168,14 @@ public sealed class PlanServiceScheduleRepairTests
             City = "City",
             Street = "HQ",
             FullAddress = "HQ 1, City",
+            CreatedAt = DateTime.UtcNow
+        });
+        db.Addresses.Add(new AddressEntity
+        {
+            Id = 2,
+            City = "City",
+            Street = "Main",
+            FullAddress = "Main St 1, City",
             CreatedAt = DateTime.UtcNow
         });
         db.Technicians.Add(new TechnicianEntity
@@ -174,4 +198,3 @@ public sealed class PlanServiceScheduleRepairTests
         db.SaveChanges();
     }
 }
-

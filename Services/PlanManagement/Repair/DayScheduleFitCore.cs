@@ -34,7 +34,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
         long WorkplaceAddressId,
         DateTime DayStartUtc,
         DateTime DayEndUtc,
-        int TimezoneOffsetMinutes);
+        int TimezoneOffsetMinutes,
+        DateTime NowUtc = default,
+        IReadOnlySet<long>? ImmovableTaskIds = null);
 
     public sealed record DayScheduleFitAdjustment(
         long TaskId,
@@ -110,7 +112,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                             return Task.FromResult(DayScheduleFitResult.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu)."));
                         }
 
-                        minStartUtc = request.DayStartUtc.AddMinutes(required.Value);
+                        var effectiveDayStart = request.NowUtc > request.DayStartUtc ? request.NowUtc : request.DayStartUtc;
+                        minStartUtc = effectiveDayStart.AddMinutes(required.Value);
                     }
                     else
                     {
@@ -130,6 +133,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
 
                     if (currentStart < minStartUtc)
                     {
+                        if (request.ImmovableTaskIds != null && request.ImmovableTaskIds.Contains(taskId))
+                        {
+                            return Task.FromResult(DayScheduleFitResult.Fail("Fiksuota uzduotis negali buti perkelta (truksta laiko kelionei)."));
+                        }
+
                         var delta = (int)Math.Ceiling((minStartUtc - currentStart).TotalMinutes);
                         delta = AlignToSlot(delta);
                         if (delta > 0)
@@ -221,6 +229,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 : ScheduleRepairKind.Compacted;
         }
 
+        /// <summary>
+        /// Helper: Resolve travel minutes from the RouteLookup dictionary.
+        /// Same logic as removed TryResolveRouteMinutes but kept local for compatibility with signature.
+        /// </summary>
         private static int? TryResolveRouteMinutes(
             IReadOnlyDictionary<(long From, long To), int> routeLookup,
             long fromAddressId,

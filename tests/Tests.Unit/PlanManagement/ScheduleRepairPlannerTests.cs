@@ -13,7 +13,7 @@ using Xunit;
 
 namespace Tests.Unit.PlanManagement;
 
-public sealed class ScheduleRepairAdapterTests
+public sealed class ScheduleRepairServiceTests
 {
     [Fact]
     public async Task BuildPlanAsync_ForSwap_ReusesSharedFitCore()
@@ -43,9 +43,9 @@ public sealed class ScheduleRepairAdapterTests
                 }
             });
 
-        var planner = new ScheduleRepairAdapter(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore());
+        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore());
 
-        var result = await planner.BuildPlanAsync(new ScheduleRepairRequest
+        var result = await service.BuildPlanAsync(new ScheduleRepairRequest
         {
             ScenarioKind = ScheduleRepairScenarioKind.Swap,
             SourceTaskId = 100,
@@ -75,9 +75,9 @@ public sealed class ScheduleRepairAdapterTests
         SeedRoute(db, 1, 4, 0);
         SeedAddress(db, 4, "New, City");
 
-        var planner = new ScheduleRepairAdapter(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore());
+        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore());
 
-        var result = await planner.BuildPlanAsync(new ScheduleRepairRequest
+        var result = await service.BuildPlanAsync(new ScheduleRepairRequest
         {
             ScenarioKind = ScheduleRepairScenarioKind.Move,
             TechnicianId = 1,
@@ -89,6 +89,32 @@ public sealed class ScheduleRepairAdapterTests
         result.Success.Should().BeTrue();
         result.PrimaryPlacement.Should().NotBeNull();
         result.Adjustments.Should().Contain(x => x.TaskId == -1);
+    }
+
+    [Fact]
+    public async Task ApplyPlanAsync_ForPlacement_UpdatesPrimaryTaskAndNeighbors()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedTechnician(db, 1, 1);
+        SeedObject(db, 10, 2);
+        SeedObject(db, 11, 3);
+        SeedTask(db, 100, 1, 10, day.AddHours(8), day.AddHours(9));
+        SeedTask(db, 101, 1, 11, day.AddHours(9), day.AddHours(10));
+
+        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore());
+        var plan = new ScheduleRepairPlan(
+            true,
+            null,
+            ScheduleRepairKind.Shifted,
+            new[] { new DayScheduleFitAdjustment(101, day.AddHours(10), day.AddHours(11)) },
+            new ScheduleRepairPlacement(-1, 2, day.AddHours(8.5), day.AddHours(9.5)));
+
+        var result = await service.ApplyPlanAsync(plan, 100, CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        db.Tasks.Single(x => x.Id == 100).StartAt.Should().Be(day.AddHours(8.5));
+        db.Tasks.Single(x => x.Id == 101).StartAt.Should().Be(day.AddHours(10));
     }
 
     private static ScheduleDbContext CreateContext()
@@ -188,4 +214,3 @@ public sealed class ScheduleRepairAdapterTests
         db.SaveChanges();
     }
 }
-

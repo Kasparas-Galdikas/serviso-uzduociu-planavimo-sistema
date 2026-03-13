@@ -92,8 +92,9 @@ builder.Services.AddControllersWithViews(options =>
 builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
 builder.Services.AddScoped<IPlanService, PlanService>();
 builder.Services.AddScoped<IDayScheduleFitCore, DayScheduleFitCore>();
-builder.Services.AddScoped<IScheduleRepairAdapter, ScheduleRepairAdapter>();
+builder.Services.AddScoped<IScheduleRepairService, ScheduleRepairService>();
 builder.Services.AddScoped<ITaskTravelFeasibilityService, TaskTravelFeasibilityService>();
+builder.Services.AddScoped<ITravelTimeResolver, TravelTimeResolver>();
 builder.Services.AddScoped<IRouteChainBuilder, RouteChainBuilder>();
 builder.Services.AddScoped<IEvaluationEngine, TaskEvaluationEngine>();
 builder.Services.AddScoped<IPlanningCalendar, PlanningCalendar>();
@@ -198,6 +199,7 @@ if (migrateOnly)
 }
 
 await app.RunAsync();
+
 
 
 
