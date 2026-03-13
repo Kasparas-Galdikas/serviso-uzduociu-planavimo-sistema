@@ -26,6 +26,7 @@ public class PlanServiceRouteTriggerTests
     private readonly IScheduleTimeService _time = Substitute.For<IScheduleTimeService>();
     private readonly IRouteEvaluationService _routeEvaluation = Substitute.For<IRouteEvaluationService>();
     private readonly ITaskTravelFeasibilityService _travelFeasibility = Substitute.For<ITaskTravelFeasibilityService>();
+    private readonly ITravelTimeResolver _travelResolver = Substitute.For<ITravelTimeResolver>();
     private readonly ILogger<PlanService> _logger = Substitute.For<ILogger<PlanService>>();
 
     public PlanServiceRouteTriggerTests()
@@ -212,7 +213,7 @@ public class PlanServiceRouteTriggerTests
     }
 
     private PlanService CreateService(ScheduleDbContext db) =>
-        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _logger);
+        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _travelResolver, _logger);
 
     private static ScheduleDbContext CreateContext()
     {

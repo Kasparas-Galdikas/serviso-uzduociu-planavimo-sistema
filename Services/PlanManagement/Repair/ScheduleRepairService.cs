@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
@@ -14,11 +15,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
     public enum ScheduleRepairScenarioKind
     {
         Swap,
+        SwapAdjust,
         Create,
         Move,
         Drag,
         Update,
-        Compact
+        Compact,
+        Delete
     }
 
     public sealed record ScheduleRepairPlacement(
@@ -100,7 +103,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             return request.ScenarioKind switch
             {
                 ScheduleRepairScenarioKind.Swap => await BuildSwapPlanAsync(request, cancellationToken),
+                ScheduleRepairScenarioKind.SwapAdjust => await BuildSwapAdjustPlanAsync(request, cancellationToken),
                 ScheduleRepairScenarioKind.Compact => await BuildCompactPlanAsync(request, cancellationToken),
+                ScheduleRepairScenarioKind.Delete => await BuildCompactPlanAsync(request, cancellationToken),
                 _ => await BuildPlacementPlanAsync(request, cancellationToken)
             };
         }
@@ -161,9 +166,121 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
 
         private async Task<ScheduleRepairPlan> BuildSwapPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken)
         {
+            var context = await BuildSwapContextAsync(request, reorderSegment: true, cancellationToken);
+            if (!context.Success)
+            {
+                return ScheduleRepairPlan.Fail(context.Message!);
+            }
+
+            var fixedStarts = new Dictionary<long, DateTime>
+            {
+                [context.Source.TaskId] = context.Target.StartAt,
+                [context.Target.TaskId] = context.Source.StartAt
+            };
+
+            return BuildSwapForwardPlan(context, fixedStarts);
+        }
+
+        private async Task<ScheduleRepairPlan> BuildSwapAdjustPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken)
+        {
+            var context = await BuildSwapContextAsync(request, reorderSegment: false, cancellationToken);
+            if (!context.Success)
+            {
+                return ScheduleRepairPlan.Fail(context.Message!);
+            }
+
+            var fixedStarts = new Dictionary<long, DateTime>
+            {
+                [context.Source.TaskId] = context.Source.StartAt,
+                [context.Target.TaskId] = context.Target.StartAt
+            };
+
+            return BuildSwapForwardPlan(context, fixedStarts);
+        }
+
+        private ScheduleRepairPlan BuildSwapForwardPlan(SwapContext context, IReadOnlyDictionary<long, DateTime> fixedStarts)
+        {
+            var originalStarts = context.OrderedTasks.ToDictionary(t => t.TaskId, t => t.StartAt);
+            var scheduledStarts = new Dictionary<long, DateTime>();
+            var currentUtc = _timeService.GetCurrentUtcTime();
+            var effectiveDayStart = context.StartIndex == 0 && currentUtc > context.DayStartUtc
+                ? currentUtc
+                : context.DayStartUtc;
+
+            for (var i = 0; i < context.OrderedTasks.Count; i++)
+            {
+                var task = context.OrderedTasks[i];
+                DateTime earliestStart;
+
+                if (i == 0)
+                {
+                    var travelFromWorkplace = ResolveTravelMinutes(context.RouteLookup, context.WorkplaceAddressId, task.AddressId);
+                    if (!travelFromWorkplace.HasValue)
+                    {
+                        return ScheduleRepairPlan.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu).");
+                    }
+
+                    earliestStart = AlignUtcToSlotCeiling(effectiveDayStart.AddMinutes(travelFromWorkplace.Value), context.TimezoneOffsetMinutes);
+                }
+                else
+                {
+                    var previous = context.OrderedTasks[i - 1];
+                    var previousStart = scheduledStarts[previous.TaskId];
+                    var previousEnd = previousStart + previous.Duration;
+                    var travel = ResolveTravelMinutes(context.RouteLookup, previous.AddressId, task.AddressId);
+                    if (!travel.HasValue)
+                    {
+                        return ScheduleRepairPlan.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu).");
+                    }
+
+                    earliestStart = AlignUtcToSlotCeiling(previousEnd.AddMinutes(travel.Value), context.TimezoneOffsetMinutes);
+                }
+
+                DateTime scheduledStart;
+                if (fixedStarts.TryGetValue(task.TaskId, out var fixedStart))
+                {
+                    // Swapped tasks should keep their swapped ordering, but may slide
+                    // forward when the exact swapped slot is not travel-feasible.
+                    scheduledStart = fixedStart >= earliestStart
+                        ? fixedStart
+                        : earliestStart;
+                }
+                else if (i < context.StartIndex)
+                {
+                    // Tasks before the affected swap segment are already committed for the day.
+                    scheduledStart = task.StartAt;
+                }
+                else
+                {
+                    scheduledStart = originalStarts[task.TaskId] >= earliestStart
+                        ? originalStarts[task.TaskId]
+                        : earliestStart;
+                }
+
+                if (scheduledStart + task.Duration > context.DayEndUtc)
+                {
+                    return ScheduleRepairPlan.Fail("Nepakanka laisvo laiko dienos pabaigoje sukeitimo koregavimui.");
+                }
+
+                scheduledStarts[task.TaskId] = scheduledStart;
+            }
+
+            var adjustments = context.OrderedTasks
+                .Where(t => scheduledStarts[t.TaskId] != t.StartAt)
+                .Select(t => new DayScheduleFitAdjustment(
+                    t.TaskId,
+                    scheduledStarts[t.TaskId],
+                    scheduledStarts[t.TaskId] + t.Duration))
+                .ToList();
+
+            return new ScheduleRepairPlan(true, null, ScheduleRepairKind.Swapped, adjustments, null);
+        }
+
+        private async Task<SwapContext> BuildSwapContextAsync(ScheduleRepairRequest request, bool reorderSegment, CancellationToken cancellationToken)
+        {
             if (!request.SourceTaskId.HasValue || !request.TargetTaskId.HasValue)
             {
-                return ScheduleRepairPlan.Fail("Nepakanka duomenu smart swap planui.");
+                return SwapContext.Fail("Nepakanka duomenu smart swap planui.");
             }
 
             var source = await _db.Tasks
@@ -177,12 +294,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
 
             if (source == null || target == null)
             {
-                return ScheduleRepairPlan.Fail("Uzduotis nerasta.");
+                return SwapContext.Fail("Uzduotis nerasta.");
             }
 
             if (source.TechnicianId != target.TechnicianId || source.StartAt.Date != target.StartAt.Date)
             {
-                return ScheduleRepairPlan.Fail("Smart swap galimas tik to paties techniko dienoje.");
+                return SwapContext.Fail("Smart swap galimas tik to paties techniko dienoje.");
             }
 
             var chain = await _routeChainBuilder.BuildDayChainAsync(
@@ -196,38 +313,75 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 },
                 cancellationToken);
 
-            var chainTaskIds = chain?.Stops
+            var orderedTaskIds = chain?.Stops
                 .Where(s => s.TaskId.HasValue)
                 .Select(s => s.TaskId!.Value)
                 .Distinct()
                 .ToList() ?? new List<long>();
 
-            var tasks = await LoadTaskSnapshotsAsync(chainTaskIds, cancellationToken);
-            if (!tasks.Any(t => t.TaskId == source.Id) || !tasks.Any(t => t.TaskId == target.Id))
+            var orderedTasks = await LoadTaskSnapshotsAsync(orderedTaskIds, cancellationToken);
+            var sourceIndex = orderedTasks.FindIndex(t => t.TaskId == source.Id);
+            var targetIndex = orderedTasks.FindIndex(t => t.TaskId == target.Id);
+            if (sourceIndex < 0 || targetIndex < 0)
             {
-                return ScheduleRepairPlan.Fail("Nepavyko rasti dienos grandines smart swap veiksmui.");
+                return SwapContext.Fail("Nepavyko rasti dienos grandines smart swap veiksmui.");
+            }
+
+            var startIndex = Math.Min(sourceIndex, targetIndex);
+            var endIndex = Math.Max(sourceIndex, targetIndex);
+            IReadOnlyList<ScheduleRepairTaskSnapshot> effectiveOrder;
+            if (reorderSegment)
+            {
+                var reordered = new List<ScheduleRepairTaskSnapshot>();
+                reordered.AddRange(orderedTasks.Take(startIndex));
+                reordered.Add(orderedTasks[endIndex]);
+                if (endIndex - startIndex > 1)
+                {
+                    reordered.AddRange(orderedTasks.Skip(startIndex + 1).Take(endIndex - startIndex - 1));
+                }
+                reordered.Add(orderedTasks[startIndex]);
+                if (orderedTasks.Count - endIndex - 1 > 0)
+                {
+                    reordered.AddRange(orderedTasks.Skip(endIndex + 1));
+                }
+                effectiveOrder = reordered;
+            }
+            else
+            {
+                effectiveOrder = orderedTasks;
             }
 
             var workplaceAddressId = await ResolveWorkplaceAddressIdAsync(source.TechnicianId, cancellationToken);
             if (workplaceAddressId <= 0)
             {
-                return ScheduleRepairPlan.Fail("Techniko darbo vietos adresas nerastas.");
+                return SwapContext.Fail("Techniko darbo vietos adresas nerastas.");
             }
 
-            var fitRequest = await BuildFitRequestAsync(
-                tasks,
-                source.StartAt.Date,
-                request.TimezoneOffsetMinutes,
-                workplaceAddressId,
-                new[]
-                {
-                    new ScheduleRepairAnchor(source.Id, target.StartAt),
-                    new ScheduleRepairAnchor(target.Id, source.StartAt)
-                },
-                cancellationToken);
+            var routeLookup = await BuildRouteLookupAsync(effectiveOrder, workplaceAddressId, cancellationToken);
+            if (routeLookup == null || routeLookup.Count == 0)
+            {
+                return SwapContext.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu).");
+            }
 
-            var fitResult = await _fitCore.FitAsync(fitRequest, cancellationToken);
-            return MapFitResult(fitResult, null);
+            var localDay = source.StartAt.Date.AddMinutes(request.TimezoneOffsetMinutes).Date;
+            var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, ScheduleGrid.DayStartMinutes, request.TimezoneOffsetMinutes);
+            var dayEndUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, ScheduleGrid.DayEndMinutes, request.TimezoneOffsetMinutes);
+            var effectiveSourceIndex = effectiveOrder.ToList().FindIndex(t => t.TaskId == source.Id);
+            var effectiveTargetIndex = effectiveOrder.ToList().FindIndex(t => t.TaskId == target.Id);
+
+            return new SwapContext(
+                true,
+                null,
+                effectiveOrder,
+                effectiveOrder.First(t => t.TaskId == source.Id),
+                effectiveOrder.First(t => t.TaskId == target.Id),
+                workplaceAddressId,
+                routeLookup,
+                dayStartUtc,
+                dayEndUtc,
+                Math.Min(effectiveSourceIndex, effectiveTargetIndex),
+                Math.Max(effectiveSourceIndex, effectiveTargetIndex),
+                request.TimezoneOffsetMinutes);
         }
 
         private async Task<ScheduleRepairPlan> BuildCompactPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken)
@@ -251,11 +405,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             }
 
             var fixedIds = request.FixedTaskIds ?? new HashSet<long>();
-
-            // Anchor fixed tasks to their current positions (immovable).
-            // Anchor non-fixed tasks to DayStartUtc so the core packs them as early as possible.
             var localDay = request.DayUtc.AddMinutes(request.TimezoneOffsetMinutes).Date;
-            var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, Services.Scheduling.ScheduleGrid.DayStartMinutes, request.TimezoneOffsetMinutes);
+            var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, ScheduleGrid.DayStartMinutes, request.TimezoneOffsetMinutes);
 
             var anchors = tasks
                 .Select(t => new ScheduleRepairAnchor(
@@ -325,8 +476,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
         {
             var routeLookup = await BuildRouteLookupAsync(tasks, workplaceAddressId, cancellationToken);
             var localDay = utcDay.AddMinutes(timezoneOffsetMinutes).Date;
-            var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, Services.Scheduling.ScheduleGrid.DayStartMinutes, timezoneOffsetMinutes);
-            var dayEndUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, Services.Scheduling.ScheduleGrid.DayEndMinutes, timezoneOffsetMinutes);
+            var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, ScheduleGrid.DayStartMinutes, timezoneOffsetMinutes);
+            var dayEndUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, ScheduleGrid.DayEndMinutes, timezoneOffsetMinutes);
 
             return new DayScheduleFitRequest(
                 tasks,
@@ -442,6 +593,55 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 .Distinct();
 
             return await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
+        }
+
+        private static int? ResolveTravelMinutes(IReadOnlyDictionary<(long From, long To), int> routeLookup, long fromAddressId, long toAddressId)
+        {
+            if (fromAddressId == toAddressId)
+            {
+                return 0;
+            }
+
+            return routeLookup.TryGetValue((fromAddressId, toAddressId), out var minutes) ? minutes : null;
+        }
+
+        private static DateTime AlignUtcToSlotCeiling(DateTime utc, int timezoneOffsetMinutes)
+        {
+            var local = utc.AddMinutes(timezoneOffsetMinutes);
+            var rounded = new DateTime(local.Year, local.Month, local.Day, local.Hour, local.Minute, 0, local.Kind);
+            var remainder = rounded.Minute % ScheduleGrid.SlotSizeMinutes;
+            if (rounded.Second > 0 || rounded.Millisecond > 0 || remainder != 0)
+            {
+                var delta = ScheduleGrid.SlotSizeMinutes - remainder;
+                if (remainder == 0 && (local.Second > 0 || local.Millisecond > 0))
+                {
+                    delta = ScheduleGrid.SlotSizeMinutes;
+                }
+
+                rounded = rounded.AddMinutes(delta);
+            }
+
+            return DateTime.SpecifyKind(rounded.AddMinutes(-timezoneOffsetMinutes), DateTimeKind.Utc);
+        }
+
+        private sealed record SwapContext(
+            bool Success,
+            string? Message,
+            IReadOnlyList<ScheduleRepairTaskSnapshot> OrderedTasks,
+            ScheduleRepairTaskSnapshot Source,
+            ScheduleRepairTaskSnapshot Target,
+            long WorkplaceAddressId,
+            IReadOnlyDictionary<(long From, long To), int> RouteLookup,
+            DateTime DayStartUtc,
+            DateTime DayEndUtc,
+            int StartIndex,
+            int EndIndex,
+            int TimezoneOffsetMinutes)
+        {
+            private static readonly ScheduleRepairTaskSnapshot EmptyTask = new(0, 0, default, TimeSpan.Zero);
+
+            public static SwapContext Fail(string message) =>
+                new(false, message, Array.Empty<ScheduleRepairTaskSnapshot>(), EmptyTask, EmptyTask, 0, new Dictionary<(long From, long To), int>(), default, default, 0, 0, 0);
         }
     }
 }

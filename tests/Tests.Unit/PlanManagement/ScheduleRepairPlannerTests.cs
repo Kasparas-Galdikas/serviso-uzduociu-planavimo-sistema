@@ -1,13 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Xunit;
 
@@ -43,7 +46,7 @@ public sealed class ScheduleRepairServiceTests
                 }
             });
 
-        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore());
+        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db));
 
         var result = await service.BuildPlanAsync(new ScheduleRepairRequest
         {
@@ -60,6 +63,52 @@ public sealed class ScheduleRepairServiceTests
     }
 
     [Fact]
+    public async Task BuildPlanAsync_ForSwap_SlidesSwappedTaskForwardWhenExactSlotMissesTravelGap()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedTechnician(db, 1, 1);
+        SeedObject(db, 10, 2);
+        SeedObject(db, 11, 3);
+        SeedTask(db, 100, 1, 10, day.AddHours(5.5), day.AddHours(8));
+        SeedTask(db, 101, 1, 11, day.AddHours(8.5), day.AddHours(10.5));
+        SeedRoute(db, 1, 2, 0);
+        SeedRoute(db, 2, 1, 0);
+        SeedRoute(db, 1, 3, 0);
+        SeedRoute(db, 3, 1, 0);
+        SeedRoute(db, 2, 3, 90);
+        SeedRoute(db, 3, 2, 90);
+
+        var routeChainBuilder = Substitute.For<IRouteChainBuilder>();
+        routeChainBuilder.BuildDayChainAsync(Arg.Any<RouteChainRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new RouteChain
+            {
+                TechnicianId = 1,
+                WorkplaceAddressId = 1,
+                Stops =
+                {
+                    new RouteStop { TaskId = 100, StartAt = day.AddHours(5.5), EndAt = day.AddHours(8), AddressId = 2 },
+                    new RouteStop { TaskId = 101, StartAt = day.AddHours(8.5), EndAt = day.AddHours(10.5), AddressId = 3 }
+                }
+            });
+
+        var timeService = CreateTimeService();
+        timeService.GetCurrentUtcTime().Returns(DateTime.SpecifyKind(day.AddHours(4), DateTimeKind.Utc));
+        var service = new ScheduleRepairService(db, timeService, routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db));
+
+        var result = await service.BuildPlanAsync(new ScheduleRepairRequest
+        {
+            ScenarioKind = ScheduleRepairScenarioKind.Swap,
+            SourceTaskId = 100,
+            TargetTaskId = 101,
+            TimezoneOffsetMinutes = 0
+        });
+
+        result.Success.Should().BeTrue();
+        result.Adjustments.Should().Contain(x => x.TaskId == 101 && x.StartAt == day.AddHours(8) && x.EndAt == day.AddHours(10));
+        result.Adjustments.Should().Contain(x => x.TaskId == 100 && x.StartAt == day.AddHours(11.5) && x.EndAt == day.AddHours(14));
+    }
+    [Fact]
     public async Task BuildPlanAsync_ForPlacement_ReturnsPrimaryPlacement()
     {
         using var db = CreateContext();
@@ -75,7 +124,7 @@ public sealed class ScheduleRepairServiceTests
         SeedRoute(db, 1, 4, 0);
         SeedAddress(db, 4, "New, City");
 
-        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore());
+        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore(), CreateTravelResolver(db));
 
         var result = await service.BuildPlanAsync(new ScheduleRepairRequest
         {
@@ -92,6 +141,43 @@ public sealed class ScheduleRepairServiceTests
     }
 
     [Fact]
+    public async Task BuildPlanAsync_ForDelete_ReusesCompactPlanner()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedTechnician(db, 1, 1);
+        SeedObject(db, 10, 2);
+        SeedObject(db, 11, 3);
+        SeedRoute(db, 1, 2, 0);
+        SeedRoute(db, 2, 3, 30);
+        SeedTask(db, 100, 1, 10, day.AddHours(8), day.AddHours(9));
+        SeedTask(db, 101, 1, 11, day.AddHours(11), day.AddHours(12));
+
+        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore(), CreateTravelResolver(db));
+        var compactRequest = new ScheduleRepairRequest
+        {
+            ScenarioKind = ScheduleRepairScenarioKind.Compact,
+            TechnicianId = 1,
+            DayUtc = day,
+            TimezoneOffsetMinutes = 0
+        };
+        var deleteRequest = new ScheduleRepairRequest
+        {
+            ScenarioKind = ScheduleRepairScenarioKind.Delete,
+            TechnicianId = compactRequest.TechnicianId,
+            DayUtc = compactRequest.DayUtc,
+            TimezoneOffsetMinutes = compactRequest.TimezoneOffsetMinutes
+        };
+
+        var compactPlan = await service.BuildPlanAsync(compactRequest);
+        var deletePlan = await service.BuildPlanAsync(deleteRequest);
+
+        deletePlan.Success.Should().Be(compactPlan.Success);
+        deletePlan.RepairKind.Should().Be(compactPlan.RepairKind);
+        deletePlan.Adjustments.Should().BeEquivalentTo(compactPlan.Adjustments);
+    }
+
+    [Fact]
     public async Task ApplyPlanAsync_ForPlacement_UpdatesPrimaryTaskAndNeighbors()
     {
         using var db = CreateContext();
@@ -102,7 +188,7 @@ public sealed class ScheduleRepairServiceTests
         SeedTask(db, 100, 1, 10, day.AddHours(8), day.AddHours(9));
         SeedTask(db, 101, 1, 11, day.AddHours(9), day.AddHours(10));
 
-        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore());
+        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore(), CreateTravelResolver(db));
         var plan = new ScheduleRepairPlan(
             true,
             null,
@@ -136,8 +222,12 @@ public sealed class ScheduleRepairServiceTests
                 var offset = (int)call[2];
                 return DateTime.SpecifyKind(date.AddMinutes(minutes - offset), DateTimeKind.Utc);
             });
+        timeService.GetCurrentUtcTime().Returns(DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc));
         return timeService;
     }
+
+    private static ITravelTimeResolver CreateTravelResolver(ScheduleDbContext db) =>
+        new TravelTimeResolver(db, Substitute.For<ILogger<TravelTimeResolver>>());
 
     private static void SeedTechnician(ScheduleDbContext db, long technicianId, long workplaceAddressId)
     {

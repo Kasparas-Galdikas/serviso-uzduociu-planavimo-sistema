@@ -1373,6 +1373,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskSwapResult(TaskSwapError.InvalidSwap, "Netinkama uzduoties trukme.");
             }
 
+            var originalSourceStartAt = source.StartAt;
+            var originalSourceEndAt = source.EndAt;
+            var originalTargetStartAt = target.StartAt;
+            var originalTargetEndAt = target.EndAt;
+
             var sourceNewStartAt = target.StartAt;
             var sourceNewEndAt = sourceNewStartAt + sourceDuration;
             var targetNewStartAt = source.StartAt;
@@ -1455,22 +1460,68 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             target.EndAt = targetNewEndAt;
 
             await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
-            try
-            {await _db.SaveChangesAsync(cancellationToken);
 
-                var compactPlan = await _scheduleRepairService.BuildPlanAsync(
-                    new ScheduleRepairRequest
+            async Task RevertSwapIfNeededAsync()
+            {
+                source.StartAt = originalSourceStartAt;
+                source.EndAt = originalSourceEndAt;
+                target.StartAt = originalTargetStartAt;
+                target.EndAt = originalTargetEndAt;
+
+                if (transaction == null)
+                {
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
+            }
+
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+
+                var affectedTaskCount = await _db.Tasks
+                    .AsNoTracking()
+                    .Where(t => t.TechnicianId == source.TechnicianId)
+                    .Where(t => t.StartAt >= source.StartAt.Date && t.StartAt < source.StartAt.Date.AddDays(1))
+                    .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                    .Where(t => !source.PlanId.HasValue || t.PlanId == source.PlanId)
+                    .CountAsync(cancellationToken);
+                if (affectedTaskCount > 2)
+                {
+                    var swapAdjustPlan = await _scheduleRepairService.BuildPlanAsync(
+                        new ScheduleRepairRequest
+                        {
+                            ScenarioKind = ScheduleRepairScenarioKind.SwapAdjust,
+                            TechnicianId = source.TechnicianId,
+                            DayUtc = source.StartAt.Date,
+                            PlanId = source.PlanId,
+                            FilterByPlanId = source.PlanId.HasValue,
+                            TimezoneOffsetMinutes = timezoneOffsetMinutes,
+                            SourceTaskId = source.Id,
+                            TargetTaskId = target.Id
+                        }, cancellationToken);
+                    if (!swapAdjustPlan.Success)
                     {
-                        ScenarioKind = ScheduleRepairScenarioKind.Compact,
-                        TechnicianId = source.TechnicianId,
-                        DayUtc = source.StartAt.Date,
-                        PlanId = source.PlanId,
-                        FilterByPlanId = source.PlanId.HasValue,
-                        TimezoneOffsetMinutes = timezoneOffsetMinutes,
-                        FixedTaskIds = new HashSet<long> { source.Id, target.Id }
-                    }, cancellationToken);
-                if (compactPlan.Success)
-                    await _scheduleRepairService.ApplyPlanAsync(compactPlan, null, cancellationToken);
+                        if (transaction != null)
+                        {
+                            await transaction.RollbackAsync(cancellationToken);
+                        }
+
+                        await RevertSwapIfNeededAsync();
+                        return new TaskSwapResult(TaskSwapError.InvalidSwap, swapAdjustPlan.Message ?? "Sukeitimo koregavimas nepavyko.");
+                    }
+
+                    var swapAdjustApply = await _scheduleRepairService.ApplyPlanAsync(swapAdjustPlan, null, cancellationToken);
+                    if (!swapAdjustApply.Success)
+                    {
+                        if (transaction != null)
+                        {
+                            await transaction.RollbackAsync(cancellationToken);
+                        }
+
+                        await RevertSwapIfNeededAsync();
+                        return new TaskSwapResult(TaskSwapError.InvalidSwap, swapAdjustApply.Message ?? "Sukeitimo koregavimas nepavyko.");
+                    }
+                }
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -1675,19 +1726,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     return new TaskSwapResult(TaskSwapError.InvalidSwap, "Smart swap koregavimui truksta uzduociu.");
                 }
 
-                var compactPlan = await _scheduleRepairService.BuildPlanAsync(
-                    new ScheduleRepairRequest
-                    {
-                        ScenarioKind = ScheduleRepairScenarioKind.Compact,
-                        TechnicianId = source.TechnicianId,
-                        DayUtc = source.StartAt.Date,
-                        PlanId = source.PlanId,
-                        FilterByPlanId = source.PlanId.HasValue,
-                        TimezoneOffsetMinutes = timezoneOffsetMinutes,
-                        FixedTaskIds = new HashSet<long> { source.Id, target.Id }
-                    }, cancellationToken);
-                if (compactPlan.Success)
-                    await _scheduleRepairService.ApplyPlanAsync(compactPlan, null, cancellationToken);
 
                 await TriggerRouteEvaluationSafelyAsync(source.TechnicianId, source.StartAt.Date, "swap-smart", cancellationToken);
 
@@ -1987,6 +2025,22 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             {
                 _logger.LogWarning("svc.task.delete.stale-on-save taskId={TaskId}", taskId);
                 return new TaskDeleteResult(TaskDeleteError.Stale, "Uzduotis pasikeite (stale).", CurrentVersion: currentVersion);
+            }
+
+            var compactPlan = await _scheduleRepairService.BuildPlanAsync(
+                new ScheduleRepairRequest
+                {
+                    ScenarioKind = ScheduleRepairScenarioKind.Delete,
+                    TechnicianId = deletedTechnicianId,
+                    DayUtc = deletedDay,
+                    PlanId = planId,
+                    FilterByPlanId = planId.HasValue,
+                    TimezoneOffsetMinutes = timezoneOffsetMinutes
+                },
+                cancellationToken);
+            if (compactPlan.Success)
+            {
+                await _scheduleRepairService.ApplyPlanAsync(compactPlan, null, cancellationToken);
             }
 
             if (planId.HasValue && plan != null)
