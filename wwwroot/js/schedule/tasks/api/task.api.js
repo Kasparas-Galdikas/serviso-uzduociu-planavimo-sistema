@@ -119,6 +119,7 @@
    * @param {string|number} taskId - The task ID
    * @param {Object} taskData - The updated task data
    * @param {number} version - Current version for optimistic locking
+   * @param {{ autoCompact?: boolean }} [options] - Delete behavior options
    * @returns {Promise<{ success: boolean, version?: number, error?: string, validationErrors?: Object }>}
    */
   const updateTask = async (taskId, taskData, version) => {
@@ -162,6 +163,7 @@
    * @param {number} status - The new status
    * @param {string} comment - The technician comment
    * @param {number} version - Current version for optimistic locking
+   * @param {{ autoCompact?: boolean }} [options] - Delete behavior options
    * @returns {Promise<{ success: boolean, version?: number, error?: string }>}
    */
   const updateTaskAsTechnician = async (taskId, status, comment, version) => {
@@ -195,6 +197,7 @@
    * @param {string|number} taskId - The task ID
    * @param {Object} timeData - Time update data
    * @param {number} version - Current version for optimistic locking
+   * @param {{ autoCompact?: boolean }} [options] - Delete behavior options
    * @returns {Promise<{ success: boolean, version?: number, startAt?: string, endAt?: string, error?: string }>}
    */
   const updateTaskTime = async (taskId, timeData, version) => {
@@ -240,13 +243,15 @@
    * Delete a task.
    * @param {string|number} taskId - The task ID
    * @param {number} version - Current version for optimistic locking
+   * @param {{ autoCompact?: boolean }} [options] - Delete behavior options
    * @returns {Promise<{ success: boolean, error?: string, newVersion?: number }>}
    */
-  const deleteTask = async (taskId, version) => {
+  const deleteTask = async (taskId, version, options = {}) => {
     const timezoneOffset = grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
 
     const body = {
       version: Number.isFinite(version) ? version : 0,
+      autoCompact: options.autoCompact !== false,
       timezoneOffsetMinutes: timezoneOffset,
     };
 
@@ -356,6 +361,7 @@
    * @param {string|number} taskId - The task ID
    * @param {Object} moveData - Move data { targetTechnicianId, targetDate, targetSlotStartMinutes }
    * @param {number} version - Current version for optimistic locking
+   * @param {{ autoCompact?: boolean }} [options] - Delete behavior options
    * @returns {Promise<{ success: boolean, version?: number, error?: string }>}
    */
   const moveTask = async (taskId, moveData, version) => {

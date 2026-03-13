@@ -190,7 +190,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             }
 
             var user = _userContextResolver.GetCurrentUser();
-            var result = await _planService.DeleteTaskAsync(id, dto.Version, user, dto.TimezoneOffsetMinutes, cancellationToken);
+            var result = await _planService.DeleteTaskAsync(id, dto.Version, dto.AutoCompact, user, dto.TimezoneOffsetMinutes, cancellationToken);
 
             if (result.Ok && result.Task != null)
             {

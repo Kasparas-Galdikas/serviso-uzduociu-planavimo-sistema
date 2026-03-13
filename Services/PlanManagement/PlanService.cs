@@ -1982,7 +1982,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var newVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
             return new TaskTimeUpdateResult(TaskTimeUpdateError.None, Task: task, CurrentVersion: newVersion);
         }
-        public async Task<TaskDeleteResult> DeleteTaskAsync(long taskId, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<TaskDeleteResult> DeleteTaskAsync(long taskId, uint expectedVersion, bool autoCompact, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             _logger.LogInformation("svc.task.delete.requested taskId={TaskId} expectedVersion={Version}", taskId, expectedVersion);
 
@@ -2027,20 +2027,23 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskDeleteResult(TaskDeleteError.Stale, "Uzduotis pasikeite (stale).", CurrentVersion: currentVersion);
             }
 
-            var compactPlan = await _scheduleRepairService.BuildPlanAsync(
-                new ScheduleRepairRequest
-                {
-                    ScenarioKind = ScheduleRepairScenarioKind.Delete,
-                    TechnicianId = deletedTechnicianId,
-                    DayUtc = deletedDay,
-                    PlanId = planId,
-                    FilterByPlanId = planId.HasValue,
-                    TimezoneOffsetMinutes = timezoneOffsetMinutes
-                },
-                cancellationToken);
-            if (compactPlan.Success)
+            if (autoCompact)
             {
-                await _scheduleRepairService.ApplyPlanAsync(compactPlan, null, cancellationToken);
+                var compactPlan = await _scheduleRepairService.BuildPlanAsync(
+                    new ScheduleRepairRequest
+                    {
+                        ScenarioKind = ScheduleRepairScenarioKind.Delete,
+                        TechnicianId = deletedTechnicianId,
+                        DayUtc = deletedDay,
+                        PlanId = planId,
+                        FilterByPlanId = planId.HasValue,
+                        TimezoneOffsetMinutes = timezoneOffsetMinutes
+                    },
+                    cancellationToken);
+                if (compactPlan.Success)
+                {
+                    await _scheduleRepairService.ApplyPlanAsync(compactPlan, null, cancellationToken);
+                }
             }
 
             if (planId.HasValue && plan != null)
@@ -2717,5 +2720,3 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         }
     }
 }
-
-

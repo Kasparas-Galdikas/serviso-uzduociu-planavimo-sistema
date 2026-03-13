@@ -50,7 +50,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         Task<TaskSwapResult> SwapTasksAsync(long sourceTaskId, long targetTaskId, uint sourceExpectedVersion, uint targetExpectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default);
         Task<TaskSwapResult> SwapTasksSmartAsync(long sourceTaskId, long targetTaskId, uint sourceExpectedVersion, uint targetExpectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default);
         Task<TaskTimeUpdateResult> UpdateTaskTimeAsync(long taskId, DateTime targetDate, int targetSlotStartMinutes, int targetSlotEndMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default);
-        Task<TaskDeleteResult> DeleteTaskAsync(long taskId, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default);
+        Task<TaskDeleteResult> DeleteTaskAsync(long taskId, uint expectedVersion, bool autoCompact, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default);
         Task PublishDraftAsync(CancellationToken cancellationToken = default);
         Task DiscardDraftAsync(CancellationToken cancellationToken = default);
 

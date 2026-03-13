@@ -72,7 +72,7 @@ public class PlanServiceDeleteTests
         _time.IsTaskStillEditable(task.EndAt).Returns(false);
 
         var service = CreateService(db);
-        var result = await service.DeleteTaskAsync(task.Id, expectedVersion: 2, Manager(), 0, CancellationToken.None);
+        var result = await service.DeleteTaskAsync(task.Id, expectedVersion: 2, autoCompact: true, Manager(), 0, CancellationToken.None);
 
         result.Error.Should().Be(TaskDeleteError.NotEditable);
         await _repairService.DidNotReceive().BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>());
@@ -92,7 +92,7 @@ public class PlanServiceDeleteTests
             .Returns(new ScheduleRepairPlan(true, null, ScheduleRepairKind.Compacted, Array.Empty<DayScheduleFitAdjustment>(), null));
 
         var service = CreateService(db);
-        var result = await service.DeleteTaskAsync(task.Id, expectedVersion: 3, Manager(), 0, CancellationToken.None);
+        var result = await service.DeleteTaskAsync(task.Id, expectedVersion: 3, autoCompact: true, Manager(), 0, CancellationToken.None);
 
         result.Ok.Should().BeTrue();
         await _repairService.Received(1).BuildPlanAsync(
@@ -104,6 +104,26 @@ public class PlanServiceDeleteTests
                 x.FilterByPlanId),
             Arg.Any<CancellationToken>());
         await _repairService.Received(1).ApplyPlanAsync(Arg.Any<ScheduleRepairPlan>(), null, Arg.Any<CancellationToken>());
+        await _routeEvaluation.Received(1).EvaluateTechnicianDayAsync(task.TechnicianId, task.StartAt.Date, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteTask_WhenAutoCompactDisabled_SkipsRepairPlan()
+    {
+        using var db = CreateContext();
+        var plan = SeedPlan(db);
+        var task = SeedTask(db, plan.Id, technicianId: 1);
+        SetVersion(db, task, 4);
+
+        _permission.CanDeleteTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+
+        var service = CreateService(db);
+        var result = await service.DeleteTaskAsync(task.Id, expectedVersion: 4, autoCompact: false, Manager(), 0, CancellationToken.None);
+
+        result.Ok.Should().BeTrue();
+        await _repairService.DidNotReceive().BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>());
+        await _repairService.DidNotReceive().ApplyPlanAsync(Arg.Any<ScheduleRepairPlan>(), Arg.Any<long?>(), Arg.Any<CancellationToken>());
         await _routeEvaluation.Received(1).EvaluateTechnicianDayAsync(task.TechnicianId, task.StartAt.Date, Arg.Any<CancellationToken>());
     }
 

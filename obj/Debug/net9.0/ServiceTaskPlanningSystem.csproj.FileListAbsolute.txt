@@ -319,7 +319,6 @@ C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\verify
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\verify-build\zh-Hant\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.resources.dll
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\bin\Debug\net9.0\ServiceTaskPlanningSystem.exe
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\40osd9gaxe-ermorehzjr.gz
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\5gwbcx8y5e-nj0ol25l0u.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\7c81zs9al4-8dberrhpg2.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\vtbvp0gqgj-4du4hw3lrm.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\birbnqzcg8-vceeq7r2d3.gz
@@ -331,4 +330,5 @@ C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\u4e5f8f19y-2ys2x2no44.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\davj9wrwfo-9iry2718oe.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\pdy608vbsx-80499012fm.gz
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\fn2ryxs3a4-0bmy302ufd.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\fn2ryxs3a4-bryc8xlviw.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\5gwbcx8y5e-i42u55r2il.gz
