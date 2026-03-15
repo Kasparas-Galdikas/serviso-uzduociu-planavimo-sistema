@@ -395,7 +395,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         }
 
         private async Task<PlacementValidationResult> ValidatePlacementForActionAsync(
-            long? ignoreTaskId,
+            IReadOnlyCollection<long>? ignoreTaskIds,
             long targetTechnicianId,
             DateTime targetDate,
             int startMinutes,
@@ -408,7 +408,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             CancellationToken cancellationToken)
         {
             var validation = await ValidatePlacementAsync(
-                ignoreTaskId,
+                ignoreTaskIds,
                 targetTechnicianId,
                 targetDate,
                 startMinutes,
@@ -458,8 +458,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 PlacementError.Overlap => new TaskTimeUpdateResult(TaskTimeUpdateError.Overlap, validation.Message),
                 _ => new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, validation.Message)
             };
+
+        private static TaskSwapResult MapPlacementErrorForSwap(PlacementValidationResult validation) =>
+            validation.Error switch
+            {
+                PlacementError.Overlap => new TaskSwapResult(TaskSwapError.Overlap, validation.Message),
+                PlacementError.NotEditable => new TaskSwapResult(TaskSwapError.NotEditable, validation.Message),
+                _ => new TaskSwapResult(TaskSwapError.InvalidSwap, validation.Message,
+                    InvalidSwapReason: InvalidSwapReason.WorkWindow)
+            };
         private async Task<(PlacementError Error, string Message, DateTime StartAt, DateTime EndAt, string City)> ValidatePlacementAsync(
-            long? ignoreTaskId,
+            IReadOnlyCollection<long>? ignoreTaskIds,
             long targetTechnicianId,
             DateTime targetDate,
             int startMinutes,
@@ -514,7 +523,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var permissionProbe = new TaskEntity
             {
-                Id = ignoreTaskId ?? 0,
+                Id = ignoreTaskIds?.FirstOrDefault() ?? 0,
                 PlanId = plan?.Id,
                 Plan = plan,
                 TechnicianId = targetTech.Id,
@@ -531,7 +540,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var hasOverlap = await _db.Tasks
                 .AsNoTracking()
-                .Where(t => ignoreTaskId == null || t.Id != ignoreTaskId.Value)
+                .Where(t => ignoreTaskIds == null || !ignoreTaskIds.Contains(t.Id))
                 .Where(t => t.TechnicianId == targetTech.Id)
                 .Where(t => t.Status != ScheduleTaskStatus.Canceled)
                 .Where(t => t.StartAt < endAt && t.EndAt > startAt)
@@ -660,21 +669,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .AnyAsync(cancellationToken);
         }
 
-        private async Task<bool> HasTaskOverlapExcludingAsync(
-            IReadOnlyCollection<long> excludeTaskIds,
-            long technicianId,
-            DateTime startUtc,
-            DateTime endUtc,
-            CancellationToken cancellationToken = default)
-        {
-            return await _db.Tasks
-                .AsNoTracking()
-                .Where(t => !excludeTaskIds.Contains(t.Id))
-                .Where(t => t.TechnicianId == technicianId)
-                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
-                .Where(t => t.StartAt < endUtc && t.EndAt > startUtc)
-                .AnyAsync(cancellationToken);
-        }
 
         public async Task<TechnicianUpdateResult> TechnicianUpdateTaskAsync(
             long taskId,
@@ -936,7 +930,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var normalizedInstructions = string.IsNullOrWhiteSpace(instructions) ? string.Empty : instructions.Trim();
 
             var placementValidation = await ValidatePlacementForActionAsync(
-                ignoreTaskId: null,
+                ignoreTaskIds: null,
                 targetTechnicianId: technicianId,
                 targetDate: targetDate,
                 startMinutes: startMinutes,
@@ -1075,7 +1069,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var localPlacementStartAt = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffsetMinutes);
             var localPlacementEndAt = _timeService.ConvertUtcToLocal(task.EndAt, timezoneOffsetMinutes);
             var updatePlacementValidation = await ValidatePlacementForActionAsync(
-                ignoreTaskId: taskId,
+                ignoreTaskIds: [taskId],
                 targetTechnicianId: task.TechnicianId,
                 targetDate: localPlacementStartAt.Date,
                 startMinutes: (int)localPlacementStartAt.TimeOfDay.TotalMinutes,
@@ -1190,7 +1184,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var durationMinutes = (int)Math.Round(durationMinutesRaw);
             var endMinutes = targetSlotStartMinutes + durationMinutes;
             var placementValidation = await ValidatePlacementForActionAsync(
-                ignoreTaskId: taskId,
+                ignoreTaskIds: [taskId],
                 targetTechnicianId: targetTechnicianId,
                 targetDate: targetDate,
                 startMinutes: targetSlotStartMinutes,
@@ -1399,13 +1393,37 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var targetStartMinutes = (int)targetNewStartLocal.TimeOfDay.TotalMinutes;
             var targetEndMinutes = (int)targetNewEndLocal.TimeOfDay.TotalMinutes;
 
-            var window = GetWorkingWindow(source.TechnicianId, sourceNewStartLocal.Date);
-            if (sourceStartMinutes < window.StartMinutes || sourceEndMinutes > window.EndMinutes ||
-                targetStartMinutes < window.StartMinutes || targetEndMinutes > window.EndMinutes)
-            {
-                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Uzduotis netelpa i darbo laika.",
-                    InvalidSwapReason: InvalidSwapReason.WorkWindow);
-            }
+            var excludeIds = new[] { source.Id, target.Id };
+
+            var sourcePlacement = await ValidatePlacementForActionAsync(
+                ignoreTaskIds: excludeIds,
+                targetTechnicianId: source.TechnicianId,
+                targetDate: sourceNewStartLocal.Date,
+                startMinutes: sourceStartMinutes,
+                endMinutes: sourceEndMinutes,
+                plan: source.Plan,
+                status: source.Status,
+                user: user,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                requireEndAligned: false,
+                cancellationToken: cancellationToken);
+            if (!sourcePlacement.IsValid)
+                return MapPlacementErrorForSwap(sourcePlacement);
+
+            var targetPlacement = await ValidatePlacementForActionAsync(
+                ignoreTaskIds: excludeIds,
+                targetTechnicianId: target.TechnicianId,
+                targetDate: targetNewStartLocal.Date,
+                startMinutes: targetStartMinutes,
+                endMinutes: targetEndMinutes,
+                plan: target.Plan,
+                status: target.Status,
+                user: user,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                requireEndAligned: false,
+                cancellationToken: cancellationToken);
+            if (!targetPlacement.IsValid)
+                return MapPlacementErrorForSwap(targetPlacement);
 
             var sourceCheck = await CheckTimingAndTravelAsync(
                 sourceNewStartLocal.Date, sourceStartMinutes, timezoneOffsetMinutes,
@@ -1429,29 +1447,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     targetCheck.IsInvalidWindow ? TaskSwapError.InvalidSwap : TaskSwapError.TravelInfeasible,
                     targetCheck.Message,
                     InvalidSwapReason: targetCheck.IsInvalidWindow ? InvalidSwapReason.PastTime : InvalidSwapReason.None);
-            }
-
-            var excludedTaskIds = new[] { source.Id, target.Id };
-            var sourceHasOverlap = await HasTaskOverlapExcludingAsync(
-                excludedTaskIds,
-                source.TechnicianId,
-                sourceNewStartAt,
-                sourceNewEndAt,
-                cancellationToken);
-            if (sourceHasOverlap)
-            {
-                return new TaskSwapResult(TaskSwapError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).");
-            }
-
-            var targetHasOverlap = await HasTaskOverlapExcludingAsync(
-                excludedTaskIds,
-                target.TechnicianId,
-                targetNewStartAt,
-                targetNewEndAt,
-                cancellationToken);
-            if (targetHasOverlap)
-            {
-                return new TaskSwapResult(TaskSwapError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).");
             }
 
             source.StartAt = sourceNewStartAt;
@@ -1877,7 +1872,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             var placementValidation = await ValidatePlacementForActionAsync(
-                ignoreTaskId: task.Id,
+                ignoreTaskIds: [task.Id],
                 targetTechnicianId: task.TechnicianId,
                 targetDate: targetDate,
                 startMinutes: targetSlotStartMinutes,

@@ -178,6 +178,158 @@ public sealed class ScheduleRepairServiceTests
     }
 
     [Fact]
+    public async Task BuildPlanAsync_ForSwap_PullsBackSwappedTaskWhenItOverflowsDayEnd()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedTechnician(db, 1, 1);
+        SeedObject(db, 10, 2);
+        SeedObject(db, 11, 3);
+        // T1 is 1.5h (source, early); T2 is 30min near day-end (target)
+        // After swap T1 wants T2's slot (19:00) but 19:00+1.5h=20:30 overflows DayEnd (20:00)
+        SeedTask(db, 100, 1, 10, day.AddHours(8), day.AddHours(9.5));
+        SeedTask(db, 101, 1, 11, day.AddHours(19), day.AddHours(19.5));
+        SeedRoute(db, 1, 2, 0);
+        SeedRoute(db, 1, 3, 0);
+        SeedRoute(db, 2, 3, 0);
+        SeedRoute(db, 3, 2, 0);
+
+        var routeChainBuilder = Substitute.For<IRouteChainBuilder>();
+        routeChainBuilder.BuildDayChainAsync(Arg.Any<RouteChainRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new RouteChain
+            {
+                TechnicianId = 1,
+                WorkplaceAddressId = 1,
+                Stops =
+                {
+                    new RouteStop { TaskId = 100, StartAt = day.AddHours(8), EndAt = day.AddHours(9.5), AddressId = 2 },
+                    new RouteStop { TaskId = 101, StartAt = day.AddHours(19), EndAt = day.AddHours(19.5), AddressId = 3 }
+                }
+            });
+
+        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db));
+
+        var result = await service.BuildPlanAsync(new ScheduleRepairRequest
+        {
+            ScenarioKind = ScheduleRepairScenarioKind.Swap,
+            SourceTaskId = 100,
+            TargetTaskId = 101,
+            TimezoneOffsetMinutes = 0
+        });
+
+        result.Success.Should().BeTrue();
+        // T2 (30min) goes to T1's early slot with no constraint
+        result.Adjustments.Should().Contain(x => x.TaskId == 101 && x.StartAt == day.AddHours(8) && x.EndAt == day.AddHours(8.5));
+        // T1 (1.5h) is pulled back from 19:00 to 18:30 so it ends exactly at DayEnd (20:00)
+        result.Adjustments.Should().Contain(x => x.TaskId == 100 && x.StartAt == day.AddHours(18.5) && x.EndAt == day.AddHours(20));
+    }
+
+    [Fact]
+    public async Task BuildPlanAsync_ForSwap_PullsBackSwappedTaskWhenBystanderWouldOverflow()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedTechnician(db, 1, 1);
+        SeedObject(db, 10, 2);
+        SeedObject(db, 11, 3);
+        SeedObject(db, 12, 2);
+        // T1 (1h, source) + T2 (30min, target near end) + T3 (30min, bystander right after T2)
+        // After swap T1 wants T2's slot (19:00); T1 ends at 20:00 leaving no room for bystander T3
+        SeedTask(db, 100, 1, 10, day.AddHours(8), day.AddHours(9));
+        SeedTask(db, 101, 1, 11, day.AddHours(19), day.AddHours(19.5));
+        SeedTask(db, 102, 1, 12, day.AddHours(19.5), day.AddHours(20));
+        SeedRoute(db, 1, 2, 0);
+        SeedRoute(db, 1, 3, 0);
+        SeedRoute(db, 2, 3, 0);
+        SeedRoute(db, 3, 2, 0);
+
+        var routeChainBuilder = Substitute.For<IRouteChainBuilder>();
+        routeChainBuilder.BuildDayChainAsync(Arg.Any<RouteChainRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new RouteChain
+            {
+                TechnicianId = 1,
+                WorkplaceAddressId = 1,
+                Stops =
+                {
+                    new RouteStop { TaskId = 100, StartAt = day.AddHours(8), EndAt = day.AddHours(9), AddressId = 2 },
+                    new RouteStop { TaskId = 101, StartAt = day.AddHours(19), EndAt = day.AddHours(19.5), AddressId = 3 },
+                    new RouteStop { TaskId = 102, StartAt = day.AddHours(19.5), EndAt = day.AddHours(20), AddressId = 2 }
+                }
+            });
+
+        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db));
+
+        var result = await service.BuildPlanAsync(new ScheduleRepairRequest
+        {
+            ScenarioKind = ScheduleRepairScenarioKind.Swap,
+            SourceTaskId = 100,
+            TargetTaskId = 101,
+            TimezoneOffsetMinutes = 0
+        });
+
+        result.Success.Should().BeTrue();
+        // T2 (30min) swaps to T1's early slot
+        result.Adjustments.Should().Contain(x => x.TaskId == 101 && x.StartAt == day.AddHours(8) && x.EndAt == day.AddHours(8.5));
+        // T1 (1h) pulled back from 19:00 to 18:30 — backward pass reserves room for bystander T3
+        result.Adjustments.Should().Contain(x => x.TaskId == 100 && x.StartAt == day.AddHours(18.5) && x.EndAt == day.AddHours(19.5));
+        // Bystander T3 is unchanged
+        result.Adjustments.Should().NotContain(x => x.TaskId == 102);
+    }
+
+    [Fact]
+    public async Task BuildPlanAsync_ForSwap_SlidesPreSegmentTaskBackwardWhenGapAllowsIt()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedTechnician(db, 1, 1);
+        SeedObject(db, 10, 2);  // T2 pre-segment at addr2
+        SeedObject(db, 11, 2);  // T3 swap source at addr2
+        SeedObject(db, 12, 3);  // T4 swap target at addr3
+        // T2 (30min, pre-segment) has a large free gap before it (08:00–17:00)
+        // T3 (30min, source) starts right after T2 at the same address (0 travel)
+        // T4 (30min, target) is 60min travel away; return trip addr3→addr2 is only 5min
+        SeedTask(db, 101, 1, 10, day.AddHours(17.5), day.AddHours(18));
+        SeedTask(db, 102, 1, 11, day.AddHours(18), day.AddHours(18.5));
+        SeedTask(db, 103, 1, 12, day.AddHours(19.5), day.AddHours(20));
+        SeedRoute(db, 1, 2, 0);
+        SeedRoute(db, 1, 3, 0);
+        SeedRoute(db, 2, 3, 60);  // addr2 → addr3: 60 min
+        SeedRoute(db, 3, 2, 5);   // addr3 → addr2: 5 min (asymmetric)
+
+        var routeChainBuilder = Substitute.For<IRouteChainBuilder>();
+        routeChainBuilder.BuildDayChainAsync(Arg.Any<RouteChainRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new RouteChain
+            {
+                TechnicianId = 1,
+                WorkplaceAddressId = 1,
+                Stops =
+                {
+                    new RouteStop { TaskId = 101, StartAt = day.AddHours(17.5), EndAt = day.AddHours(18), AddressId = 2 },
+                    new RouteStop { TaskId = 102, StartAt = day.AddHours(18), EndAt = day.AddHours(18.5), AddressId = 2 },
+                    new RouteStop { TaskId = 103, StartAt = day.AddHours(19.5), EndAt = day.AddHours(20), AddressId = 3 }
+                }
+            });
+
+        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db));
+
+        var result = await service.BuildPlanAsync(new ScheduleRepairRequest
+        {
+            ScenarioKind = ScheduleRepairScenarioKind.Swap,
+            SourceTaskId = 102,
+            TargetTaskId = 103,
+            TimezoneOffsetMinutes = 0
+        });
+
+        result.Success.Should().BeTrue();
+        // Pre-segment T2 slides backward from 17:30 to 17:00 to fit the swap chain
+        result.Adjustments.Should().Contain(x => x.TaskId == 101 && x.StartAt == day.AddHours(17) && x.EndAt == day.AddHours(17.5));
+        // T4 (swap target) placed at 18:30 — earliest after T2 ends at 17:30 + 60min travel
+        result.Adjustments.Should().Contain(x => x.TaskId == 103 && x.StartAt == day.AddHours(18.5) && x.EndAt == day.AddHours(19));
+        // T3 (swap source) placed at 19:30 — after T4 ends at 19:00 + 5min travel, aligned to slot
+        result.Adjustments.Should().Contain(x => x.TaskId == 102 && x.StartAt == day.AddHours(19.5) && x.EndAt == day.AddHours(20));
+    }
+
+    [Fact]
     public async Task ApplyPlanAsync_ForPlacement_UpdatesPrimaryTaskAndNeighbors()
     {
         using var db = CreateContext();

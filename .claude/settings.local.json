@@ -17,7 +17,12 @@
       "Bash(\"c:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/wwwroot/css/schedule/planning/planning-tables.css\")",
       "Bash(grep -E \"\\\\.\\(cs|ts\\)$\")",
       "Bash(grep -n \"GetEarliestCreatableStartMinutes\\\\|IsTravelStartFeasible\" /c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Services/Time/*.cs)",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "Bash(find c:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema -type d -name *Test* -o -type d -name *Spec*)",
+      "Bash(dotnet test:*)",
+      "Bash(find c:UsersKasparasOneDriveDesktopserviso-uzduociu-planavimo-sistemawwwroot -type f \\\\\\(-name *.js -o -name *.ts -o -name *.tsx \\\\\\))",
+      "Bash(grep -r \"ExceptionFilter\\\\|ActionFilter\\\\|ResultFilter\\\\|ResourceFilter\" /c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema --include=*.cs)",
+      "Bash(ls -ltr /c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Migrations/*.cs)"
     ]
   }
 }

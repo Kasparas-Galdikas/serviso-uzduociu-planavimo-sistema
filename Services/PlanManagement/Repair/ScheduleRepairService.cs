@@ -178,7 +178,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 [context.Target.TaskId] = context.Source.StartAt
             };
 
-            return BuildSwapForwardPlan(context, fixedStarts);
+            return BuildSwapFitPlan(context, fixedStarts);
         }
 
         private async Task<ScheduleRepairPlan> BuildSwapAdjustPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken)
@@ -195,74 +195,68 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 [context.Target.TaskId] = context.Target.StartAt
             };
 
-            return BuildSwapForwardPlan(context, fixedStarts);
+            return BuildSwapFitPlan(context, fixedStarts);
         }
 
-        private ScheduleRepairPlan BuildSwapForwardPlan(SwapContext context, IReadOnlyDictionary<long, DateTime> fixedStarts)
+        private ScheduleRepairPlan BuildSwapFitPlan(SwapContext context, IReadOnlyDictionary<long, DateTime> fixedStarts)
         {
-            var originalStarts = context.OrderedTasks.ToDictionary(t => t.TaskId, t => t.StartAt);
-            var scheduledStarts = new Dictionary<long, DateTime>();
+            var tasks = context.OrderedTasks;
+            var n = tasks.Count;
             var currentUtc = _timeService.GetCurrentUtcTime();
             var effectiveDayStart = context.StartIndex == 0 && currentUtc > context.DayStartUtc
                 ? currentUtc
                 : context.DayStartUtc;
 
-            for (var i = 0; i < context.OrderedTasks.Count; i++)
+            // Backward pass: compute the latest each task can start so all subsequent
+            // tasks still fit within DayEndUtc (slot-floor aligned so results are valid slots).
+            var latestStarts = new DateTime[n];
+            latestStarts[n - 1] = AlignUtcToSlotFloor(context.DayEndUtc - tasks[n - 1].Duration, context.TimezoneOffsetMinutes);
+            for (var i = n - 2; i >= 0; i--)
             {
-                var task = context.OrderedTasks[i];
-                DateTime earliestStart;
+                var travel = ResolveTravelMinutes(context.RouteLookup, tasks[i].AddressId, tasks[i + 1].AddressId);
+                if (!travel.HasValue)
+                    return ScheduleRepairPlan.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu).");
+                latestStarts[i] = AlignUtcToSlotFloor(
+                    latestStarts[i + 1].AddMinutes(-travel.Value) - tasks[i].Duration,
+                    context.TimezoneOffsetMinutes);
+            }
 
-                if (i == 0)
-                {
-                    var travelFromWorkplace = ResolveTravelMinutes(context.RouteLookup, context.WorkplaceAddressId, task.AddressId);
-                    if (!travelFromWorkplace.HasValue)
-                    {
-                        return ScheduleRepairPlan.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu).");
-                    }
+            // Forward pass: place each task at clamp(preferred, actualEarliest, latestStart).
+            // Rolling prevEnd/prevAddr track the actual end of the previously placed task.
+            var scheduledStarts = new Dictionary<long, DateTime>();
+            var prevEnd = effectiveDayStart;
+            var prevAddressId = context.WorkplaceAddressId;
 
-                    earliestStart = AlignUtcToSlotCeiling(effectiveDayStart.AddMinutes(travelFromWorkplace.Value), context.TimezoneOffsetMinutes);
-                }
-                else
-                {
-                    var previous = context.OrderedTasks[i - 1];
-                    var previousStart = scheduledStarts[previous.TaskId];
-                    var previousEnd = previousStart + previous.Duration;
-                    var travel = ResolveTravelMinutes(context.RouteLookup, previous.AddressId, task.AddressId);
-                    if (!travel.HasValue)
-                    {
-                        return ScheduleRepairPlan.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu).");
-                    }
+            for (var i = 0; i < n; i++)
+            {
+                var task = tasks[i];
 
-                    earliestStart = AlignUtcToSlotCeiling(previousEnd.AddMinutes(travel.Value), context.TimezoneOffsetMinutes);
-                }
+                var travel = ResolveTravelMinutes(context.RouteLookup, prevAddressId, task.AddressId);
+                if (!travel.HasValue)
+                    return ScheduleRepairPlan.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu).");
 
-                DateTime scheduledStart;
-                if (fixedStarts.TryGetValue(task.TaskId, out var fixedStart))
-                {
-                    // Swapped tasks should keep their swapped ordering, but may slide
-                    // forward when the exact swapped slot is not travel-feasible.
-                    scheduledStart = fixedStart >= earliestStart
-                        ? fixedStart
-                        : earliestStart;
-                }
-                else if (i < context.StartIndex)
-                {
-                    // Tasks before the affected swap segment are already committed for the day.
-                    scheduledStart = task.StartAt;
-                }
-                else
-                {
-                    scheduledStart = originalStarts[task.TaskId] >= earliestStart
-                        ? originalStarts[task.TaskId]
-                        : earliestStart;
-                }
+                var actualEarliest = AlignUtcToSlotCeiling(prevEnd.AddMinutes(travel.Value), context.TimezoneOffsetMinutes);
 
-                if (scheduledStart + task.Duration > context.DayEndUtc)
-                {
-                    return ScheduleRepairPlan.Fail("Nepakanka laisvo laiko dienos pabaigoje sukeitimo koregavimui.");
-                }
+                if (actualEarliest > latestStarts[i])
+                    return ScheduleRepairPlan.Fail("Nepakanka laisvo laiko sukeitimo koregavimui.");
+
+                var preferred = fixedStarts.TryGetValue(task.TaskId, out var fixedStart)
+                    ? fixedStart
+                    : task.StartAt;
+
+                // Clamp preferred to [actualEarliest, latestStart]: slide forward if travel
+                // requires it, pull back if placing at preferred would overflow the day end.
+                // Pre-segment tasks use task.StartAt as preferred so they only move when the
+                // backward chain requires it and there is a gap to absorb the shift.
+                var scheduledStart = preferred < actualEarliest
+                    ? actualEarliest
+                    : preferred > latestStarts[i]
+                        ? latestStarts[i]
+                        : preferred;
 
                 scheduledStarts[task.TaskId] = scheduledStart;
+                prevEnd = scheduledStart + task.Duration;
+                prevAddressId = task.AddressId;
             }
 
             var adjustments = context.OrderedTasks
@@ -603,6 +597,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             }
 
             return routeLookup.TryGetValue((fromAddressId, toAddressId), out var minutes) ? minutes : null;
+        }
+
+        private static DateTime AlignUtcToSlotFloor(DateTime utc, int timezoneOffsetMinutes)
+        {
+            var local = utc.AddMinutes(timezoneOffsetMinutes);
+            var floored = new DateTime(local.Year, local.Month, local.Day, local.Hour,
+                (local.Minute / ScheduleGrid.SlotSizeMinutes) * ScheduleGrid.SlotSizeMinutes,
+                0, local.Kind);
+            return DateTime.SpecifyKind(floored.AddMinutes(-timezoneOffsetMinutes), DateTimeKind.Utc);
         }
 
         private static DateTime AlignUtcToSlotCeiling(DateTime utc, int timezoneOffsetMinutes)
