@@ -26,6 +26,7 @@ public class PlanServiceAuthorizationTests
     private readonly IScheduleTimeService _time = Substitute.For<IScheduleTimeService>();
     private readonly IRouteEvaluationService _routeEvaluation = Substitute.For<IRouteEvaluationService>();
     private readonly ITaskTravelFeasibilityService _travelFeasibility = Substitute.For<ITaskTravelFeasibilityService>();
+    private readonly ITravelTimeResolver _travelResolver = Substitute.For<ITravelTimeResolver>();
     private readonly ILogger<PlanService> _logger = Substitute.For<ILogger<PlanService>>();
 
     public PlanServiceAuthorizationTests()
@@ -40,6 +41,20 @@ public class PlanServiceAuthorizationTests
                 var minutes = (int)call[1];
                 return DateTime.SpecifyKind(date.AddMinutes(minutes), DateTimeKind.Utc);
             });
+        _time.ConvertUtcToLocal(Arg.Any<DateTime>(), Arg.Any<int>())
+            .Returns(call =>
+            {
+                var utc = DateTime.SpecifyKind((DateTime)call[0], DateTimeKind.Utc);
+                var offsetMinutes = (int)call[1];
+                return utc.AddMinutes(offsetMinutes);
+            });
+        _time.GetEarliestCreatableStartMinutes(
+                Arg.Any<DateTime>(),
+                Arg.Any<int>(),
+                Arg.Any<int>(),
+                Arg.Any<int>())
+            .Returns(ScheduleGrid.DayStartMinutes);
+        _time.IsTravelStartFeasible(Arg.Any<DateTime>(), Arg.Any<int>()).Returns(true);
         _travelFeasibility.EvaluatePlacementAsync(
                 Arg.Any<long>(),
                 Arg.Any<DateTime>(),
@@ -58,6 +73,8 @@ public class PlanServiceAuthorizationTests
         using var db = CreateContext();
         SeedTechnician(db, 1);
         _time.GetUserLocalToday(0).Returns(DateTime.Today);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
         _time.CreateUtcFromDateAndMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>())
             .Returns(DateTime.UtcNow);
         _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
@@ -75,7 +92,10 @@ public class PlanServiceAuthorizationTests
     public async Task CreateTask_TechnicianNotFound_ReturnsError()
     {
         using var db = CreateContext();
+        SeedTechnician(db, 1);
         _time.GetUserLocalToday(0).Returns(DateTime.Today);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
         _time.CreateUtcFromDateAndMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>())
             .Returns(DateTime.UtcNow);
         _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
@@ -166,18 +186,325 @@ public class PlanServiceAuthorizationTests
     public async Task CreateTask_PastLocalDate_Rejected()
     {
         using var db = CreateContext();
+        SeedTechnician(db, 1);
         _time.GetUserLocalToday(0).Returns(DateTime.Today);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
 
         var service = CreateService(db);
         var result = await service.CreateTaskAsync(1, DateTime.Today.AddDays(-1), 480, 540, "t",
-            TaskPriority.Medium, ScheduleTaskStatus.InProgress, string.Empty, string.Empty, string.Empty, string.Empty,
+            TaskPriority.Medium, ScheduleTaskStatus.InProgress, string.Empty, "Obj", "Main 1, City", string.Empty,
             Manager(), 0, CancellationToken.None);
 
         result.Error.Should().Be(TaskCreateError.InvalidWindow);
     }
 
+    [Fact]
+    public async Task CreateTask_TodayBeforeEarliestSlot_Rejected()
+    {
+        using var db = CreateContext();
+        SeedTechnician(db, 1);
+        var today = DateTime.Today;
+        _time.GetUserLocalToday(0).Returns(today);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+        _time.GetEarliestCreatableStartMinutes(today, 0, ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes)
+            .Returns(11 * 60 + 30);
+
+        var service = CreateService(db);
+        var result = await service.CreateTaskAsync(
+            technicianId: 1,
+            targetDate: today,
+            startMinutes: 11 * 60,
+            endMinutes: 12 * 60,
+            title: "t",
+            priority: TaskPriority.Medium,
+            status: ScheduleTaskStatus.InProgress,
+            skillLevel: string.Empty,
+            objectName: "Obj",
+            objectAddress: "Main 1, City",
+            instructions: string.Empty,
+            user: Manager(),
+            timezoneOffsetMinutes: 0,
+            cancellationToken: CancellationToken.None);
+
+        result.Error.Should().Be(TaskCreateError.InvalidWindow);
+    }
+
+    [Fact]
+    public async Task CreateTask_InboundTravelStartsInPast_ReturnsTravelInfeasible()
+    {
+        using var db = CreateContext();
+        SeedTechnician(db, 1);
+        SeedPlan(db);
+
+        var today = DateTime.Today;
+        _time.GetUserLocalToday(0).Returns(today);
+        _time.GetEarliestCreatableStartMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(ScheduleGrid.DayStartMinutes);
+        _time.IsTaskStillEditable(Arg.Any<DateTime>()).Returns(true);
+        _time.IsTravelStartFeasible(Arg.Any<DateTime>(), Arg.Any<int>()).Returns(false);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult
+            {
+                IsFeasible = true,
+                InboundTravelMinutes = 45
+            });
+
+        var service = CreateService(db);
+        var result = await service.CreateTaskAsync(
+            technicianId: 1,
+            targetDate: today,
+            startMinutes: 12 * 60,
+            endMinutes: 13 * 60,
+            title: "t",
+            priority: TaskPriority.Medium,
+            status: ScheduleTaskStatus.InProgress,
+            skillLevel: string.Empty,
+            objectName: "Obj",
+            objectAddress: "Main 1, City",
+            instructions: string.Empty,
+            user: Manager(),
+            timezoneOffsetMinutes: 0,
+            cancellationToken: CancellationToken.None);
+
+        result.Error.Should().Be(TaskCreateError.TravelInfeasible);
+    }
+
+    [Fact]
+    public async Task UpdateTask_TodayBeforeEarliestSlot_ReturnsInvalidWindow()
+    {
+        using var db = CreateContext();
+        var plan = SeedPlan(db);
+        var task = SeedTask(db, plan.Id, technicianId: 1);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+
+        var today = DateTime.Today;
+        _time.GetUserLocalToday(0).Returns(today);
+        _time.GetEarliestCreatableStartMinutes(today, 0, ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes)
+            .Returns(11 * 60 + 30);
+
+        var service = CreateService(db);
+        var result = await service.UpdateTaskAsync(
+            task.Id,
+            t =>
+            {
+                t.StartAt = DateTime.SpecifyKind(today.AddHours(11), DateTimeKind.Utc);
+                t.EndAt = DateTime.SpecifyKind(today.AddHours(12), DateTimeKind.Utc);
+            },
+            task.TechnicianId,
+            Manager(),
+            timezoneOffsetMinutes: 0,
+            objectName: null,
+            objectAddress: null,
+            cancellationToken: CancellationToken.None);
+
+        result.Error.Should().Be(TaskUpdateError.InvalidWindow);
+        result.Message.Should().Be("Negalima planuoti ankstesniame nei artimiausias galimas 30 min. laiko langas.");
+    }
+
+    [Fact]
+    public async Task UpdateTask_InboundTravelStartsInPast_ReturnsTravelInfeasible()
+    {
+        using var db = CreateContext();
+        var plan = SeedPlan(db);
+        var task = SeedTask(db, plan.Id, technicianId: 1);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+        _time.GetUserLocalToday(0).Returns(DateTime.Today);
+        _time.GetEarliestCreatableStartMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(ScheduleGrid.DayStartMinutes);
+        _time.IsTravelStartFeasible(Arg.Any<DateTime>(), Arg.Any<int>()).Returns(false);
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult
+            {
+                IsFeasible = true,
+                InboundTravelMinutes = 45
+            });
+
+        var service = CreateService(db);
+        var result = await service.UpdateTaskAsync(
+            task.Id,
+            _ => { },
+            task.TechnicianId,
+            Manager(),
+            timezoneOffsetMinutes: 0,
+            objectName: null,
+            objectAddress: null,
+            cancellationToken: CancellationToken.None);
+
+        result.Error.Should().Be(TaskUpdateError.TravelInfeasible);
+        result.Message.Should().Be("Nepakanka laiko kelionei nuo dabartinio laiko.");
+    }
+
+    [Fact]
+    public async Task MoveTask_TodayBeforeEarliestSlot_ReturnsInvalidWindow()
+    {
+        using var db = CreateContext();
+        var plan = SeedPlan(db);
+        SeedTechnician(db, 1);
+        var task = SeedTask(db, plan.Id, technicianId: 1);
+        SetVersion(db, task, 1);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+
+        var today = DateTime.Today;
+        _time.GetUserLocalToday(0).Returns(today);
+        _time.GetEarliestCreatableStartMinutes(today, 0, ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes)
+            .Returns(11 * 60 + 30);
+
+        var service = CreateService(db);
+        var result = await service.MoveTaskAsync(
+            task.Id,
+            targetTechnicianId: 1,
+            targetDate: today,
+            targetSlotStartMinutes: 11 * 60,
+            expectedVersion: 1,
+            user: Manager(),
+            timezoneOffsetMinutes: 0,
+            cancellationToken: CancellationToken.None);
+
+        result.Error.Should().Be(TaskMoveError.InvalidWindow);
+        result.Message.Should().Be("Negalima planuoti ankstesniame nei artimiausias galimas 30 min. laiko langas.");
+    }
+
+    [Fact]
+    public async Task MoveTask_InboundTravelStartsInPast_ReturnsTravelInfeasible()
+    {
+        using var db = CreateContext();
+        var plan = SeedPlan(db);
+        SeedTechnician(db, 1);
+        var task = SeedTask(db, plan.Id, technicianId: 1);
+        SetVersion(db, task, 1);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+        _time.GetUserLocalToday(0).Returns(DateTime.Today);
+        _time.GetEarliestCreatableStartMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(ScheduleGrid.DayStartMinutes);
+        _time.IsTravelStartFeasible(Arg.Any<DateTime>(), Arg.Any<int>()).Returns(false);
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult
+            {
+                IsFeasible = true,
+                InboundTravelMinutes = 45
+            });
+
+        var service = CreateService(db);
+        var result = await service.MoveTaskAsync(
+            task.Id,
+            targetTechnicianId: 1,
+            targetDate: DateTime.Today,
+            targetSlotStartMinutes: 12 * 60,
+            expectedVersion: 1,
+            user: Manager(),
+            timezoneOffsetMinutes: 0,
+            cancellationToken: CancellationToken.None);
+
+        result.Error.Should().Be(TaskMoveError.TravelInfeasible);
+        result.Message.Should().Be("Nepakanka laiko kelionei nuo dabartinio laiko.");
+    }
+
+    [Fact]
+    public async Task UpdateTaskTime_TodayBeforeEarliestSlot_ReturnsInvalidWindow()
+    {
+        using var db = CreateContext();
+        var plan = SeedPlan(db);
+        var task = SeedTask(db, plan.Id, technicianId: 1);
+        SetVersion(db, task, 1);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+
+        var today = DateTime.Today;
+        _time.GetUserLocalToday(0).Returns(today);
+        _time.GetEarliestCreatableStartMinutes(today, 0, ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes)
+            .Returns(11 * 60 + 30);
+
+        var service = CreateService(db);
+        var result = await service.UpdateTaskTimeAsync(
+            taskId: task.Id,
+            targetDate: today,
+            targetSlotStartMinutes: 11 * 60,
+            targetSlotEndMinutes: 12 * 60,
+            expectedVersion: 1,
+            user: Manager(),
+            timezoneOffsetMinutes: 0,
+            cancellationToken: CancellationToken.None);
+
+        result.Error.Should().Be(TaskTimeUpdateError.InvalidWindow);
+        result.Message.Should().Be("Negalima planuoti ankstesniame nei artimiausias galimas 30 min. laiko langas.");
+    }
+
+    [Fact]
+    public async Task UpdateTaskTime_InboundTravelStartsInPast_ReturnsTravelInfeasible()
+    {
+        using var db = CreateContext();
+        var plan = SeedPlan(db);
+        var task = SeedTask(db, plan.Id, technicianId: 1);
+        SetVersion(db, task, 1);
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+        _time.GetUserLocalToday(0).Returns(DateTime.Today);
+        _time.GetEarliestCreatableStartMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(ScheduleGrid.DayStartMinutes);
+        _time.IsTravelStartFeasible(Arg.Any<DateTime>(), Arg.Any<int>()).Returns(false);
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult
+            {
+                IsFeasible = true,
+                InboundTravelMinutes = 45
+            });
+
+        var service = CreateService(db);
+        var result = await service.UpdateTaskTimeAsync(
+            taskId: task.Id,
+            targetDate: DateTime.Today,
+            targetSlotStartMinutes: 12 * 60,
+            targetSlotEndMinutes: 13 * 60,
+            expectedVersion: 1,
+            user: Manager(),
+            timezoneOffsetMinutes: 0,
+            cancellationToken: CancellationToken.None);
+
+        result.Error.Should().Be(TaskTimeUpdateError.TravelInfeasible);
+        result.Message.Should().Be("Nepakanka laiko kelionei nuo dabartinio laiko.");
+    }
     private PlanService CreateService(ScheduleDbContext db) =>
-        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _logger);
+        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _travelResolver, _logger);
 
     private static ScheduleDbContext CreateContext()
     {
@@ -223,6 +550,10 @@ public class PlanServiceAuthorizationTests
     private static TaskEntity SeedTask(ScheduleDbContext db, long planId, long technicianId, int startOffsetHours = 0)
     {
         var start = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddHours(10 + startOffsetHours), DateTimeKind.Utc);
+        if (!db.Technicians.AnyAsync(t => t.Id == technicianId).GetAwaiter().GetResult())
+        {
+            SeedTechnician(db, technicianId);
+        }
         if (!db.Addresses.AnyAsync().GetAwaiter().GetResult())
         {
             db.Addresses.Add(new AddressEntity { Id = 1, City = "City", Street = "Main", FullAddress = "Main 1, City" });
@@ -255,4 +586,9 @@ public class PlanServiceAuthorizationTests
         entry.CurrentValue = version;
     }
 }
+
+
+
+
+
 

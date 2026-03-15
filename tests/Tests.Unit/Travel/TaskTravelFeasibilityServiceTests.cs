@@ -3,6 +3,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
@@ -20,7 +22,7 @@ public sealed class TaskTravelFeasibilityServiceTests
         SeedAddress(db, 2, "Target 1, City");
         SeedRoute(db, from: 1, to: 2, minutes: 30);
 
-        var sut = new TaskTravelFeasibilityService(db, new RouteChainBuilder(db));
+        var sut = CreateService(db);
         var day = DateTime.UtcNow.Date.AddDays(1);
 
         var result = await sut.EvaluatePlacementAsync(
@@ -48,7 +50,7 @@ public sealed class TaskTravelFeasibilityServiceTests
         SeedServiceObject(db, objectId: 100, addressId: 2);
         SeedTask(db, taskId: 200, technicianId: 1, serviceObjectId: 100, startAt: DateTime.UtcNow.Date.AddDays(1).AddHours(9), endAt: DateTime.UtcNow.Date.AddDays(1).AddHours(10));
 
-        var sut = new TaskTravelFeasibilityService(db, new RouteChainBuilder(db));
+        var sut = CreateService(db);
         var day = DateTime.UtcNow.Date.AddDays(1);
 
         var result = await sut.EvaluatePlacementAsync(
@@ -82,7 +84,7 @@ public sealed class TaskTravelFeasibilityServiceTests
         SeedRoute(db, from: 10, to: 20, minutes: 10);
         SeedRoute(db, from: 20, to: 30, minutes: 90);
 
-        var sut = new TaskTravelFeasibilityService(db, new RouteChainBuilder(db));
+        var sut = CreateService(db);
 
         var result = await sut.EvaluatePlacementAsync(
             technicianId: 1,
@@ -107,7 +109,7 @@ public sealed class TaskTravelFeasibilityServiceTests
         SeedTechnician(db, technicianId: 1, workplaceAddressId: 1);
         SeedAddress(db, 2, "Target 2, City");
 
-        var sut = new TaskTravelFeasibilityService(db, new RouteChainBuilder(db));
+        var sut = CreateService(db);
         var day = DateTime.UtcNow.Date.AddDays(1);
 
         var result = await sut.EvaluatePlacementAsync(
@@ -132,7 +134,7 @@ public sealed class TaskTravelFeasibilityServiceTests
         using var db = CreateContext();
         SeedTechnician(db, technicianId: 1, workplaceAddressId: 1);
 
-        var sut = new TaskTravelFeasibilityService(db, new RouteChainBuilder(db));
+        var sut = CreateService(db);
         var day = DateTime.UtcNow.Date.AddDays(1);
 
         var result = await sut.EvaluatePlacementAsync(
@@ -158,7 +160,7 @@ public sealed class TaskTravelFeasibilityServiceTests
         SeedAddress(db, 2, "Target Zero, City");
         SeedRoute(db, from: 1, to: 2, minutes: 0);
 
-        var sut = new TaskTravelFeasibilityService(db, new RouteChainBuilder(db));
+        var sut = CreateService(db);
         var day = DateTime.UtcNow.Date.AddDays(1);
 
         var result = await sut.EvaluatePlacementAsync(
@@ -174,6 +176,9 @@ public sealed class TaskTravelFeasibilityServiceTests
         result.IsFeasible.Should().BeFalse();
         result.Message.Should().Contain("netinkama marsruto trukme");
     }
+
+    private static TaskTravelFeasibilityService CreateService(ScheduleDbContext db) =>
+        new(new RouteChainBuilder(db), new TravelTimeResolver(db, Substitute.For<ILogger<TravelTimeResolver>>()), Substitute.For<ILogger<TaskTravelFeasibilityService>>());
 
     private static ScheduleDbContext CreateContext()
     {

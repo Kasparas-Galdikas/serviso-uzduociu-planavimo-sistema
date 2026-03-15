@@ -3,8 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using ServiceTaskPlanningSystem.Data;
+using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 
@@ -12,15 +11,18 @@ namespace ServiceTaskPlanningSystem.Services.Travel
 {
     public sealed class TaskTravelFeasibilityService : ITaskTravelFeasibilityService
     {
-        private readonly ScheduleDbContext _db;
         private readonly IRouteChainBuilder _routeChainBuilder;
+        private readonly ITravelTimeResolver _travelResolver;
+        private readonly ILogger<TaskTravelFeasibilityService> _logger;
 
         public TaskTravelFeasibilityService(
-            ScheduleDbContext db,
-            IRouteChainBuilder routeChainBuilder)
+            IRouteChainBuilder routeChainBuilder,
+            ITravelTimeResolver travelResolver,
+            ILogger<TaskTravelFeasibilityService> logger)
         {
-            _db = db;
             _routeChainBuilder = routeChainBuilder;
+            _travelResolver = travelResolver;
+            _logger = logger;
         }
 
         public async Task<TravelFeasibilityResult> EvaluatePlacementAsync(
@@ -33,6 +35,10 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             bool checkOverlap,
             CancellationToken cancellationToken = default)
         {
+            var localOffsetMinutes = proposedStartMinutesLocal - (int)proposedStartAt.TimeOfDay.TotalMinutes;
+            var proposedStartLocal = proposedStartAt.AddMinutes(localOffsetMinutes);
+            var proposedEndLocal = proposedEndAt.AddMinutes(localOffsetMinutes);
+
             var chain = await _routeChainBuilder.BuildDayChainAsync(
                 new RouteChainRequest
                 {
@@ -49,6 +55,7 @@ namespace ServiceTaskPlanningSystem.Services.Travel
                     }
                 },
                 cancellationToken);
+
             if (chain == null || chain.WorkplaceAddressId <= 0)
             {
                 return new TravelFeasibilityResult { IsFeasible = false, Message = "Techniko darbo vietos adresas nerastas." };
@@ -60,6 +67,20 @@ namespace ServiceTaskPlanningSystem.Services.Travel
 
             if (checkOverlap && daySlots.Any(t => t.StartAt < proposedEndAt && t.EndAt > proposedStartAt))
             {
+                LogSummary(
+                    technicianId,
+                    excludeTaskId,
+                    serviceAddressId,
+                    proposedStartLocal,
+                    proposedEndLocal,
+                    chain.Stops,
+                    localOffsetMinutes,
+                    null,
+                    null,
+                    null,
+                    "OVERLAP",
+                    "Laiko langas uzimtas (persidengia uzduotys).");
+
                 return new TravelFeasibilityResult
                 {
                     IsFeasible = false,
@@ -95,12 +116,11 @@ namespace ServiceTaskPlanningSystem.Services.Travel
                 pairsToCheck.Add((serviceAddressId, next.AddressId, available, false, true));
             }
 
-            var fromIds = pairsToCheck.Select(p => p.From).Distinct().ToList();
-            var toIds = pairsToCheck.Select(p => p.To).Distinct().ToList();
-            var routes = await _db.TravelRoutes
-                .AsNoTracking()
-                .Where(r => fromIds.Contains(r.FromAddressId) && toIds.Contains(r.ToAddressId))
-                .ToDictionaryAsync(r => (r.FromAddressId, r.ToAddressId), r => r.DurationMinutes, cancellationToken);
+            var addressIds = pairsToCheck
+                .SelectMany(p => new[] { p.From, p.To })
+                .Distinct();
+
+            var routes = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
 
             int? inbound = null;
             int? outbound = null;
@@ -108,16 +128,12 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             {
                 if (!routes.TryGetValue((from, to), out var required))
                 {
-                    // Same-address movement is always zero travel even without a stored route row.
                     if (from == to)
                     {
                         required = 0;
                     }
                     else
                     {
-                        // Route data can be temporarily unavailable (for example, missing external API key
-                        // or incomplete matrix warm-up). In that case, do not block placement; skip strict
-                        // travel-time validation for this pair.
                         continue;
                     }
                 }
@@ -127,6 +143,20 @@ namespace ServiceTaskPlanningSystem.Services.Travel
 
                 if (from != to && required <= 0)
                 {
+                    LogSummary(
+                        technicianId,
+                        excludeTaskId,
+                        serviceAddressId,
+                        proposedStartLocal,
+                        proposedEndLocal,
+                        sequence,
+                        localOffsetMinutes,
+                        BuildCheck(from, to, available, required),
+                        inbound,
+                        outbound,
+                        "FAIL",
+                        "Nepavyko ivertinti keliones (netinkama marsruto trukme).");
+
                     return new TravelFeasibilityResult
                     {
                         IsFeasible = false,
@@ -140,16 +170,46 @@ namespace ServiceTaskPlanningSystem.Services.Travel
                 if (required > 0 && required > available)
                 {
                     var shownAvailable = Math.Max(0, available);
+                    var message = $"Nepakanka laiko kelionei: reikia {required} min., galima {shownAvailable} min.";
+
+                    LogSummary(
+                        technicianId,
+                        excludeTaskId,
+                        serviceAddressId,
+                        proposedStartLocal,
+                        proposedEndLocal,
+                        sequence,
+                        localOffsetMinutes,
+                        BuildCheck(from, to, shownAvailable, required),
+                        inbound,
+                        outbound,
+                        "FAIL",
+                        message);
+
                     return new TravelFeasibilityResult
                     {
                         IsFeasible = false,
                         HasOverlap = false,
                         InboundTravelMinutes = inbound,
                         OutboundTravelMinutes = outbound,
-                        Message = $"Nepakanka laiko kelionei: reikia {required} min., galima {shownAvailable} min."
+                        Message = message
                     };
                 }
             }
+
+            LogSummary(
+                technicianId,
+                excludeTaskId,
+                serviceAddressId,
+                proposedStartLocal,
+                proposedEndLocal,
+                sequence,
+                localOffsetMinutes,
+                BuildPrimaryCheck(pairsToCheck, inbound, outbound),
+                inbound,
+                outbound,
+                "OK",
+                null);
 
             return new TravelFeasibilityResult
             {
@@ -159,5 +219,65 @@ namespace ServiceTaskPlanningSystem.Services.Travel
                 OutboundTravelMinutes = outbound
             };
         }
+
+        private static string BuildPrimaryCheck(
+            List<(long From, long To, int Available, bool IsInbound, bool IsOutbound)> pairsToCheck,
+            int? inbound,
+            int? outbound)
+        {
+            var pair = pairsToCheck.FirstOrDefault(p => p.IsOutbound) != default
+                ? pairsToCheck.First(p => p.IsOutbound)
+                : pairsToCheck.FirstOrDefault();
+
+            if (pair == default)
+            {
+                return "none";
+            }
+
+            var required = pair.IsOutbound ? outbound : inbound;
+            return BuildCheck(pair.From, pair.To, pair.Available, required);
+        }
+
+        private static string BuildCheck(long from, long to, int gap, int? required)
+        {
+            return $"{from}->{to} gap={Math.Max(0, gap)} required={(required.HasValue ? required.Value : -1)}";
+        }
+
+        private void LogSummary(
+            long technicianId,
+            long? excludeTaskId,
+            long serviceAddressId,
+            DateTime proposedStartLocal,
+            DateTime proposedEndLocal,
+            List<RouteStop> sequence,
+            int localOffsetMinutes,
+            string? check,
+            int? inbound,
+            int? outbound,
+            string result,
+            string? reason)
+        {
+            var chainDesc = string.Join(" -> ", sequence.Select(s =>
+            {
+                var startLocal = s.StartAt.AddMinutes(localOffsetMinutes);
+                var endLocal = s.EndAt.AddMinutes(localOffsetMinutes);
+                return $"{(s.IsProposed ? "P" : "T")}@{s.AddressId} {startLocal:HH:mm}-{endLocal:HH:mm}";
+            }));
+
+            _logger.LogInformation(
+                "[TAV] tech={TechnicianId} task={TaskId} move=addr{AddressId} {Start}-{End} chain=[{Chain}] check={Check} inbound={Inbound} outbound={Outbound} result={Result} reason={Reason}",
+                technicianId,
+                excludeTaskId,
+                serviceAddressId,
+                proposedStartLocal.ToString("HH:mm"),
+                proposedEndLocal.ToString("HH:mm"),
+                chainDesc,
+                check ?? "none",
+                inbound,
+                outbound,
+                result,
+                reason ?? string.Empty);
+        }
     }
 }
+

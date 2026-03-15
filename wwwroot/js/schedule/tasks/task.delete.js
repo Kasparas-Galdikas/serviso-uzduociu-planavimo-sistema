@@ -40,6 +40,7 @@
   };
 
   const getDeleteModal = () => document.getElementById("taskDeleteModal");
+  const getAutoCompactCheckbox = () => document.getElementById("taskDeleteAutoCompact");
 
   // ========== Modal Setup ==========
 
@@ -92,6 +93,8 @@
     if (!taskId) return;
     const modalEl = getDeleteModal();
     if (!modalEl) return;
+    const autoCompactCheckbox = getAutoCompactCheckbox();
+    if (autoCompactCheckbox) autoCompactCheckbox.checked = true;
     modalEl.dataset.taskId = String(taskId);
     if (version != null && !Number.isNaN(version)) {
       modalEl.dataset.version = String(version);
@@ -115,10 +118,10 @@
 
   // ========== Delete Logic ==========
 
-  const deleteTaskAndRefresh = async ({ taskId, version }) => {
+  const deleteTaskAndRefresh = async ({ taskId, version, autoCompact = true }) => {
     // Use task.api module if available
     if (taskApi?.deleteTask) {
-      const result = await taskApi.deleteTask(taskId, version);
+      const result = await taskApi.deleteTask(taskId, version, { autoCompact });
       if (!result.success) {
         if (result.newVersion) {
           updateTaskVersion(taskId, result.newVersion);
@@ -145,6 +148,7 @@
       },
       body: JSON.stringify({
         version: Number.isFinite(version) ? version : 0,
+        autoCompact,
         timezoneOffsetMinutes: timezoneOffset
       })
     });
@@ -196,6 +200,7 @@
     confirmBtn.addEventListener("click", async () => {
       const taskId = modalEl.dataset.taskId;
       const version = parseInt(modalEl.dataset.version || "0", 10);
+      const autoCompact = getAutoCompactCheckbox()?.checked !== false;
       if (!taskId) {
         alert("Nepavyko nustatyti uzduoties.");
         return;
@@ -205,8 +210,8 @@
       confirmBtn.setAttribute("aria-busy", "true");
 
       try {
-        logEvent("ui.task.delete.requested", { taskId, version });
-        const ok = await deleteTaskAndRefresh({ taskId, version });
+        logEvent("ui.task.delete.requested", { taskId, version, autoCompact });
+        const ok = await deleteTaskAndRefresh({ taskId, version, autoCompact });
         if (ok) {
           logEvent("ui.task.delete.succeeded", { taskId });
           const modal = window.bootstrap?.Modal?.getInstance?.(modalEl);

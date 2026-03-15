@@ -1,4 +1,3 @@
-using System;
 using System.ComponentModel.DataAnnotations;
 
 namespace ServiceTaskPlanningSystem.Models.DTOs.Requests
@@ -11,16 +10,12 @@ namespace ServiceTaskPlanningSystem.Models.DTOs.Requests
         [Required]
         public long TargetTechnicianId { get; set; }
 
-        /// <summary>
-        /// Target start time in UTC for the hovered drop slot.
-        /// </summary>
         [Required]
-        public DateTime TargetStartAt { get; set; }
+        public string TargetDate { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Target end time in UTC for the hovered drop slot.
-        /// </summary>
-        [Required]
-        public DateTime TargetEndAt { get; set; }
+        [Range(0, 24 * 60 - 1)]
+        public int TargetSlotStartMinutes { get; set; }
+
+        public int TimezoneOffsetMinutes { get; set; }
     }
 }

@@ -26,6 +26,7 @@ public class PlanServiceRouteTriggerTests
     private readonly IScheduleTimeService _time = Substitute.For<IScheduleTimeService>();
     private readonly IRouteEvaluationService _routeEvaluation = Substitute.For<IRouteEvaluationService>();
     private readonly ITaskTravelFeasibilityService _travelFeasibility = Substitute.For<ITaskTravelFeasibilityService>();
+    private readonly ITravelTimeResolver _travelResolver = Substitute.For<ITravelTimeResolver>();
     private readonly ILogger<PlanService> _logger = Substitute.For<ILogger<PlanService>>();
 
     public PlanServiceRouteTriggerTests()
@@ -47,6 +48,16 @@ public class PlanServiceRouteTriggerTests
                 return DateTime.SpecifyKind(date.AddMinutes(minutes), DateTimeKind.Utc);
             });
         _time.IsTaskStillEditable(Arg.Any<DateTime>()).Returns(true);
+        _time.ConvertUtcToLocal(Arg.Any<DateTime>(), Arg.Any<int>())
+            .Returns(call =>
+            {
+                var utc = DateTime.SpecifyKind((DateTime)call[0], DateTimeKind.Utc);
+                var offsetMinutes = (int)call[1];
+                return utc.AddMinutes(offsetMinutes);
+            });
+        _time.GetEarliestCreatableStartMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(ScheduleGrid.DayStartMinutes);
+        _time.IsTravelStartFeasible(Arg.Any<DateTime>(), Arg.Any<int>()).Returns(true);
         _travelFeasibility.EvaluatePlacementAsync(
                 Arg.Any<long>(),
                 Arg.Any<DateTime>(),
@@ -202,7 +213,7 @@ public class PlanServiceRouteTriggerTests
     }
 
     private PlanService CreateService(ScheduleDbContext db) =>
-        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _logger);
+        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _travelResolver, _logger);
 
     private static ScheduleDbContext CreateContext()
     {
@@ -288,4 +299,6 @@ public class PlanServiceRouteTriggerTests
         return task;
     }
 }
+
+
 

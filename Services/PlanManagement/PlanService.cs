@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -16,7 +16,7 @@ using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
-using ServiceTaskPlanningSystem.Services.PlanManagement.SmartSwap;
+using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -29,18 +29,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private readonly IScheduleTimeService _timeService;
         private readonly IRouteEvaluationService _routeEvaluationService;
         private readonly ITaskTravelFeasibilityService _travelFeasibilityService;
-        private readonly ISmartSwapPlanner _smartSwapPlanner;
+        private readonly IScheduleRepairService _scheduleRepairService;
+        private readonly ITravelTimeResolver _travelResolver;
         private readonly ILogger<PlanService> _logger;
 
-        private sealed class NoopSmartSwapPlanner : ISmartSwapPlanner
+        private sealed class NoopScheduleRepairService : IScheduleRepairService
         {
-            public Task<SmartSwapPlan> BuildPlanAsync(
-                long sourceTaskId,
-                long targetTaskId,
-                int timezoneOffsetMinutes,
-                CancellationToken cancellationToken = default)
+            public Task<ScheduleRepairPlan> BuildPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken = default)
             {
-                return Task.FromResult(SmartSwapPlan.Fail("Smart swap planuoklis nesukonfiguruotas."));
+                return Task.FromResult(ScheduleRepairPlan.Fail("Planavimo taisymo servisas nesukonfiguruotas."));
+            }
+
+            public Task<ScheduleRepairApplyResult> ApplyPlanAsync(ScheduleRepairPlan plan, long? primaryTaskId, CancellationToken cancellationToken = default)
+            {
+                return Task.FromResult(ScheduleRepairApplyResult.Fail("Planavimo taisymo servisas nesukonfiguruotas."));
             }
         }
 
@@ -52,6 +54,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             IScheduleTimeService timeService,
             IRouteEvaluationService routeEvaluationService,
             ITaskTravelFeasibilityService travelFeasibilityService,
+            ITravelTimeResolver travelResolver,
             ILogger<PlanService> logger)
             : this(
                 db,
@@ -61,7 +64,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 timeService,
                 routeEvaluationService,
                 travelFeasibilityService,
-                new NoopSmartSwapPlanner(),
+                new NoopScheduleRepairService(),
+                travelResolver,
                 logger)
         {
         }
@@ -74,7 +78,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             IScheduleTimeService timeService,
             IRouteEvaluationService routeEvaluationService,
             ITaskTravelFeasibilityService travelFeasibilityService,
-            ISmartSwapPlanner smartSwapPlanner,
+            IScheduleRepairService scheduleRepairService,
+            ITravelTimeResolver travelResolver,
             ILogger<PlanService> logger)
         {
             _db = db;
@@ -84,14 +89,183 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _timeService = timeService;
             _routeEvaluationService = routeEvaluationService;
             _travelFeasibilityService = travelFeasibilityService;
-            _smartSwapPlanner = smartSwapPlanner;
+            _scheduleRepairService = scheduleRepairService;
+            _travelResolver = travelResolver;
             _logger = logger;
         }
-
         private sealed record WorkingWindow(int StartMinutes, int EndMinutes);
 
         private static WorkingWindow GetWorkingWindow(long technicianId, DateTime date) =>
             new WorkingWindow(ScheduleGrid.DayStartMinutes, ScheduleGrid.DayEndMinutes);
+
+        private enum TimingTravelViolationKind
+        {
+            None,
+            InvalidWindow,
+            TravelInfeasible
+        }
+
+        private readonly record struct TimingTravelValidationResult(TimingTravelViolationKind ViolationKind, string? Message, ScheduleRepairPlan? RepairPlan)
+        {
+            public bool IsValid => ViolationKind == TimingTravelViolationKind.None;
+            public bool IsInvalidWindow => ViolationKind == TimingTravelViolationKind.InvalidWindow;
+            public static TimingTravelValidationResult Success => new(TimingTravelViolationKind.None, null, null);
+        }
+
+        private async Task<TimingTravelValidationResult> CheckTimingAndTravelAsync(
+            DateTime taskDateLocal,
+            int startMinutesLocal,
+            int timezoneOffsetMinutes,
+            long technicianId,
+            DateTime startAtUtc,
+            DateTime endAtUtc,
+            long serviceAddressId,
+            long? excludeTaskId,
+            CancellationToken cancellationToken)
+        {
+            var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
+            if (taskDateLocal < userLocalToday)
+            {
+                return new TimingTravelValidationResult(TimingTravelViolationKind.InvalidWindow, "Negalima planuoti praeityje.", null);
+            }
+
+            var earliestStartMinutes = _timeService.GetEarliestCreatableStartMinutes(
+                taskDateLocal,
+                timezoneOffsetMinutes,
+                ScheduleGrid.SlotSizeMinutes,
+                ScheduleGrid.DayStartMinutes);
+            if (taskDateLocal == userLocalToday && startMinutesLocal < earliestStartMinutes)
+            {
+                return new TimingTravelValidationResult(TimingTravelViolationKind.InvalidWindow, "Negalima planuoti ankstesniame nei artimiausias galimas 30 min. laiko langas.", null);
+            }
+
+            var travelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
+                technicianId,
+                startAtUtc,
+                endAtUtc,
+                serviceAddressId,
+                startMinutesLocal,
+                excludeTaskId,
+                checkOverlap: false,
+                cancellationToken);
+
+            if (!travelCheck.IsFeasible)
+            {
+                return new TimingTravelValidationResult(
+                    TimingTravelViolationKind.TravelInfeasible,
+                    travelCheck.Message ?? "Nepakanka laiko kelionei.",
+                    null);
+            }
+
+            var inboundTravelMinutes = Math.Max(0, travelCheck.InboundTravelMinutes ?? 0);
+            if (!_timeService.IsTravelStartFeasible(startAtUtc, inboundTravelMinutes))
+            {
+                return new TimingTravelValidationResult(TimingTravelViolationKind.TravelInfeasible, "Nepakanka laiko kelionei nuo dabartinio laiko.", null);
+            }
+
+            return TimingTravelValidationResult.Success;
+        }
+
+        private async Task<TimingTravelValidationResult> ValidateTimingAndTravelAsync(
+            DateTime taskDateLocal,
+            int startMinutesLocal,
+            int timezoneOffsetMinutes,
+            long technicianId,
+            DateTime startAtUtc,
+            DateTime endAtUtc,
+            long serviceAddressId,
+            long? excludeTaskId,
+            CancellationToken cancellationToken)
+        {
+            var result = await CheckTimingAndTravelAsync(
+                taskDateLocal, startMinutesLocal, timezoneOffsetMinutes,
+                technicianId, startAtUtc, endAtUtc, serviceAddressId, excludeTaskId, cancellationToken);
+
+            if (result.ViolationKind == TimingTravelViolationKind.TravelInfeasible)
+            {
+                var repairPlan = await TryBuildPlacementRepairPlanAsync(
+                    technicianId, startAtUtc, endAtUtc, serviceAddressId,
+                    timezoneOffsetMinutes, excludeTaskId, cancellationToken);
+                return result with { RepairPlan = repairPlan };
+            }
+
+            return result;
+        }
+
+        private Task<ScheduleRepairPlan> BuildSwapRepairPlanAsync(long sourceTaskId, long targetTaskId, int timezoneOffsetMinutes, CancellationToken cancellationToken)
+        {
+            return _scheduleRepairService.BuildPlanAsync(
+                new ScheduleRepairRequest
+                {
+                    ScenarioKind = ScheduleRepairScenarioKind.Swap,
+                    SourceTaskId = sourceTaskId,
+                    TargetTaskId = targetTaskId,
+                    TimezoneOffsetMinutes = timezoneOffsetMinutes
+                },
+                cancellationToken);
+        }
+
+        private Task<ScheduleRepairPlan> TryBuildPlacementRepairPlanAsync(
+            long technicianId,
+            DateTime startAtUtc,
+            DateTime endAtUtc,
+            long serviceAddressId,
+            int timezoneOffsetMinutes,
+            long? excludeTaskId,
+            CancellationToken cancellationToken)
+        {
+            return _scheduleRepairService.BuildPlanAsync(
+                new ScheduleRepairRequest
+                {
+                    ScenarioKind = ScheduleRepairScenarioKind.Move,
+                    TechnicianId = technicianId,
+                    DayUtc = startAtUtc.Date,
+                    TimezoneOffsetMinutes = timezoneOffsetMinutes,
+                    ExcludeTaskId = excludeTaskId,
+                    ProposedPlacement = new ScheduleRepairPlacement(
+                        0,
+                        serviceAddressId,
+                        startAtUtc,
+                        endAtUtc)
+                },
+                cancellationToken);
+        }
+
+        private async Task<bool> TryApplyTimingTravelRepairAsync(
+            TaskEntity task,
+            TimingTravelValidationResult validation,
+            CancellationToken cancellationToken)
+        {
+            if (validation.RepairPlan == null || !validation.RepairPlan.Success)
+            {
+                return false;
+            }
+
+            var applyResult = await _scheduleRepairService.ApplyPlanAsync(validation.RepairPlan, task.Id, cancellationToken);
+            if (!applyResult.Success)
+            {
+                _logger.LogWarning("repair.apply-fail taskId={TaskId} reason={Reason}", task.Id, applyResult.Message ?? string.Empty);
+                return false;
+            }
+
+            return true;
+        }
+
+        private string BuildRepairAppliedMessage(string? baseMessage, ScheduleRepairPlacement? primaryPlacement, int timezoneOffsetMinutes)
+        {
+            var prefix = string.IsNullOrWhiteSpace(baseMessage)
+                ? "Pradinis laikas buvo pakoreguotas."
+                : baseMessage.Trim();
+
+            if (primaryPlacement == null)
+            {
+                return prefix;
+            }
+
+            var localStart = _timeService.ConvertUtcToLocal(primaryPlacement.StartAt, timezoneOffsetMinutes);
+            var localEnd = _timeService.ConvertUtcToLocal(primaryPlacement.EndAt, timezoneOffsetMinutes);
+            return $"{prefix} Pritaikytas artimiausias galimas laikas: {localStart:yyyy-MM-dd HH:mm} - {localEnd:HH:mm}.";
+        }
 
         private async Task<long> FindOrCreateServiceObjectAsync(string? objectName, string? objectAddress, string city, CancellationToken cancellationToken = default)
         {
@@ -144,7 +318,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     CreatedAt = DateTime.UtcNow
                 };
                 _db.Addresses.Add(existingAddress);
-                await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
             }
 
             // Try to find existing service object by name and address
@@ -206,8 +380,95 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             NotEditable
         }
 
+        private readonly record struct PlacementValidationResult(
+            PlacementError Error,
+            string Message,
+            DateTime StartAtUtc,
+            DateTime EndAtUtc,
+            string City)
+        {
+            public bool IsValid => Error == PlacementError.None;
+            public static PlacementValidationResult Success(DateTime startAtUtc, DateTime endAtUtc, string city) =>
+                new(PlacementError.None, string.Empty, startAtUtc, endAtUtc, city);
+            public static PlacementValidationResult Failure(PlacementError error, string message) =>
+                new(error, message, default, default, string.Empty);
+        }
+
+        private async Task<PlacementValidationResult> ValidatePlacementForActionAsync(
+            IReadOnlyCollection<long>? ignoreTaskIds,
+            long targetTechnicianId,
+            DateTime targetDate,
+            int startMinutes,
+            int endMinutes,
+            PlanEntity? plan,
+            ScheduleTaskStatus status,
+            UserContext user,
+            int timezoneOffsetMinutes,
+            bool requireEndAligned,
+            CancellationToken cancellationToken)
+        {
+            var validation = await ValidatePlacementAsync(
+                ignoreTaskIds,
+                targetTechnicianId,
+                targetDate,
+                startMinutes,
+                endMinutes,
+                plan,
+                status,
+                user,
+                timezoneOffsetMinutes,
+                requireEndAligned,
+                cancellationToken);
+
+            return validation.Error == PlacementError.None
+                ? PlacementValidationResult.Success(validation.StartAt, validation.EndAt, validation.City)
+                : PlacementValidationResult.Failure(validation.Error, validation.Message);
+        }
+
+        private static TaskCreateResult MapPlacementErrorForCreate(PlacementValidationResult validation) =>
+            validation.Error switch
+            {
+                PlacementError.NotEditable => new TaskCreateResult(TaskCreateError.NotEditable, validation.Message),
+                PlacementError.TechnicianNotFound => new TaskCreateResult(TaskCreateError.TechnicianNotFound, validation.Message),
+                PlacementError.Overlap => new TaskCreateResult(TaskCreateError.Overlap, validation.Message),
+                _ => new TaskCreateResult(TaskCreateError.InvalidWindow, validation.Message)
+            };
+
+        private static TaskUpdateResult MapPlacementErrorForUpdate(PlacementValidationResult validation) =>
+            validation.Error switch
+            {
+                PlacementError.NotEditable => new TaskUpdateResult(TaskUpdateError.NotEditable, validation.Message),
+                PlacementError.TechnicianNotFound => new TaskUpdateResult(TaskUpdateError.TechnicianNotFound, validation.Message),
+                _ => new TaskUpdateResult(TaskUpdateError.InvalidWindow, validation.Message)
+            };
+
+        private static TaskMoveResult MapPlacementErrorForMove(PlacementValidationResult validation) =>
+            validation.Error switch
+            {
+                PlacementError.NotEditable => new TaskMoveResult(TaskMoveError.NotEditable, "Neturite teisiu perkelti sios uzduoties."),
+                PlacementError.TechnicianNotFound => new TaskMoveResult(TaskMoveError.TechnicianNotFound, validation.Message),
+                PlacementError.Overlap => new TaskMoveResult(TaskMoveError.Overlap, validation.Message),
+                _ => new TaskMoveResult(TaskMoveError.InvalidWindow, validation.Message)
+            };
+
+        private static TaskTimeUpdateResult MapPlacementErrorForTimeUpdate(PlacementValidationResult validation) =>
+            validation.Error switch
+            {
+                PlacementError.NotEditable => new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, validation.Message),
+                PlacementError.Overlap => new TaskTimeUpdateResult(TaskTimeUpdateError.Overlap, validation.Message),
+                _ => new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, validation.Message)
+            };
+
+        private static TaskSwapResult MapPlacementErrorForSwap(PlacementValidationResult validation) =>
+            validation.Error switch
+            {
+                PlacementError.Overlap => new TaskSwapResult(TaskSwapError.Overlap, validation.Message),
+                PlacementError.NotEditable => new TaskSwapResult(TaskSwapError.NotEditable, validation.Message),
+                _ => new TaskSwapResult(TaskSwapError.InvalidSwap, validation.Message,
+                    InvalidSwapReason: InvalidSwapReason.WorkWindow)
+            };
         private async Task<(PlacementError Error, string Message, DateTime StartAt, DateTime EndAt, string City)> ValidatePlacementAsync(
-            long? ignoreTaskId,
+            IReadOnlyCollection<long>? ignoreTaskIds,
             long targetTechnicianId,
             DateTime targetDate,
             int startMinutes,
@@ -262,7 +523,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var permissionProbe = new TaskEntity
             {
-                Id = ignoreTaskId ?? 0,
+                Id = ignoreTaskIds?.FirstOrDefault() ?? 0,
                 PlanId = plan?.Id,
                 Plan = plan,
                 TechnicianId = targetTech.Id,
@@ -277,15 +538,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return (PlacementError.NotEditable, "Neturite teisiu atlikti sio veiksmo.", default, default, string.Empty);
             }
 
-            // Prevent placing tasks with start time in the past
-            if (!_timeService.IsTaskStillEditable(startAt))
-            {
-                return (PlacementError.InvalidWindow, "Negalima nustatyti pradÅ¾ios laiko praeityje.", default, default, string.Empty);
-            }
-
             var hasOverlap = await _db.Tasks
                 .AsNoTracking()
-                .Where(t => ignoreTaskId == null || t.Id != ignoreTaskId.Value)
+                .Where(t => ignoreTaskIds == null || !ignoreTaskIds.Contains(t.Id))
                 .Where(t => t.TechnicianId == targetTech.Id)
                 .Where(t => t.Status != ScheduleTaskStatus.Canceled)
                 .Where(t => t.StartAt < endAt && t.EndAt > startAt)
@@ -414,21 +669,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .AnyAsync(cancellationToken);
         }
 
-        private async Task<bool> HasTaskOverlapExcludingAsync(
-            IReadOnlyCollection<long> excludeTaskIds,
-            long technicianId,
-            DateTime startUtc,
-            DateTime endUtc,
-            CancellationToken cancellationToken = default)
-        {
-            return await _db.Tasks
-                .AsNoTracking()
-                .Where(t => !excludeTaskIds.Contains(t.Id))
-                .Where(t => t.TechnicianId == technicianId)
-                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
-                .Where(t => t.StartAt < endUtc && t.EndAt > startUtc)
-                .AnyAsync(cancellationToken);
-        }
 
         public async Task<TechnicianUpdateResult> TechnicianUpdateTaskAsync(
             long taskId,
@@ -479,8 +719,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             task.TechnicianComment = comment ?? string.Empty;
 
             try
-            {
-                await _db.SaveChangesAsync(cancellationToken);
+            {await _db.SaveChangesAsync(cancellationToken);
 
                 // Recalculate evaluations when status changes
                 if (task.PlanId.HasValue)
@@ -541,7 +780,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             if (seededTasks.Any())
             {
                 _db.Tasks.AddRange(seededTasks);
-                await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
 
                 // Align PeriodStart and PeriodEnd to actual task span (true inclusive horizon)
                 var actualStart = seededTasks.Min(t => t.StartAt.Date);
@@ -555,7 +794,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 var totalDays = (draftPlan.PeriodEnd - draftPlan.PeriodStart).Days + 1;
                 draftPlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
                 _db.Plans.Update(draftPlan);
-                await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
             }
             else
             {
@@ -579,7 +818,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     var totalDays = (activePlan.PeriodEnd - activePlan.PeriodStart).Days + 1;
                     activePlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
                     _db.Plans.Update(activePlan);
-                    await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
                     _logger.LogInformation("svc.plan.extend-active planId={PlanId} newEnd={NewEnd}", activePlan.Id, activePlan.PeriodEnd);
                     return activePlan;
                 }
@@ -589,7 +828,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     var totalDays = (activePlan.PeriodEnd - activePlan.PeriodStart).Days + 1;
                     activePlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
                     _db.Plans.Update(activePlan);
-                    await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
                     _logger.LogInformation("svc.plan.extend-active planId={PlanId} newStart={NewStart}", activePlan.Id, activePlan.PeriodStart);
                     return activePlan;
                 }
@@ -609,7 +848,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 var totalDays = (newActivePlan.PeriodEnd - newActivePlan.PeriodStart).Days + 1;
                 newActivePlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
                 _db.Plans.Add(newActivePlan);
-                await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("svc.plan.create-active planId={PlanId} start={Start} end={End}", newActivePlan.Id, newActivePlan.PeriodStart, newActivePlan.PeriodEnd);
                 return newActivePlan;
             }
@@ -640,20 +879,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _logger.LogInformation("svc.plan.span.adjust planId={PlanId} start={Start} end={End} weeks={Weeks}", plan.Id, plan.PeriodStart, plan.PeriodEnd, plan.Weeks);
         }
 
-        public async Task<TaskCreateResult> CreateTaskAsync(long technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+                public async Task<TaskCreateResult> CreateTaskAsync(long technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var taskDate = targetDate.Date;
 
-            // Calculate user's local "today" from server UTC (security: prevent clock manipulation)
             var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
 
-            // Validate: Cannot create tasks in the past
-            if (taskDate < userLocalToday)
-            {
-                return new TaskCreateResult(TaskCreateError.InvalidWindow, "Negalima kurti uÅ¾duoÄiÅ³ praeityje.");
-            }
-
-            // Get all plans to determine target plan
             var draftPlan = await _db.Plans
                 .AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
@@ -666,32 +897,29 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .OrderByDescending(p => p.CreatedAt)
                 .ToListAsync(cancellationToken);
 
-            // Determine target plan (Priority: Draft > Active > Superseded > Extend Active > Create Active)
             PlanEntity? targetPlan = null;
 
             if (draftPlan != null && taskDate >= draftPlan.PeriodStart.Date && taskDate <= draftPlan.PeriodEnd.Date)
             {
-                targetPlan = draftPlan; // Create in Draft
+                targetPlan = draftPlan;
                 _logger.LogInformation("svc.plan.create-task.target plan=Draft planId={PlanId}", draftPlan.Id);
             }
             else if (activePlan != null && taskDate >= activePlan.PeriodStart.Date && taskDate <= activePlan.PeriodEnd.Date)
             {
-                targetPlan = activePlan; // Create in Active
+                targetPlan = activePlan;
                 _logger.LogInformation("svc.plan.create-task.target plan=Active planId={PlanId}", activePlan.Id);
             }
             else
             {
-                // Try to find matching Superseded plan
                 var matchingSuperseded = supersededPlans
                     .FirstOrDefault(p => taskDate >= p.PeriodStart.Date && taskDate <= p.PeriodEnd.Date);
                 if (matchingSuperseded != null)
                 {
-                    targetPlan = matchingSuperseded; // Create in Superseded
+                    targetPlan = matchingSuperseded;
                     _logger.LogInformation("svc.plan.create-task.target plan=Superseded planId={PlanId}", matchingSuperseded.Id);
                 }
                 else
                 {
-                    // Extend Active or create new Active plan
                     targetPlan = await GetOrExtendActivePlanAsync(activePlan, taskDate, userLocalToday, cancellationToken);
                     _logger.LogInformation("svc.plan.create-task.target plan=Extended/New planId={PlanId}", targetPlan.Id);
                 }
@@ -701,8 +929,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var normalizedSkill = string.IsNullOrWhiteSpace(skillLevel) ? string.Empty : skillLevel.Trim();
             var normalizedInstructions = string.IsNullOrWhiteSpace(instructions) ? string.Empty : instructions.Trim();
 
-            var validation = await ValidatePlacementAsync(
-                ignoreTaskId: null,
+            var placementValidation = await ValidatePlacementForActionAsync(
+                ignoreTaskIds: null,
                 targetTechnicianId: technicianId,
                 targetDate: targetDate,
                 startMinutes: startMinutes,
@@ -714,19 +942,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 requireEndAligned: true,
                 cancellationToken: cancellationToken);
 
-            if (validation.Error != PlacementError.None)
+            if (!placementValidation.IsValid)
             {
-                return validation.Error switch
-                {
-                    PlacementError.NotEditable => new TaskCreateResult(TaskCreateError.NotEditable, validation.Message),
-                    PlacementError.TechnicianNotFound => new TaskCreateResult(TaskCreateError.TechnicianNotFound, validation.Message),
-                    PlacementError.Overlap => new TaskCreateResult(TaskCreateError.Overlap, validation.Message),
-                    _ => new TaskCreateResult(TaskCreateError.InvalidWindow, validation.Message)
-                };
+                return MapPlacementErrorForCreate(placementValidation);
             }
 
-            // Find or create service object
-            var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, validation.City, cancellationToken);
+            var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, placementValidation.City, cancellationToken);
             var serviceObjectMeta = await _db.ServiceObjects
                 .Where(o => o.Id == serviceObjectId)
                 .Select(o => new { o.AddressId })
@@ -740,8 +961,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 Title = normalizedTitle,
                 SkillLevel = normalizedSkill,
                 Instructions = normalizedInstructions,
-                StartAt = validation.StartAt,
-                EndAt = validation.EndAt,
+                StartAt = placementValidation.StartAtUtc,
+                EndAt = placementValidation.EndAtUtc,
                 Priority = priority,
                 Status = status,
                 CreatedAt = DateTime.UtcNow
@@ -752,25 +973,44 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             await _db.SaveChangesAsync(cancellationToken);
 
             await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "create", cancellationToken);
-
-            var travelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
-                task.TechnicianId,
-                task.StartAt,
-                task.EndAt,
-                serviceObjectMeta.AddressId,
-                startMinutes,
-                task.Id,
-                checkOverlap: false,
-                cancellationToken);
-            if (!travelCheck.IsFeasible)
+            var timingTravelValidation = await ValidateTimingAndTravelAsync(
+                taskDateLocal: taskDate,
+                startMinutesLocal: startMinutes,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                technicianId: task.TechnicianId,
+                startAtUtc: task.StartAt,
+                endAtUtc: task.EndAt,
+                serviceAddressId: serviceObjectMeta.AddressId,
+                excludeTaskId: task.Id,
+                cancellationToken: cancellationToken);
+            if (!timingTravelValidation.IsValid)
             {
+                if (!timingTravelValidation.IsInvalidWindow && await TryApplyTimingTravelRepairAsync(task, timingTravelValidation, cancellationToken))
+                {
+                    await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "create-repair", cancellationToken);
+                    if (transaction != null)
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                    }
+
+                    var repairedVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
+                    await _evaluationEngine.RecalculatePlanAsync(targetPlan.Id, cancellationToken);
+                    return new TaskCreateResult(
+                        TaskCreateError.None,
+                        BuildRepairAppliedMessage(timingTravelValidation.Message, timingTravelValidation.RepairPlan?.PrimaryPlacement, timezoneOffsetMinutes),
+                        task,
+                        repairedVersion);
+                }
+
                 if (transaction != null)
                 {
                     await transaction.RollbackAsync(cancellationToken);
                 }
-                return new TaskCreateResult(TaskCreateError.TravelInfeasible, travelCheck.Message ?? "Nepakanka laiko kelionei.");
-            }
 
+                return new TaskCreateResult(
+                    timingTravelValidation.IsInvalidWindow ? TaskCreateError.InvalidWindow : TaskCreateError.TravelInfeasible,
+                    timingTravelValidation.Message);
+            }
             if (transaction != null)
             {
                 await transaction.CommitAsync(cancellationToken);
@@ -817,7 +1057,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             applyChanges(task);
 
-            // Find or create service object if objectName/objectAddress provided
             if (!string.IsNullOrWhiteSpace(objectName) || !string.IsNullOrWhiteSpace(objectAddress))
             {
                 var city = await _db.Technicians
@@ -827,37 +1066,84 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, city, cancellationToken);
                 task.ServiceObjectId = serviceObjectId;
             }
+            var localPlacementStartAt = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffsetMinutes);
+            var localPlacementEndAt = _timeService.ConvertUtcToLocal(task.EndAt, timezoneOffsetMinutes);
+            var updatePlacementValidation = await ValidatePlacementForActionAsync(
+                ignoreTaskIds: [taskId],
+                targetTechnicianId: task.TechnicianId,
+                targetDate: localPlacementStartAt.Date,
+                startMinutes: (int)localPlacementStartAt.TimeOfDay.TotalMinutes,
+                endMinutes: (int)localPlacementEndAt.TimeOfDay.TotalMinutes,
+                plan: task.Plan,
+                status: task.Status,
+                user: user,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                requireEndAligned: true,
+                cancellationToken: cancellationToken);
 
-            await _db.SaveChangesAsync(cancellationToken);
-            await TriggerTaskRouteImpactSafelyAsync(task.Id, "update", cancellationToken);
-            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "update", cancellationToken);
-
-            // Resolve final address and check travel feasibility after route evaluation.
-            var finalAddressId = await _db.ServiceObjects
-                .AsNoTracking()
-                .Where(o => o.Id == task.ServiceObjectId)
-                .Select(o => o.AddressId)
-                .FirstAsync(cancellationToken);
-
-            var startMinutesLocal = (int)task.StartAt.AddMinutes(timezoneOffsetMinutes).TimeOfDay.TotalMinutes;
-            var travelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
-                task.TechnicianId,
-                task.StartAt,
-                task.EndAt,
-                finalAddressId,
-                startMinutesLocal,
-                taskId,
-                checkOverlap: false,
-                cancellationToken);
-            if (!travelCheck.IsFeasible)
+            if (!updatePlacementValidation.IsValid)
             {
                 if (transaction != null)
                 {
                     await transaction.RollbackAsync(cancellationToken);
                 }
-                return new TaskUpdateResult(TaskUpdateError.TravelInfeasible, travelCheck.Message ?? "Nepakanka laiko kelionei.");
+
+                return MapPlacementErrorForUpdate(updatePlacementValidation);
             }
 
+            task.StartAt = updatePlacementValidation.StartAtUtc;
+            task.EndAt = updatePlacementValidation.EndAtUtc;
+
+            await _db.SaveChangesAsync(cancellationToken);
+            await TriggerTaskRouteImpactSafelyAsync(task.Id, "update", cancellationToken);
+            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "update", cancellationToken);
+
+            var finalAddressId = await _db.ServiceObjects
+                .AsNoTracking()
+                .Where(o => o.Id == task.ServiceObjectId)
+                .Select(o => o.AddressId)
+                .FirstAsync(cancellationToken);
+            var localStartAt = _timeService.ConvertUtcToLocal(task.StartAt, timezoneOffsetMinutes);
+            var startMinutesLocal = (int)localStartAt.TimeOfDay.TotalMinutes;
+            var timingTravelValidation = await ValidateTimingAndTravelAsync(
+                taskDateLocal: localStartAt.Date,
+                startMinutesLocal: startMinutesLocal,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                technicianId: task.TechnicianId,
+                startAtUtc: task.StartAt,
+                endAtUtc: task.EndAt,
+                serviceAddressId: finalAddressId,
+                excludeTaskId: taskId,
+                cancellationToken: cancellationToken);
+            if (!timingTravelValidation.IsValid)
+            {
+                if (!timingTravelValidation.IsInvalidWindow && await TryApplyTimingTravelRepairAsync(task, timingTravelValidation, cancellationToken))
+                {
+                    await TriggerTaskRouteImpactSafelyAsync(task.Id, "update-repair", cancellationToken);
+                    await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "update-repair", cancellationToken);
+                    if (transaction != null)
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                    }
+
+                    if (task.PlanId.HasValue)
+                    {
+                        await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
+                        await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
+                    }
+
+                    return new TaskUpdateResult(
+                        TaskUpdateError.None,
+                        BuildRepairAppliedMessage(timingTravelValidation.Message, timingTravelValidation.RepairPlan?.PrimaryPlacement, timezoneOffsetMinutes),
+                        task);
+                }
+
+                if (transaction != null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                }
+                return new TaskUpdateResult(timingTravelValidation.IsInvalidWindow ? TaskUpdateError.InvalidWindow : TaskUpdateError.TravelInfeasible, timingTravelValidation.Message);
+            }
             if (transaction != null)
             {
                 await transaction.CommitAsync(cancellationToken);
@@ -871,8 +1157,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             return new TaskUpdateResult(TaskUpdateError.None, Task: task);
         }
-
-        public async Task<TaskMoveResult> MoveTaskAsync(long taskId, long targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+                public async Task<TaskMoveResult> MoveTaskAsync(long taskId, long targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
                 .Include(t => t.Plan)
@@ -898,9 +1183,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var durationMinutes = (int)Math.Round(durationMinutesRaw);
             var endMinutes = targetSlotStartMinutes + durationMinutes;
-
-            var validation = await ValidatePlacementAsync(
-                ignoreTaskId: taskId,
+            var placementValidation = await ValidatePlacementForActionAsync(
+                ignoreTaskIds: [taskId],
                 targetTechnicianId: targetTechnicianId,
                 targetDate: targetDate,
                 startMinutes: targetSlotStartMinutes,
@@ -912,23 +1196,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 requireEndAligned: false,
                 cancellationToken: cancellationToken);
 
-            if (validation.Error != PlacementError.None)
+            if (!placementValidation.IsValid)
             {
-                return validation.Error switch
-                {
-                    PlacementError.NotEditable => new TaskMoveResult(TaskMoveError.NotEditable, "Neturite teisiu perkelti sios uzduoties."),
-                    PlacementError.TechnicianNotFound => new TaskMoveResult(TaskMoveError.TechnicianNotFound, validation.Message),
-                    PlacementError.Overlap => new TaskMoveResult(TaskMoveError.Overlap, validation.Message),
-                    _ => new TaskMoveResult(TaskMoveError.InvalidWindow, validation.Message)
-                };
+                return MapPlacementErrorForMove(placementValidation);
             }
 
             var oldTechnicianId = task.TechnicianId;
             var oldDay = task.StartAt.Date;
 
             task.TechnicianId = targetTechnicianId;
-            task.StartAt = validation.StartAt;
-            task.EndAt = validation.EndAt;
+            task.StartAt = placementValidation.StartAtUtc;
+            task.EndAt = placementValidation.EndAtUtc;
 
             await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
             try
@@ -940,35 +1218,63 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskMoveResult(TaskMoveError.Stale, "Uzduotis pasikeite (stale). Atnaujinkite lentele ir bandykite dar karta.", CurrentVersion: currentVersion);
             }
 
-            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "move", cancellationToken);
-
             var moveServiceAddressId = await _db.ServiceObjects
                 .Where(o => o.Id == task.ServiceObjectId)
                 .Select(o => o.AddressId)
                 .FirstAsync(cancellationToken);
-
-            var moveTravelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
-                targetTechnicianId,
-                validation.StartAt,
-                validation.EndAt,
-                moveServiceAddressId,
-                targetSlotStartMinutes,
-                taskId,
-                checkOverlap: false,
-                cancellationToken);
-            if (!moveTravelCheck.IsFeasible)
+            var moveTimingTravelValidation = await ValidateTimingAndTravelAsync(
+                taskDateLocal: targetDate.Date,
+                startMinutesLocal: targetSlotStartMinutes,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                technicianId: targetTechnicianId,
+                startAtUtc: placementValidation.StartAtUtc,
+                endAtUtc: placementValidation.EndAtUtc,
+                serviceAddressId: moveServiceAddressId,
+                excludeTaskId: taskId,
+                cancellationToken: cancellationToken);
+            if (!moveTimingTravelValidation.IsValid)
             {
+                if (!moveTimingTravelValidation.IsInvalidWindow && await TryApplyTimingTravelRepairAsync(task, moveTimingTravelValidation, cancellationToken))
+                {
+                    if (transaction != null)
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                    }
+                    await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "move-repair", cancellationToken);
+
+                    if (task.PlanId.HasValue)
+                    {
+                        await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
+                        await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
+                    }
+
+                    if (targetTechnicianId != oldTechnicianId || targetDate.Date != oldDay)
+                    {
+                        await TriggerRouteEvaluationSafelyAsync(oldTechnicianId, oldDay, "move-old-day", cancellationToken);
+                    }
+
+                    return new TaskMoveResult(
+                        TaskMoveError.None,
+                        BuildRepairAppliedMessage(moveTimingTravelValidation.Message, moveTimingTravelValidation.RepairPlan?.PrimaryPlacement, timezoneOffsetMinutes),
+                        task,
+                        _db.Entry(task).Property<uint>("xmin").CurrentValue);
+                }
+
                 if (transaction != null)
                 {
                     await transaction.RollbackAsync(cancellationToken);
                 }
-                return new TaskMoveResult(TaskMoveError.TravelInfeasible, moveTravelCheck.Message ?? "Nepakanka laiko kelionei.");
-            }
 
+                return new TaskMoveResult(
+                    moveTimingTravelValidation.IsInvalidWindow ? TaskMoveError.InvalidWindow : TaskMoveError.TravelInfeasible,
+                    moveTimingTravelValidation.Message);
+            }
             if (transaction != null)
             {
                 await transaction.CommitAsync(cancellationToken);
             }
+
+            await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "move", cancellationToken);
 
             if (task.PlanId.HasValue)
             {
@@ -983,7 +1289,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             return new TaskMoveResult(TaskMoveError.None, Task: task, CurrentVersion: _db.Entry(task).Property<uint>("xmin").CurrentValue);
         }
-
         public async Task<TaskSwapResult> SwapTasksAsync(
             long sourceTaskId,
             long targetTaskId,
@@ -1000,6 +1305,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var source = await _db.Tasks
                 .Include(t => t.Plan)
+                .Include(t => t.ServiceObject)
                 .FirstOrDefaultAsync(t => t.Id == sourceTaskId, cancellationToken);
             if (source == null)
             {
@@ -1008,6 +1314,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             var target = await _db.Tasks
                 .Include(t => t.Plan)
+                .Include(t => t.ServiceObject)
                 .FirstOrDefaultAsync(t => t.Id == targetTaskId, cancellationToken);
             if (target == null)
             {
@@ -1060,6 +1367,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskSwapResult(TaskSwapError.InvalidSwap, "Netinkama uzduoties trukme.");
             }
 
+            var originalSourceStartAt = source.StartAt;
+            var originalSourceEndAt = source.EndAt;
+            var originalTargetStartAt = target.StartAt;
+            var originalTargetEndAt = target.EndAt;
+
             var sourceNewStartAt = target.StartAt;
             var sourceNewEndAt = sourceNewStartAt + sourceDuration;
             var targetNewStartAt = source.StartAt;
@@ -1072,7 +1384,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (sourceNewStartLocal.Date != sourceNewEndLocal.Date || targetNewStartLocal.Date != targetNewEndLocal.Date)
             {
-                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Uzduotis turi tilpti viena diena.");
+                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Uzduotis turi tilpti viena diena.",
+                    InvalidSwapReason: InvalidSwapReason.SpansMidnight);
             }
 
             var sourceStartMinutes = (int)sourceNewStartLocal.TimeOfDay.TotalMinutes;
@@ -1080,34 +1393,60 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var targetStartMinutes = (int)targetNewStartLocal.TimeOfDay.TotalMinutes;
             var targetEndMinutes = (int)targetNewEndLocal.TimeOfDay.TotalMinutes;
 
-            var window = GetWorkingWindow(source.TechnicianId, sourceNewStartLocal.Date);
-            if (sourceStartMinutes < window.StartMinutes || sourceEndMinutes > window.EndMinutes ||
-                targetStartMinutes < window.StartMinutes || targetEndMinutes > window.EndMinutes)
+            var excludeIds = new[] { source.Id, target.Id };
+
+            var sourcePlacement = await ValidatePlacementForActionAsync(
+                ignoreTaskIds: excludeIds,
+                targetTechnicianId: source.TechnicianId,
+                targetDate: sourceNewStartLocal.Date,
+                startMinutes: sourceStartMinutes,
+                endMinutes: sourceEndMinutes,
+                plan: source.Plan,
+                status: source.Status,
+                user: user,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                requireEndAligned: false,
+                cancellationToken: cancellationToken);
+            if (!sourcePlacement.IsValid)
+                return MapPlacementErrorForSwap(sourcePlacement);
+
+            var targetPlacement = await ValidatePlacementForActionAsync(
+                ignoreTaskIds: excludeIds,
+                targetTechnicianId: target.TechnicianId,
+                targetDate: targetNewStartLocal.Date,
+                startMinutes: targetStartMinutes,
+                endMinutes: targetEndMinutes,
+                plan: target.Plan,
+                status: target.Status,
+                user: user,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                requireEndAligned: false,
+                cancellationToken: cancellationToken);
+            if (!targetPlacement.IsValid)
+                return MapPlacementErrorForSwap(targetPlacement);
+
+            var sourceCheck = await CheckTimingAndTravelAsync(
+                sourceNewStartLocal.Date, sourceStartMinutes, timezoneOffsetMinutes,
+                source.TechnicianId, sourceNewStartAt, sourceNewEndAt,
+                source.ServiceObject?.AddressId ?? 0, source.Id, cancellationToken);
+            if (!sourceCheck.IsValid)
             {
-                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Uzduotis netelpa i darbo laika.");
+                return new TaskSwapResult(
+                    sourceCheck.IsInvalidWindow ? TaskSwapError.InvalidSwap : TaskSwapError.TravelInfeasible,
+                    sourceCheck.Message,
+                    InvalidSwapReason: sourceCheck.IsInvalidWindow ? InvalidSwapReason.PastTime : InvalidSwapReason.None);
             }
 
-            var excludedTaskIds = new[] { source.Id, target.Id };
-            var sourceHasOverlap = await HasTaskOverlapExcludingAsync(
-                excludedTaskIds,
-                source.TechnicianId,
-                sourceNewStartAt,
-                sourceNewEndAt,
-                cancellationToken);
-            if (sourceHasOverlap)
+            var targetCheck = await CheckTimingAndTravelAsync(
+                targetNewStartLocal.Date, targetStartMinutes, timezoneOffsetMinutes,
+                target.TechnicianId, targetNewStartAt, targetNewEndAt,
+                target.ServiceObject?.AddressId ?? 0, target.Id, cancellationToken);
+            if (!targetCheck.IsValid)
             {
-                return new TaskSwapResult(TaskSwapError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).");
-            }
-
-            var targetHasOverlap = await HasTaskOverlapExcludingAsync(
-                excludedTaskIds,
-                target.TechnicianId,
-                targetNewStartAt,
-                targetNewEndAt,
-                cancellationToken);
-            if (targetHasOverlap)
-            {
-                return new TaskSwapResult(TaskSwapError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).");
+                return new TaskSwapResult(
+                    targetCheck.IsInvalidWindow ? TaskSwapError.InvalidSwap : TaskSwapError.TravelInfeasible,
+                    targetCheck.Message,
+                    InvalidSwapReason: targetCheck.IsInvalidWindow ? InvalidSwapReason.PastTime : InvalidSwapReason.None);
             }
 
             source.StartAt = sourceNewStartAt;
@@ -1116,17 +1455,68 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             target.EndAt = targetNewEndAt;
 
             await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
+
+            async Task RevertSwapIfNeededAsync()
+            {
+                source.StartAt = originalSourceStartAt;
+                source.EndAt = originalSourceEndAt;
+                target.StartAt = originalTargetStartAt;
+                target.EndAt = originalTargetEndAt;
+
+                if (transaction == null)
+                {
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
+            }
+
             try
             {
                 await _db.SaveChangesAsync(cancellationToken);
 
-                await TryCompactSwapDayScheduleAsync(
-                    source.TechnicianId,
-                    source.StartAt.Date,
-                    source.PlanId,
-                    timezoneOffsetMinutes,
-                    new HashSet<long> { source.Id, target.Id },
-                    cancellationToken);
+                var affectedTaskCount = await _db.Tasks
+                    .AsNoTracking()
+                    .Where(t => t.TechnicianId == source.TechnicianId)
+                    .Where(t => t.StartAt >= source.StartAt.Date && t.StartAt < source.StartAt.Date.AddDays(1))
+                    .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                    .Where(t => !source.PlanId.HasValue || t.PlanId == source.PlanId)
+                    .CountAsync(cancellationToken);
+                if (affectedTaskCount > 2)
+                {
+                    var swapAdjustPlan = await _scheduleRepairService.BuildPlanAsync(
+                        new ScheduleRepairRequest
+                        {
+                            ScenarioKind = ScheduleRepairScenarioKind.SwapAdjust,
+                            TechnicianId = source.TechnicianId,
+                            DayUtc = source.StartAt.Date,
+                            PlanId = source.PlanId,
+                            FilterByPlanId = source.PlanId.HasValue,
+                            TimezoneOffsetMinutes = timezoneOffsetMinutes,
+                            SourceTaskId = source.Id,
+                            TargetTaskId = target.Id
+                        }, cancellationToken);
+                    if (!swapAdjustPlan.Success)
+                    {
+                        if (transaction != null)
+                        {
+                            await transaction.RollbackAsync(cancellationToken);
+                        }
+
+                        await RevertSwapIfNeededAsync();
+                        return new TaskSwapResult(TaskSwapError.InvalidSwap, swapAdjustPlan.Message ?? "Sukeitimo koregavimas nepavyko.");
+                    }
+
+                    var swapAdjustApply = await _scheduleRepairService.ApplyPlanAsync(swapAdjustPlan, null, cancellationToken);
+                    if (!swapAdjustApply.Success)
+                    {
+                        if (transaction != null)
+                        {
+                            await transaction.RollbackAsync(cancellationToken);
+                        }
+
+                        await RevertSwapIfNeededAsync();
+                        return new TaskSwapResult(TaskSwapError.InvalidSwap, swapAdjustApply.Message ?? "Sukeitimo koregavimas nepavyko.");
+                    }
+                }
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -1234,7 +1624,18 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 strict.Error,
                 strict.Message ?? string.Empty);
 
-            if (strict.Error != TaskSwapError.TravelInfeasible && strict.Error != TaskSwapError.Overlap)
+            // Allow smart-planner fallback for recoverable failures:
+            //    TravelInfeasible  adjacent travel times don't fit; planner can reorder.
+            //    Overlap         another task is in the way; planner can shift it.
+            //   WorkWindow      longer task overflows window at target slot; planner
+            //   can pull it back to its earliest feasible slot.
+            var isRecoverable =
+                strict.Error == TaskSwapError.TravelInfeasible ||
+                strict.Error == TaskSwapError.Overlap ||
+                (strict.Error == TaskSwapError.InvalidSwap &&
+                 strict.InvalidSwapReason == InvalidSwapReason.WorkWindow);
+
+            if (!isRecoverable)
             {
                 return strict;
             }
@@ -1243,22 +1644,18 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             // Reset tracked state so smart planning/version checks read actual DB values.
             _db.ChangeTracker.Clear();
 
-            var smartPlan = await _smartSwapPlanner.BuildPlanAsync(
-                sourceTaskId,
-                targetTaskId,
-                timezoneOffsetMinutes,
-                cancellationToken);
+            var repairPlan = await BuildSwapRepairPlanAsync(sourceTaskId, targetTaskId, timezoneOffsetMinutes, cancellationToken);
 
-            if (!smartPlan.IsSuccess || smartPlan.Adjustments.Count == 0)
+            if (!repairPlan.Success || repairPlan.Adjustments.Count == 0)
             {
                 _logger.LogWarning(
                     "swap-smart.plan-fail sourceTaskId={SourceTaskId} targetTaskId={TargetTaskId} reason={Reason}",
                     sourceTaskId,
                     targetTaskId,
-                    smartPlan.Message ?? strict.Message ?? string.Empty);
+                    repairPlan.Message ?? strict.Message ?? string.Empty);
                 return new TaskSwapResult(
                     strict.Error,
-                    smartPlan.Message ?? strict.Message,
+                    repairPlan.Message ?? strict.Message,
                     CurrentSourceVersion: strict.CurrentSourceVersion,
                     CurrentTargetVersion: strict.CurrentTargetVersion);
             }
@@ -1293,36 +1690,37 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     CurrentTargetVersion: targetCurrentVersion);
             }
 
-            var adjustById = smartPlan.Adjustments.ToDictionary(x => x.TaskId, x => x);
-            var affectedIds = adjustById.Keys.ToList();
-            var affectedTasks = await _db.Tasks
-                .Include(t => t.ServiceObject)
-                .Where(t => affectedIds.Contains(t.Id))
-                .ToListAsync(cancellationToken);
-            if (affectedTasks.Count != affectedIds.Count)
-            {
-                return new TaskSwapResult(TaskSwapError.InvalidSwap, "Smart swap koregavimui truksta uzduociu.");
-            }
+                        var affectedIds = repairPlan.Adjustments.Select(x => x.TaskId).Distinct().ToList();
 
             await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
             try
             {
-                foreach (var task in affectedTasks)
+                var applyResult = await _scheduleRepairService.ApplyPlanAsync(repairPlan, null, cancellationToken);
+                if (!applyResult.Success)
                 {
-                    var adjustment = adjustById[task.Id];
-                    task.StartAt = adjustment.StartAt;
-                    task.EndAt = adjustment.EndAt;
+                    if (transaction != null)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                    }
+
+                    return new TaskSwapResult(TaskSwapError.InvalidSwap, applyResult.Message ?? "Smart swap koregavimo pritaikyti nepavyko.");
                 }
 
-                await _db.SaveChangesAsync(cancellationToken);
+                affectedIds = applyResult.AppliedTaskIds.ToList();
+                var affectedTasks = await _db.Tasks
+                    .Include(t => t.ServiceObject)
+                    .Where(t => affectedIds.Contains(t.Id))
+                    .ToListAsync(cancellationToken);
+                if (affectedTasks.Count != affectedIds.Count)
+                {
+                    if (transaction != null)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                    }
 
-                await TryCompactSwapDayScheduleAsync(
-                    source.TechnicianId,
-                    source.StartAt.Date,
-                    source.PlanId,
-                    timezoneOffsetMinutes,
-                    new HashSet<long> { source.Id, target.Id },
-                    cancellationToken);
+                    return new TaskSwapResult(TaskSwapError.InvalidSwap, "Smart swap koregavimui truksta uzduociu.");
+                }
+
 
                 await TriggerRouteEvaluationSafelyAsync(source.TechnicianId, source.StartAt.Date, "swap-smart", cancellationToken);
 
@@ -1341,12 +1739,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                         cancellationToken);
                     if (!travelCheck.IsFeasible)
                     {
-                        if (transaction != null)
-                        {
-                            await transaction.RollbackAsync(cancellationToken);
-                        }
-
+                        if (transaction != null) await transaction.RollbackAsync(cancellationToken);
                         return new TaskSwapResult(TaskSwapError.TravelInfeasible, travelCheck.Message ?? "Nepakanka laiko kelionei.");
+                    }
+
+                    var smartSwapInbound = Math.Max(0, travelCheck.InboundTravelMinutes ?? 0);
+                    if (!_timeService.IsTravelStartFeasible(task.StartAt, smartSwapInbound))
+                    {
+                        if (transaction != null) await transaction.RollbackAsync(cancellationToken);
+                        return new TaskSwapResult(TaskSwapError.TravelInfeasible, "Nepakanka laiko kelionei nuo dabartinio laiko.");
                     }
                 }
 
@@ -1378,7 +1779,71 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
         }
 
-        public async Task<TaskTimeUpdateResult> UpdateTaskTimeAsync(long taskId, DateTime targetDate, int targetSlotStartMinutes, int targetSlotEndMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<SwapSmartPreviewResult> PreviewSwapSmartAsync(
+            long sourceTaskId,
+            long targetTaskId,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default)
+        {
+            if (sourceTaskId == targetTaskId)
+                return SwapSmartPreviewResult.Hard("Negalima sukeisti uzduoties su pacia savimi.");
+
+            var source = await _db.Tasks.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == sourceTaskId, cancellationToken);
+            if (source == null)
+                return SwapSmartPreviewResult.Hard($"Task {sourceTaskId} was not found.");
+
+            var target = await _db.Tasks.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == targetTaskId, cancellationToken);
+            if (target == null)
+                return SwapSmartPreviewResult.Hard($"Task {targetTaskId} was not found.");
+
+            if (source.TechnicianId != target.TechnicianId)
+                return SwapSmartPreviewResult.Hard("Sukeitimas galimas tik to paties techniko uzduotims.");
+            if (source.StartAt.Date != target.StartAt.Date)
+                return SwapSmartPreviewResult.Hard("Sukeitimas galimas tik tame paciame dienos grafike.");
+            if (source.PlanId != target.PlanId)
+                return SwapSmartPreviewResult.Hard("Sukeitimas galimas tik to paties plano viduje.");
+            if (source.Status == ScheduleTaskStatus.Canceled || target.Status == ScheduleTaskStatus.Canceled)
+                return SwapSmartPreviewResult.Hard("Atsauktu uzduociu sukeisti negalima.");
+
+            // Check if a strict slot-swap would fit within the work window.
+            var sourceDuration = source.EndAt - source.StartAt;
+            var targetDuration = target.EndAt - target.StartAt;
+            if (sourceDuration <= TimeSpan.Zero || targetDuration <= TimeSpan.Zero)
+                return SwapSmartPreviewResult.Hard("Netinkama uzduoties trukme.");
+
+            var sourceNewEndLocal = target.StartAt.AddMinutes(timezoneOffsetMinutes) + sourceDuration;
+            var targetNewEndLocal = source.StartAt.AddMinutes(timezoneOffsetMinutes) + targetDuration;
+            var sourceNewStartLocal = target.StartAt.AddMinutes(timezoneOffsetMinutes);
+            var targetNewStartLocal = source.StartAt.AddMinutes(timezoneOffsetMinutes);
+
+            var window = GetWorkingWindow(source.TechnicianId, sourceNewStartLocal.Date);
+            var strictFits =
+                sourceNewEndLocal.Date == sourceNewStartLocal.Date &&   // no midnight overflow
+                targetNewEndLocal.Date == targetNewStartLocal.Date &&
+                (int)sourceNewStartLocal.TimeOfDay.TotalMinutes >= window.StartMinutes &&
+                (int)sourceNewEndLocal.TimeOfDay.TotalMinutes <= window.EndMinutes &&
+                (int)targetNewStartLocal.TimeOfDay.TotalMinutes >= window.StartMinutes &&
+                (int)targetNewEndLocal.TimeOfDay.TotalMinutes <= window.EndMinutes;
+
+            if (strictFits)
+            {
+                // Strict swap would pass the window check; it may still fail on travel
+                // or overlap, but report tentatively feasible without doing a full check.
+                return SwapSmartPreviewResult.Ok(smartRequired: false);
+            }
+
+            // Strict swap fails on window; try whether the smart planner can recover.
+            var plan = await BuildSwapRepairPlanAsync(sourceTaskId, targetTaskId, timezoneOffsetMinutes, cancellationToken);
+
+            if (plan.Success && plan.Adjustments.Count > 0)
+                return SwapSmartPreviewResult.Ok(smartRequired: true);
+
+            return SwapSmartPreviewResult.Fail(plan.Message ?? "Nepakanka laisvo laiko.");
+        }
+
+                public async Task<TaskTimeUpdateResult> UpdateTaskTimeAsync(long taskId, DateTime targetDate, int targetSlotStartMinutes, int targetSlotEndMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             var task = await _db.Tasks
                 .Include(t => t.Plan)
@@ -1400,15 +1865,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, "Pabaiga turi buti veliau nei pradzia.");
             }
 
-            // Single authorization check - TaskPermissionService handles time editability internally
             var canEdit = await _taskPermissionService.CanEditTaskAsync(task, user, timezoneOffsetMinutes);
             if (!canEdit)
             {
                 return new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, "Neturite teisiu keisti uzduoties laiko.");
             }
 
-            var validation = await ValidatePlacementAsync(
-                ignoreTaskId: task.Id,
+            var placementValidation = await ValidatePlacementForActionAsync(
+                ignoreTaskIds: [task.Id],
                 targetTechnicianId: task.TechnicianId,
                 targetDate: targetDate,
                 startMinutes: targetSlotStartMinutes,
@@ -1420,20 +1884,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 requireEndAligned: true,
                 cancellationToken: cancellationToken);
 
-            if (validation.Error != PlacementError.None)
+            if (!placementValidation.IsValid)
             {
-                return validation.Error switch
-                {
-                    PlacementError.NotEditable => new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, validation.Message),
-                    PlacementError.Overlap => new TaskTimeUpdateResult(TaskTimeUpdateError.Overlap, validation.Message),
-                    _ => new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, validation.Message)
-                };
+                return MapPlacementErrorForTimeUpdate(placementValidation);
             }
 
             var oldDay = task.StartAt.Date;
 
-            task.StartAt = validation.StartAt;
-            task.EndAt = validation.EndAt;
+            task.StartAt = placementValidation.StartAtUtc;
+            task.EndAt = placementValidation.EndAtUtc;
 
             await using var transaction = await BeginTransactionIfSupportedAsync(cancellationToken);
             try
@@ -1451,25 +1910,54 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .Where(o => o.Id == task.ServiceObjectId)
                 .Select(o => o.AddressId)
                 .FirstAsync(cancellationToken);
-
-            var timeTravelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
-                task.TechnicianId,
-                validation.StartAt,
-                validation.EndAt,
-                timeServiceAddressId,
-                targetSlotStartMinutes,
-                task.Id,
-                checkOverlap: false,
-                cancellationToken);
-            if (!timeTravelCheck.IsFeasible)
+            var timeTimingTravelValidation = await ValidateTimingAndTravelAsync(
+                taskDateLocal: targetDate.Date,
+                startMinutesLocal: targetSlotStartMinutes,
+                timezoneOffsetMinutes: timezoneOffsetMinutes,
+                technicianId: task.TechnicianId,
+                startAtUtc: placementValidation.StartAtUtc,
+                endAtUtc: placementValidation.EndAtUtc,
+                serviceAddressId: timeServiceAddressId,
+                excludeTaskId: task.Id,
+                cancellationToken: cancellationToken);
+            if (!timeTimingTravelValidation.IsValid)
             {
+                if (!timeTimingTravelValidation.IsInvalidWindow && await TryApplyTimingTravelRepairAsync(task, timeTimingTravelValidation, cancellationToken))
+                {
+                    await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "reschedule-repair", cancellationToken);
+                    if (transaction != null)
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                    }
+
+                    if (task.PlanId.HasValue)
+                    {
+                        await AdjustPlanSpanAsync(task.Plan!, cancellationToken);
+                        await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
+                    }
+
+                    if (targetDate.Date != oldDay)
+                    {
+                        await TriggerRouteEvaluationSafelyAsync(task.TechnicianId, oldDay, "reschedule-old-day", cancellationToken);
+                    }
+
+                    var repairedVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
+                    return new TaskTimeUpdateResult(
+                        TaskTimeUpdateError.None,
+                        BuildRepairAppliedMessage(timeTimingTravelValidation.Message, timeTimingTravelValidation.RepairPlan?.PrimaryPlacement, timezoneOffsetMinutes),
+                        task,
+                        repairedVersion);
+                }
+
                 if (transaction != null)
                 {
                     await transaction.RollbackAsync(cancellationToken);
                 }
-                return new TaskTimeUpdateResult(TaskTimeUpdateError.TravelInfeasible, timeTravelCheck.Message ?? "Nepakanka laiko kelionei.");
-            }
 
+                return new TaskTimeUpdateResult(
+                    timeTimingTravelValidation.IsInvalidWindow ? TaskTimeUpdateError.InvalidWindow : TaskTimeUpdateError.TravelInfeasible,
+                    timeTimingTravelValidation.Message);
+            }
             if (transaction != null)
             {
                 await transaction.CommitAsync(cancellationToken);
@@ -1489,8 +1977,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var newVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
             return new TaskTimeUpdateResult(TaskTimeUpdateError.None, Task: task, CurrentVersion: newVersion);
         }
-
-        public async Task<TaskDeleteResult> DeleteTaskAsync(long taskId, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<TaskDeleteResult> DeleteTaskAsync(long taskId, uint expectedVersion, bool autoCompact, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
         {
             _logger.LogInformation("svc.task.delete.requested taskId={TaskId} expectedVersion={Version}", taskId, expectedVersion);
 
@@ -1533,6 +2020,25 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             {
                 _logger.LogWarning("svc.task.delete.stale-on-save taskId={TaskId}", taskId);
                 return new TaskDeleteResult(TaskDeleteError.Stale, "Uzduotis pasikeite (stale).", CurrentVersion: currentVersion);
+            }
+
+            if (autoCompact)
+            {
+                var compactPlan = await _scheduleRepairService.BuildPlanAsync(
+                    new ScheduleRepairRequest
+                    {
+                        ScenarioKind = ScheduleRepairScenarioKind.Delete,
+                        TechnicianId = deletedTechnicianId,
+                        DayUtc = deletedDay,
+                        PlanId = planId,
+                        FilterByPlanId = planId.HasValue,
+                        TimezoneOffsetMinutes = timezoneOffsetMinutes
+                    },
+                    cancellationToken);
+                if (compactPlan.Success)
+                {
+                    await _scheduleRepairService.ApplyPlanAsync(compactPlan, null, cancellationToken);
+                }
             }
 
             if (planId.HasValue && plan != null)
@@ -1603,7 +2109,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             draft.Status = PlanStatus.Active;
             _db.Plans.Update(draft);
-
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             _logger.LogInformation("svc.plan.publish.ok draftId={DraftId} superseded={ActiveId}", draft.Id, active?.Id);
@@ -1638,8 +2143,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public async Task<DragPreviewResult> PreviewDragAsync(
             long taskId,
             long targetTechnicianId,
-            DateTime targetStartAt,
-            DateTime targetEndAt,
+            DateTime targetDate,
+            int targetSlotStartMinutes,
             UserContext user,
             int timezoneOffsetMinutes,
             CancellationToken cancellationToken = default)
@@ -1664,7 +2169,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (targetTask.PlanId == null)
             {
-                return new DragPreviewResult(DragPreviewError.NoPlan, "UÅ¾duotis neturi plano.");
+                return new DragPreviewResult(DragPreviewError.NoPlan, "Užduotis neturi plano.");
             }
 
             var hoverTech = await _db.Technicians
@@ -1676,6 +2181,16 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return new DragPreviewResult(DragPreviewError.TechnicianNotFound, "Technikas nerastas.");
             }
 
+            var duration = targetTask.EndAt - targetTask.StartAt;
+            var durationMinutesRaw = duration.TotalMinutes;
+            if (durationMinutesRaw <= 0 || Math.Abs(durationMinutesRaw - Math.Round(durationMinutesRaw)) > 0.0001)
+            {
+                return new DragPreviewResult(DragPreviewError.NoPlan, "Netinkama uzduoties trukme.");
+            }
+
+            var durationMinutes = (int)Math.Round(durationMinutesRaw);
+            var targetStartAt = _timeService.CreateUtcFromDateAndMinutes(targetDate.Date, targetSlotStartMinutes, timezoneOffsetMinutes);
+            var targetEndAt = targetStartAt.AddMinutes(durationMinutes);
             var dayStart = targetStartAt.Date;
             var weekStart = _timeService.GetWeekStart(dayStart);
             var weekEndExclusive = weekStart.AddDays(7);
@@ -1729,20 +2244,34 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .Where(t => scopeTasks.Any(task => task.TechnicianId == t.Id) || t.Id == targetTechnicianId)
                 .ToList();
 
+            var addressIds = scopeTasks
+                .Select(t => t.ServiceObject!.AddressId)
+                .Append(hoverTech.WorkplaceAddressId)
+                .Distinct();
+            
+            var routeLookup = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
+
             var response = new Models.DTOs.Responses.DragPreviewResponseDto
             {
                 DraggedTaskId = targetTask.Id
             };
 
-            var travelRoutes = await _db.TravelRoutes
-                .AsNoTracking()
-                .Select(r => new { r.FromAddressId, r.ToAddressId, r.DurationMinutes })
-                .ToListAsync(cancellationToken);
-            var routeLookup = travelRoutes
-                .GroupBy(r => (r.FromAddressId, r.ToAddressId))
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.OrderByDescending(x => x.DurationMinutes).First().DurationMinutes);
+            var targetPreviewValidation = TimingTravelValidationResult.Success;
+            {
+                var localTargetStartAt = _timeService.ConvertUtcToLocal(targetStartAt, timezoneOffsetMinutes);
+                var localTargetStartMinutes = (int)localTargetStartAt.TimeOfDay.TotalMinutes;
+
+                targetPreviewValidation = await ValidateTimingAndTravelAsync(
+                    taskDateLocal: localTargetStartAt.Date,
+                    startMinutesLocal: localTargetStartMinutes,
+                    timezoneOffsetMinutes: timezoneOffsetMinutes,
+                    technicianId: targetTechnicianId,
+                    startAtUtc: targetStartAt,
+                    endAtUtc: targetEndAt,
+                    serviceAddressId: targetTask.ServiceObject.AddressId,
+                    excludeTaskId: targetTask.Id,
+                    cancellationToken: cancellationToken);
+            }
 
             foreach (var tech in visibleTechs)
             {
@@ -1791,7 +2320,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     DailyUtilization = Math.Round(loadSnapshot.DailyUtilization, 2),
                     WeeklyUtilization = Math.Round(loadSnapshot.WeeklyUtilization, 2),
                     TravelTimeHours = Math.Round(travelHoursToShow, 2),
-                    RequiredInboundTravelMinutes = requiredInboundTravelMinutes
+                    RequiredInboundTravelMinutes = requiredInboundTravelMinutes,
+                    IsPlacementAllowed = tech.Id != targetTechnicianId || targetPreviewValidation.IsValid,
+                    RejectionCode = tech.Id == targetTechnicianId && !targetPreviewValidation.IsValid
+                        ? (targetPreviewValidation.IsInvalidWindow ? "InvalidWindow" : "TravelInfeasible")
+                        : null,
+                    RejectionMessage = tech.Id == targetTechnicianId && !targetPreviewValidation.IsValid
+                        ? targetPreviewValidation.Message
+                        : null
                 });
             }
 
@@ -1982,248 +2518,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             return routeLookup.TryGetValue((fromAddressId, toAddressId), out var minutes)
                 ? minutes
                 : null;
-        }
-
-        private async Task<bool> TryCompactSwapDayScheduleAsync(
-            long technicianId,
-            DateTime utcDay,
-            long? planId,
-            int timezoneOffsetMinutes,
-            ISet<long> fixedTaskIds,
-            CancellationToken cancellationToken)
-        {
-            if (fixedTaskIds.Count == 0)
-            {
-                return false;
-            }
-
-            var dayStartUtc = utcDay.Date;
-            var dayEndUtc = dayStartUtc.AddDays(1);
-            var dayTasksQuery = _db.Tasks
-                .Include(t => t.ServiceObject)
-                .Where(t => t.TechnicianId == technicianId)
-                .Where(t => t.StartAt >= dayStartUtc && t.StartAt < dayEndUtc)
-                .Where(t => t.Status != ScheduleTaskStatus.Canceled);
-
-            dayTasksQuery = planId.HasValue
-                ? dayTasksQuery.Where(t => t.PlanId == planId.Value)
-                : dayTasksQuery.Where(t => t.PlanId == null);
-
-            var dayTasks = await dayTasksQuery
-                .OrderBy(t => t.StartAt)
-                .ToListAsync(cancellationToken);
-
-            if (dayTasks.Count <= 1)
-            {
-                LogSwapCompactionSkipped("NoMovableTasks", technicianId, utcDay);
-                return false;
-            }
-
-            var movableCount = dayTasks.Count(t => !fixedTaskIds.Contains(t.Id));
-            if (movableCount == 0)
-            {
-                LogSwapCompactionSkipped("NoMovableTasks", technicianId, utcDay);
-                return false;
-            }
-
-            var workplaceAddressId = await _db.Technicians
-                .Where(t => t.Id == technicianId)
-                .Select(t => t.WorkplaceAddressId)
-                .FirstOrDefaultAsync(cancellationToken);
-            if (workplaceAddressId <= 0)
-            {
-                return false;
-            }
-
-            var addressIds = dayTasks
-                .Select(t => t.ServiceObject.AddressId)
-                .Append(workplaceAddressId)
-                .Distinct()
-                .ToList();
-
-            var routeRows = await _db.TravelRoutes
-                .AsNoTracking()
-                .Where(r => addressIds.Contains(r.FromAddressId) && addressIds.Contains(r.ToAddressId))
-                .ToListAsync(cancellationToken);
-            var routeLookup = routeRows
-                .GroupBy(r => new { r.FromAddressId, r.ToAddressId })
-                .ToDictionary(
-                    g => (g.Key.FromAddressId, g.Key.ToAddressId),
-                    g => g.Max(x => x.DurationMinutes));
-
-            var localDay = utcDay.AddMinutes(timezoneOffsetMinutes).Date;
-            var localWorkingStartUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, ScheduleGrid.DayStartMinutes, timezoneOffsetMinutes);
-            var localWorkingEndUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, ScheduleGrid.DayEndMinutes, timezoneOffsetMinutes);
-
-            var starts = dayTasks.ToDictionary(t => t.Id, t => t.StartAt);
-            var originalStarts = dayTasks.ToDictionary(t => t.Id, t => t.StartAt);
-            var durations = dayTasks.ToDictionary(t => t.Id, t => t.EndAt - t.StartAt);
-            var byId = dayTasks.ToDictionary(t => t.Id, t => t);
-            var ordered = dayTasks.Select(t => t.Id).ToList();
-
-            DateTime? prevEnd = null;
-            long prevAddressId = workplaceAddressId;
-
-            foreach (var taskId in ordered)
-            {
-                var task = byId[taskId];
-                var requiredMinutes = ResolveRouteMinutes(routeLookup, prevAddressId, task.ServiceObject.AddressId);
-                if (!requiredMinutes.HasValue)
-                {
-                    LogSwapCompactionSkipped("MissingRouteData", technicianId, utcDay);
-                    return false;
-                }
-
-                var minStartUtc = prevEnd.HasValue
-                    ? prevEnd.Value.AddMinutes(requiredMinutes.Value)
-                    : localWorkingStartUtc.AddMinutes(requiredMinutes.Value);
-                minStartUtc = AlignUtcToSlotCeiling(minStartUtc, timezoneOffsetMinutes);
-
-                var currentStart = originalStarts[taskId];
-                var nextStart = currentStart;
-
-                if (fixedTaskIds.Contains(taskId))
-                {
-                    if (currentStart < minStartUtc)
-                    {
-                        return false;
-                    }
-                }
-                else if (minStartUtc <= currentStart)
-                {
-                    nextStart = minStartUtc;
-                }
-
-                var nextEnd = nextStart + durations[taskId];
-                if (nextEnd > localWorkingEndUtc)
-                {
-                    return false;
-                }
-
-                starts[taskId] = nextStart;
-                prevEnd = nextEnd;
-                prevAddressId = task.ServiceObject.AddressId;
-            }
-
-            var beforeIdleMinutes = ComputeEffectiveIdleMinutes(ordered, originalStarts, durations, byId, routeLookup);
-            var afterIdleMinutes = ComputeEffectiveIdleMinutes(ordered, starts, durations, byId, routeLookup);
-            if (!beforeIdleMinutes.HasValue || !afterIdleMinutes.HasValue)
-            {
-                LogSwapCompactionSkipped("MissingRouteData", technicianId, utcDay);
-                return false;
-            }
-
-            if (afterIdleMinutes.Value >= beforeIdleMinutes.Value)
-            {
-                LogSwapCompactionSkipped("NoImprovement", technicianId, utcDay);
-                return false;
-            }
-
-            var changed = false;
-            foreach (var task in dayTasks)
-            {
-                var newStart = starts[task.Id];
-                if (newStart == task.StartAt)
-                {
-                    continue;
-                }
-
-                task.StartAt = newStart;
-                task.EndAt = newStart + durations[task.Id];
-                changed = true;
-            }
-
-            if (!changed)
-            {
-                LogSwapCompactionSkipped("NoImprovement", technicianId, utcDay);
-                return false;
-            }
-
-            await _db.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation(
-                "swap.compaction.applied technicianId={TechnicianId} day={Day:yyyy-MM-dd} idleBefore={IdleBefore} idleAfter={IdleAfter}",
-                technicianId,
-                utcDay.Date,
-                beforeIdleMinutes.Value,
-                afterIdleMinutes.Value);
-
-            return true;
-        }
-
-        private void LogSwapCompactionSkipped(string reason, long technicianId, DateTime utcDay)
-        {
-            _logger.LogInformation(
-                "swap.compaction.skipped reason={Reason} technicianId={TechnicianId} day={Day:yyyy-MM-dd}",
-                reason,
-                technicianId,
-                utcDay.Date);
-        }
-
-        private static int? ComputeEffectiveIdleMinutes(
-            IReadOnlyList<long> orderedTaskIds,
-            IReadOnlyDictionary<long, DateTime> starts,
-            IReadOnlyDictionary<long, TimeSpan> durations,
-            IReadOnlyDictionary<long, TaskEntity> tasksById,
-            IReadOnlyDictionary<(long From, long To), int> routeLookup)
-        {
-            var total = 0;
-            for (var i = 1; i < orderedTaskIds.Count; i++)
-            {
-                var prevTask = tasksById[orderedTaskIds[i - 1]];
-                var currentTask = tasksById[orderedTaskIds[i]];
-
-                var requiredMinutes = ResolveRouteMinutes(routeLookup, prevTask.ServiceObject.AddressId, currentTask.ServiceObject.AddressId);
-                if (!requiredMinutes.HasValue)
-                {
-                    return null;
-                }
-
-                var prevEnd = starts[prevTask.Id] + durations[prevTask.Id];
-                var gap = (int)Math.Floor((starts[currentTask.Id] - prevEnd).TotalMinutes) - requiredMinutes.Value;
-                if (gap > 0)
-                {
-                    total += gap;
-                }
-            }
-
-            return total;
-        }
-
-        private static int? ResolveRouteMinutes(
-            IReadOnlyDictionary<(long From, long To), int> routeLookup,
-            long fromAddressId,
-            long toAddressId)
-        {
-            if (fromAddressId == toAddressId)
-            {
-                return 0;
-            }
-
-            return routeLookup.TryGetValue((fromAddressId, toAddressId), out var minutes) && minutes > 0
-                ? minutes
-                : null;
-        }
-
-        private DateTime AlignUtcToSlotCeiling(DateTime utc, int timezoneOffsetMinutes)
-        {
-            var local = utc.AddMinutes(timezoneOffsetMinutes);
-            var localMinutes = (int)local.TimeOfDay.TotalMinutes;
-            var alignedMinutes = CeilingToSlot(localMinutes);
-
-            if (alignedMinutes == localMinutes)
-            {
-                return utc;
-            }
-
-            var alignedLocal = local.Date.AddMinutes(alignedMinutes);
-            return alignedLocal.AddMinutes(-timezoneOffsetMinutes);
-        }
-
-        private static int CeilingToSlot(int minutes)
-        {
-            var slot = ScheduleGrid.SlotSizeMinutes;
-            return ((minutes + slot - 1) / slot) * slot;
         }
 
         private async Task TriggerRouteEvaluationSafelyAsync(long technicianId, DateTime day, string action, CancellationToken cancellationToken)

@@ -201,6 +201,85 @@
     return { date: datePart, minutes: h * 60 + m };
   };
 
+
+  const persistCreatePlacementDataset = (modalEl, placement) => {
+    if (!modalEl || !placement) return;
+    modalEl.dataset.technicianId = String(placement.technicianId);
+    modalEl.dataset.targetDate = placement.targetDate;
+    modalEl.dataset.startMinutes = String(placement.startMinutes);
+    modalEl.dataset.endMinutes = String(placement.endMinutes);
+  };
+
+  const collectCreatePlacement = (modalEl) => {
+    if (!modalEl) return { ok: false, error: "Nepavyko nuskaityti uzduoties laiko." };
+
+    const startRaw = modalEl.querySelector("#taskDetailStart")?.value || "";
+    const endRaw = modalEl.querySelector("#taskDetailEnd")?.value || "";
+    const start = parseLocalDateTime(startRaw);
+    const end = parseLocalDateTime(endRaw);
+    const selectedTech = parseInt(modalEl.querySelector("#taskDetailAssignee")?.value || "0", 10);
+    const fallbackTech = parseInt(modalEl.dataset.technicianId || "0", 10);
+    const technicianId = Number.isFinite(selectedTech) && selectedTech > 0 ? selectedTech : fallbackTech;
+    const slotSize = grid?.getConfig?.()?.slotSizeMinutes || 30;
+
+    if (!start || !end) {
+      return { ok: false, error: "Nurodykite uzduoties pradzios ir pabaigos laika." };
+    }
+    if (start.date !== end.date) {
+      return { ok: false, error: "Uzduotis turi tilpti i viena diena." };
+    }
+    if (end.minutes <= start.minutes) {
+      return { ok: false, error: "Pabaigos laikas turi buti veliau nei pradzios laikas." };
+    }
+    if (start.minutes % slotSize !== 0 || end.minutes % slotSize !== 0) {
+      return { ok: false, error: "Laikas turi atitikti grafiko zingsni." };
+    }
+    if (!Number.isFinite(technicianId) || technicianId <= 0) {
+      return { ok: false, error: "Priskirtas darbuotojas yra privalomas." };
+    }
+
+    return {
+      ok: true,
+      technicianId,
+      targetDate: start.date,
+      startMinutes: start.minutes,
+      endMinutes: end.minutes,
+    };
+  };
+
+  const bindCreatePlacementSync = (modalEl) => {
+    if (!modalEl || modalEl.dataset.createPlacementSyncBound === "1") return;
+    modalEl.dataset.createPlacementSyncBound = "1";
+
+    const syncFromForm = () => {
+      if (modalEl.dataset.mode !== "create") return;
+      const placement = collectCreatePlacement(modalEl);
+      if (!placement.ok) return;
+
+      persistCreatePlacementDataset(modalEl, placement);
+      schedule.selection?.syncCreateRangeFromPanel?.({
+        technicianId: placement.technicianId,
+        targetDate: placement.targetDate,
+        startMinutes: placement.startMinutes,
+        endMinutes: placement.endMinutes,
+      });
+    };
+
+    const bind = (selector, eventName = "input") => {
+      const el = modalEl.querySelector(selector);
+      if (!el) return;
+      el.addEventListener(eventName, syncFromForm);
+      if (typeof $ !== "undefined" && $.fn.select2 && el.tagName === "SELECT") {
+        $(el).on("select2:select select2:clear", syncFromForm);
+      }
+    };
+
+    bind("#taskDetailStart", "input");
+    bind("#taskDetailEnd", "input");
+    bind("#taskDetailAssignee", "change");
+
+    modalEl._syncCreatePlacementFromForm = syncFromForm;
+  };
   const collectAssigneePreviewContext = (modalEl) => {
     const startRaw = modalEl.querySelector("#taskDetailStart")?.value || "";
     const endRaw = modalEl.querySelector("#taskDetailEnd")?.value || "";
@@ -636,6 +715,11 @@
       setVal("#taskDetailEnd", `${dateStr}T${endTime}`);
     }
 
+    const startInput = modalEl.querySelector("#taskDetailStart");
+    const endInput = modalEl.querySelector("#taskDetailEnd");
+    if (startInput) startInput.setAttribute("step", "1800");
+    if (endInput) endInput.setAttribute("step", "1800");
+
     const inputs = modalEl.querySelectorAll("input, select, textarea");
     inputs.forEach((el) => el.removeAttribute("disabled"));
 
@@ -647,6 +731,8 @@
     }
 
     applyFieldRestrictions(modalEl, technicianId, true);
+    bindCreatePlacementSync(modalEl);
+    modalEl._syncCreatePlacementFromForm?.();
   };
 
   // ========== Field Restrictions ==========
@@ -969,5 +1055,10 @@
     clearFieldCache,
     getField: (key) => modalFields[key],
     updatePanelTimes,
+    collectCreatePlacement,
   };
 })();
+
+
+
+

@@ -7,6 +7,8 @@ public class DeleteTaskRequestDto
     [Required]
     public uint Version { get; set; }
 
+    public bool AutoCompact { get; set; } = true;
+
     /// <summary>
     /// Browser timezone offset in minutes (negative for UTC+, positive for UTC-).
     /// Example: UTC+2 (EET) = -120, UTC-5 (EST) = 300

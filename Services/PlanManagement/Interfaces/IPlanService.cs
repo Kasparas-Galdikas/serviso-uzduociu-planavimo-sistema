@@ -50,7 +50,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         Task<TaskSwapResult> SwapTasksAsync(long sourceTaskId, long targetTaskId, uint sourceExpectedVersion, uint targetExpectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default);
         Task<TaskSwapResult> SwapTasksSmartAsync(long sourceTaskId, long targetTaskId, uint sourceExpectedVersion, uint targetExpectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default);
         Task<TaskTimeUpdateResult> UpdateTaskTimeAsync(long taskId, DateTime targetDate, int targetSlotStartMinutes, int targetSlotEndMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default);
-        Task<TaskDeleteResult> DeleteTaskAsync(long taskId, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default);
+        Task<TaskDeleteResult> DeleteTaskAsync(long taskId, uint expectedVersion, bool autoCompact, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default);
         Task PublishDraftAsync(CancellationToken cancellationToken = default);
         Task DiscardDraftAsync(CancellationToken cancellationToken = default);
 
@@ -60,10 +60,23 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         Task<DragPreviewResult> PreviewDragAsync(
             long taskId,
             long targetTechnicianId,
-            DateTime targetStartAt,
-            DateTime targetEndAt,
+            DateTime targetDate,
+            int targetSlotStartMinutes,
             UserContext user,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Dry-run feasibility check for a smart swap without persisting any changes.
+        /// Returns whether the swap is feasible and, if the smart planner would be needed,
+        /// what adjustments it would produce.
+        /// </summary>
+        Task<SwapSmartPreviewResult> PreviewSwapSmartAsync(
+            long sourceTaskId,
+            long targetTaskId,
             int timezoneOffsetMinutes,
             CancellationToken cancellationToken = default);
     }
 }
+
+

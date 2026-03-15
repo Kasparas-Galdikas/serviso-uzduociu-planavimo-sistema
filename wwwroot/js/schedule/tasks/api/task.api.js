@@ -119,6 +119,7 @@
    * @param {string|number} taskId - The task ID
    * @param {Object} taskData - The updated task data
    * @param {number} version - Current version for optimistic locking
+   * @param {{ autoCompact?: boolean }} [options] - Delete behavior options
    * @returns {Promise<{ success: boolean, version?: number, error?: string, validationErrors?: Object }>}
    */
   const updateTask = async (taskId, taskData, version) => {
@@ -162,6 +163,7 @@
    * @param {number} status - The new status
    * @param {string} comment - The technician comment
    * @param {number} version - Current version for optimistic locking
+   * @param {{ autoCompact?: boolean }} [options] - Delete behavior options
    * @returns {Promise<{ success: boolean, version?: number, error?: string }>}
    */
   const updateTaskAsTechnician = async (taskId, status, comment, version) => {
@@ -195,6 +197,7 @@
    * @param {string|number} taskId - The task ID
    * @param {Object} timeData - Time update data
    * @param {number} version - Current version for optimistic locking
+   * @param {{ autoCompact?: boolean }} [options] - Delete behavior options
    * @returns {Promise<{ success: boolean, version?: number, startAt?: string, endAt?: string, error?: string }>}
    */
   const updateTaskTime = async (taskId, timeData, version) => {
@@ -240,13 +243,15 @@
    * Delete a task.
    * @param {string|number} taskId - The task ID
    * @param {number} version - Current version for optimistic locking
+   * @param {{ autoCompact?: boolean }} [options] - Delete behavior options
    * @returns {Promise<{ success: boolean, error?: string, newVersion?: number }>}
    */
-  const deleteTask = async (taskId, version) => {
+  const deleteTask = async (taskId, version, options = {}) => {
     const timezoneOffset = grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
 
     const body = {
       version: Number.isFinite(version) ? version : 0,
+      autoCompact: options.autoCompact !== false,
       timezoneOffsetMinutes: timezoneOffset,
     };
 
@@ -356,6 +361,7 @@
    * @param {string|number} taskId - The task ID
    * @param {Object} moveData - Move data { targetTechnicianId, targetDate, targetSlotStartMinutes }
    * @param {number} version - Current version for optimistic locking
+   * @param {{ autoCompact?: boolean }} [options] - Delete behavior options
    * @returns {Promise<{ success: boolean, version?: number, error?: string }>}
    */
   const moveTask = async (taskId, moveData, version) => {
@@ -514,18 +520,13 @@
    */
   const fetchDragPreview = async (previewData) => {
     const timezoneOffset = grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
-    const durationMinutes = (previewData.durationSlots || 1) * 30;
-
-    // Convert the local grid slot to UTC for the API
-    const localDate = new Date(previewData.targetDate + "T00:00:00");
-    const targetStartAt = new Date(localDate.getTime() + previewData.startMinutes * 60000 + timezoneOffset * 60000);
-    const targetEndAt = new Date(targetStartAt.getTime() + durationMinutes * 60000);
 
     const body = {
       taskId: previewData.taskId,
       targetTechnicianId: previewData.technicianId,
-      targetStartAt: targetStartAt.toISOString(),
-      targetEndAt: targetEndAt.toISOString(),
+      targetDate: previewData.targetDate,
+      targetSlotStartMinutes: previewData.startMinutes,
+      timezoneOffsetMinutes: timezoneOffset,
     };
 
     try {
@@ -614,6 +615,44 @@
     return { success: true, version: responseData?.version };
   };
 
+  /**
+   * Dry-run feasibility check for a smart swap (no DB changes).
+   * @param {string|number} sourceTaskId
+   * @param {string|number} targetTaskId
+   * @returns {Promise<{ feasible: boolean, reason: string, requiresSmartAdjustment: boolean, message: string|null }>}
+   */
+  const fetchSwapPreview = async (sourceTaskId, targetTaskId) => {
+    const timezoneOffset = grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+    const body = {
+      targetTaskId: parseInt(targetTaskId) || 0,
+      timezoneOffsetMinutes: timezoneOffset,
+    };
+
+    try {
+      const resp = await (api?.post
+        ? api.post(`/api/tasks/${sourceTaskId}/swap-smart/preview`, body, {}, { event: "api.task.swap.preview", sourceTaskId, targetTaskId })
+        : fetch(`/api/tasks/${sourceTaskId}/swap-smart/preview`, {
+            method: "POST",
+            headers: { "X-Requested-With": "XMLHttpRequest", "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          }));
+
+      if (!resp.ok) {
+        return { feasible: false, reason: "Error", requiresSmartAdjustment: false, message: null };
+      }
+
+      const data = await resp.json().catch(() => null);
+      return {
+        feasible: data?.feasible ?? false,
+        reason: data?.reason ?? "Unknown",
+        requiresSmartAdjustment: data?.requiresSmartAdjustment ?? false,
+        message: data?.message ?? null,
+      };
+    } catch {
+      return { feasible: false, reason: "Error", requiresSmartAdjustment: false, message: null };
+    }
+  };
+
   // Export module
   window.schedule.tasks.api = {
     fetchTask,
@@ -625,6 +664,7 @@
     moveTask,
     swapTask,
     swapTaskSmart,
+    fetchSwapPreview,
     fetchDragPreview,
     fetchAssigneeTravelPreview,
     fetchTechnicians,
@@ -632,3 +672,5 @@
     clearCache,
   };
 })();
+
+

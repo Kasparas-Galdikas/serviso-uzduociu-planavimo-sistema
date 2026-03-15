@@ -16,6 +16,7 @@
   schedule.dragdrop?.initOnce?.();
   schedule.selection?.initOnce?.();
   schedule.filters?.initOnce?.();
+  schedule.nowLine?.initOnce?.();
 
   schedule.state?.emitViewChanged?.(schedule.state?.getQuery?.());
 })();

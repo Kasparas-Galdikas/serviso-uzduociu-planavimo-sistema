@@ -131,6 +131,7 @@ public sealed class RouteEvaluationWorkflowTests
         var cachedAddressId = await EnsureAddressAndObjectAsync(factory, cachedAddressText, "Cached Obj 301", 54.66m, 25.22m);
         await EnsureAddressCoordinatesAsync(factory, workplaceAddressId, 54.70m, 25.30m);
         await EnsureRouteAsync(factory, workplaceAddressId, cachedAddressId, 3.2m, 14);
+        await EnsureRouteAsync(factory, cachedAddressId, workplaceAddressId, 3.2m, 14); // reverse also needed – GetMissingSequentialPairsAsync checks both directions
 
         var baselinePairCount = await CountRoutesForPairAsync(factory, workplaceAddressId, cachedAddressId);
 

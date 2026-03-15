@@ -12,9 +12,11 @@ using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel;
+using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Xunit;
 
 namespace Tests.Unit.PlanManagement;
@@ -27,6 +29,7 @@ public class PlanServiceSwapCompactionTests
     private readonly IScheduleTimeService _time = Substitute.For<IScheduleTimeService>();
     private readonly IRouteEvaluationService _routeEvaluation = Substitute.For<IRouteEvaluationService>();
     private readonly ITaskTravelFeasibilityService _travelFeasibility = Substitute.For<ITaskTravelFeasibilityService>();
+    private readonly ITravelTimeResolver _travelResolver = Substitute.For<ITravelTimeResolver>();
     private readonly ILogger<PlanService> _logger = Substitute.For<ILogger<PlanService>>();
 
     public PlanServiceSwapCompactionTests()
@@ -38,6 +41,11 @@ public class PlanServiceSwapCompactionTests
             .Returns(Task.FromResult(true));
         _routeEvaluation.EvaluateTechnicianDayAsync(Arg.Any<long>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
+        _time.GetUserLocalToday(Arg.Any<int>()).Returns(DateTime.Today);
+        _time.GetEarliestCreatableStartMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(ScheduleGrid.DayStartMinutes);
+        _time.IsTravelStartFeasible(Arg.Any<DateTime>(), Arg.Any<int>()).Returns(true);
+        _time.GetCurrentUtcTime().Returns(DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc));
         _time.CreateUtcFromDateAndMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>())
             .Returns(call =>
             {
@@ -60,7 +68,7 @@ public class PlanServiceSwapCompactionTests
     }
 
     [Fact]
-    public async Task SwapTasks_WhenMiddleGapExists_CompactsFollowingTasks()
+    public async Task SwapTasks_WhenMiddleGapExists_SwapsTasksWithoutBreakingFollowingSchedule()
     {
         using var db = CreateContext();
         SeedTechnicianWithWorkplace(db, technicianId: 1, workplaceAddressId: 1);
@@ -85,11 +93,11 @@ public class PlanServiceSwapCompactionTests
         var reloaded = await db.Tasks.AsNoTracking().OrderBy(t => t.StartAt).ToListAsync();
         reloaded.Single(t => t.Id == source.Id).StartAt.Should().Be(day.AddHours(10));
         reloaded.Single(t => t.Id == target.Id).StartAt.Should().Be(day.AddHours(8));
-        reloaded.Single(t => t.Id == tail.Id).StartAt.Should().Be(day.AddHours(11).AddMinutes(30));
+        reloaded.Single(t => t.Id == tail.Id).StartAt.Should().Be(day.AddHours(14));
     }
 
     [Fact]
-    public async Task SwapTasks_WhenRouteMissing_KeepsScheduleUncompacted()
+    public async Task SwapTasks_WhenRouteMissing_FailsAndLeavesScheduleUnchanged()
     {
         using var db = CreateContext();
         SeedTechnicianWithWorkplace(db, technicianId: 1, workplaceAddressId: 1);
@@ -97,7 +105,6 @@ public class PlanServiceSwapCompactionTests
         SeedObjectOnAddress(db, addressId: 1, objectId: 11);
         SeedAddressAndObject(db, addressId: 4, objectId: 12);
         SeedRoute(db, 1, 2, 1);
-        // Missing 2 -> 4 route means compaction should be skipped.
 
         var day = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddDays(6), DateTimeKind.Utc);
         var source = SeedTask(db, 1, 10, day.AddHours(8), day.AddHours(9));
@@ -109,14 +116,25 @@ public class PlanServiceSwapCompactionTests
         var service = CreateService(db);
         var result = await service.SwapTasksAsync(source.Id, target.Id, 300, 400, Manager(), 0, CancellationToken.None);
 
-        result.Ok.Should().BeTrue();
+        result.Ok.Should().BeFalse();
+        result.Error.Should().Be(TaskSwapError.InvalidSwap);
 
-        var reloadedTail = await db.Tasks.AsNoTracking().SingleAsync(t => t.Id == tail.Id);
-        reloadedTail.StartAt.Should().Be(day.AddHours(14));
+        var reloaded = await db.Tasks.AsNoTracking().OrderBy(t => t.StartAt).ToListAsync();
+        reloaded.Single(t => t.Id == source.Id).StartAt.Should().Be(day.AddHours(8));
+        reloaded.Single(t => t.Id == target.Id).StartAt.Should().Be(day.AddHours(10));
+        reloaded.Single(t => t.Id == tail.Id).StartAt.Should().Be(day.AddHours(14));
     }
+    private PlanService CreateService(ScheduleDbContext db)
+    {
+        var repairService = new ScheduleRepairService(
+            db,
+            _time,
+            new RouteChainBuilder(db),
+            new DayScheduleFitCore(),
+            new TravelTimeResolver(db, Substitute.For<ILogger<TravelTimeResolver>>()));
 
-    private PlanService CreateService(ScheduleDbContext db) =>
-        new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _logger);
+        return new PlanService(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, repairService, _travelResolver, _logger);
+    }
 
     private static ScheduleDbContext CreateContext()
     {

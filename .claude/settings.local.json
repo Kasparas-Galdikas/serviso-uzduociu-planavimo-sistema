@@ -6,7 +6,23 @@
       "Bash(tree:*)",
       "Bash(grep -l \"dragstart\\\\|dragend\\\\|dragdrop\" /c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/wwwroot/js/schedule/**/*.js)",
       "Bash(xargs grep -l \"TableShellModel\\\\|FirstColumnWidth\")",
-      "Bash(xargs grep -l \"width\\\\|column\\\\|table\")"
+      "Bash(xargs grep -l \"width\\\\|column\\\\|table\")",
+      "Bash(dotnet test Tests/Tests.Unit/Tests.Unit.csproj --filter \"FullyQualifiedName~SmartSwapPlannerTests\" --no-build -v normal)",
+      "Bash(dotnet test Tests/Tests.Unit/Tests.Unit.csproj --filter \"FullyQualifiedName~SmartSwapPlannerTests\" --no-build -v detailed)",
+      "Bash(dotnet test tests/Tests.Unit --no-build)",
+      "Bash(dotnet test tests/Tests.Unit)",
+      "Bash(dotnet test tests/Tests.Unit --filter \"BuildPlanAsync_ThreeTaskDay\" -- xunit.diagnosticMessages=true)",
+      "Bash(dotnet test tests/Tests.Unit --filter \"BuildPlanAsync_ThreeTaskDay\")",
+      "Bash(dotnet test tests/Tests.Integration --filter \"CreateTask_WhenCoordsAndRouteExist_ReusesCacheWithoutMatrixCall\")",
+      "Bash(\"c:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/wwwroot/css/schedule/planning/planning-tables.css\")",
+      "Bash(grep -E \"\\\\.\\(cs|ts\\)$\")",
+      "Bash(grep -n \"GetEarliestCreatableStartMinutes\\\\|IsTravelStartFeasible\" /c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Services/Time/*.cs)",
+      "Bash(dotnet build:*)",
+      "Bash(find c:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema -type d -name *Test* -o -type d -name *Spec*)",
+      "Bash(dotnet test:*)",
+      "Bash(find c:UsersKasparasOneDriveDesktopserviso-uzduociu-planavimo-sistemawwwroot -type f \\\\\\(-name *.js -o -name *.ts -o -name *.tsx \\\\\\))",
+      "Bash(grep -r \"ExceptionFilter\\\\|ActionFilter\\\\|ResultFilter\\\\|ResourceFilter\" /c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema --include=*.cs)",
+      "Bash(ls -ltr /c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Migrations/*.cs)"
     ]
   }
 }

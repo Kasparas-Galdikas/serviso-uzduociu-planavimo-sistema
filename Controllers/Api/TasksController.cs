@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Authorization;
@@ -190,7 +190,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             }
 
             var user = _userContextResolver.GetCurrentUser();
-            var result = await _planService.DeleteTaskAsync(id, dto.Version, user, dto.TimezoneOffsetMinutes, cancellationToken);
+            var result = await _planService.DeleteTaskAsync(id, dto.Version, dto.AutoCompact, user, dto.TimezoneOffsetMinutes, cancellationToken);
 
             if (result.Ok && result.Task != null)
             {
@@ -281,19 +281,24 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return ValidationProblem(ModelState);
             }
 
-            if (dto.TargetEndAt <= dto.TargetStartAt)
+            if (!TryParseDate(dto.TargetDate, out var targetDate))
             {
-                return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlesnis už pradžia." });
+                return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
             }
 
-            var timezoneOffset = _timeService.GetBrowserTimezoneOffset(Request);
+            if (dto.TargetSlotStartMinutes < 0 || dto.TargetSlotStartMinutes >= 24 * 60)
+            {
+                return UnprocessableEntity(new { message = "Netinkamas pradzios laikas." });
+            }
+
+            var timezoneOffset = dto.TimezoneOffsetMinutes;
             var user = _userContextResolver.GetCurrentUser();
 
             var result = await _planService.PreviewDragAsync(
                 dto.TaskId,
                 dto.TargetTechnicianId,
-                dto.TargetStartAt,
-                dto.TargetEndAt,
+                targetDate,
+                dto.TargetSlotStartMinutes,
                 user,
                 timezoneOffset,
                 cancellationToken);
@@ -661,6 +666,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     TaskUpdateError.NotFound => NotFound(new { message = updateResult.Message }),
                     TaskUpdateError.NotEditable => StatusCode(403, new { message = updateResult.Message }),
                     TaskUpdateError.TechnicianNotFound => UnprocessableEntity(new { message = updateResult.Message }),
+                    TaskUpdateError.InvalidWindow => UnprocessableEntity(new { message = updateResult.Message }),
                     TaskUpdateError.TravelInfeasible => UnprocessableEntity(new { message = updateResult.Message }),
                     _ => UnprocessableEntity(new { message = updateResult.Message })
                 };
@@ -895,6 +901,29 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             };
         }
 
+        [HttpPost("{id:long}/swap-smart/preview")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> PreviewSwapSmart(long id, [FromBody] SwapSmartPreviewRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return ValidationProblem(ModelState);
+
+            var timezoneOffset = dto.TimezoneOffsetMinutes != 0
+                ? dto.TimezoneOffsetMinutes
+                : _timeService.GetBrowserTimezoneOffset(Request);
+
+            var result = await _planService.PreviewSwapSmartAsync(
+                id, dto.TargetTaskId, timezoneOffset, cancellationToken);
+
+            return Ok(new
+            {
+                feasible = result.Feasible,
+                reason = result.Reason.ToString(),
+                requiresSmartAdjustment = result.RequiresSmartAdjustment,
+                message = result.Message
+            });
+        }
+
         [HttpPatch("{id:long}/technician-update")]
         [Authorize] // Allow any authenticated user (not just managers)
         public async Task<IActionResult> TechnicianUpdateTask(long id, [FromBody] TechnicianUpdateTaskRequestDto dto, CancellationToken cancellationToken)
@@ -962,4 +991,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
     }
 }
+
+
 

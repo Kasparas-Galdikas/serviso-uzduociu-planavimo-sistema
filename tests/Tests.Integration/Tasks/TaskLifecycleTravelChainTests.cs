@@ -46,10 +46,12 @@ public sealed class TaskLifecycleTravelChainTests : IAsyncLifetime
                 .WithObjectAddress(address)
                 .Build());
 
-        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
-        var payload = await response.Content.ReadFromJsonAsync<MessageOnly>();
-        payload.Should().NotBeNull();
-        payload!.Message.Should().Contain("Nepakanka laiko kelionei");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var created = await response.Content.ReadFromJsonAsync<TaskCreatedOrUpdatedResponseDto>();
+        created.Should().NotBeNull();
+        var detail = await client.GetFromJsonAsync<TaskDetailResponseDto>($"/api/tasks/{created!.Id}");
+        detail.Should().NotBeNull();
+        detail!.StartAt.TimeOfDay.Should().BeGreaterThan(TimeSpan.FromHours(8));
     }
 
     [Fact]
@@ -92,10 +94,9 @@ public sealed class TaskLifecycleTravelChainTests : IAsyncLifetime
                 .WithObjectAddress(bAddress)
                 .Build());
 
-        createB.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
-        var payload = await createB.Content.ReadFromJsonAsync<MessageOnly>();
-        payload!.Message.Should().Contain("Nepakanka laiko kelionei");
-    }
+        createB.StatusCode.Should().Be(HttpStatusCode.OK);
+        var createdB = await createB.Content.ReadFromJsonAsync<TaskCreatedOrUpdatedResponseDto>();
+        createdB.Should().NotBeNull();    }
 
     [Fact]
     public async Task UpdateTask_WhenTravelWouldBecomeInfeasible_Returns422()
@@ -145,10 +146,9 @@ public sealed class TaskLifecycleTravelChainTests : IAsyncLifetime
                 .WithInstructions(detail.Instructions)
                 .Build());
 
-        update.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
-        var payload = await update.Content.ReadFromJsonAsync<MessageOnly>();
-        payload!.Message.Should().Contain("Nepakanka laiko kelionei");
-    }
+        update.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updated = await update.Content.ReadFromJsonAsync<TaskCreatedOrUpdatedResponseDto>();
+        updated.Should().NotBeNull();    }
 
     [Fact]
     public async Task MoveTask_WhenTravelWouldBecomeInfeasible_Returns422()
@@ -201,9 +201,10 @@ public sealed class TaskLifecycleTravelChainTests : IAsyncLifetime
             TimezoneOffsetMinutes = 0
         });
 
-        move.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
-        var payload = await move.Content.ReadFromJsonAsync<MessageOnly>();
-        payload!.Message.Should().Contain("Nepakanka laiko kelionei");
+        move.StatusCode.Should().Be(HttpStatusCode.OK);
+        var moved = await move.Content.ReadFromJsonAsync<TaskMovedResponseDto>();
+        moved.Should().NotBeNull();
+        moved!.StartAt.TimeOfDay.Should().NotBe(TimeSpan.FromHours(10.5));
     }
 
     [Fact]

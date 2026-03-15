@@ -349,7 +349,7 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SwapTask_WithMiddleGap_CompactsLaterTask()
+    public async Task SwapTask_WithMiddleGap_DoesNotMoveOutsideSegmentTask()
     {
         var techId = await GetTechnicianIdAsync("technician@test.com");
         var client = CreateClient("manager@test.com");
@@ -373,7 +373,7 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var thirdStartUtc = await GetTaskStartUtcAsync(third.Id);
-        thirdStartUtc.TimeOfDay.Should().Be(TimeSpan.FromHours(12));
+        thirdStartUtc.TimeOfDay.Should().Be(TimeSpan.FromHours(15));
     }
 
     #endregion
@@ -461,8 +461,6 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         var techId = await GetTechnicianIdAsync("technician@test.com");
         var client = CreateClient("manager@test.com");
         var targetDate = GetFutureDate(14);
-        var parsedDate = DateTime.Parse(targetDate);
-
         // Create two tasks: one to drag (9:00-10:00) and one at target location (11:00-12:00)
         var taskToDrag = await CreateTaskAsync(client, techId, targetDate, 9 * 60, 10 * 60, "Task to Drag");
         await CreateTaskAsync(client, techId, targetDate, 11 * 60, 12 * 60, "Blocking Task");
@@ -472,8 +470,9 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         {
             TaskId = taskToDrag.Id,
             TargetTechnicianId = techId,
-            TargetStartAt = DateTime.SpecifyKind(parsedDate.AddMinutes(10 * 60 + 30), DateTimeKind.Utc), // 10:30
-            TargetEndAt = DateTime.SpecifyKind(parsedDate.AddMinutes(11 * 60 + 30), DateTimeKind.Utc)    // 11:30
+            TargetDate = targetDate,
+            TargetSlotStartMinutes = 10 * 60 + 30,
+            TimezoneOffsetMinutes = 0
         });
 
         // Assert
@@ -495,8 +494,6 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         var techId = await GetTechnicianIdAsync("technician@test.com");
         var client = CreateClient("manager@test.com");
         var targetDate = GetFutureDate(14);
-        var parsedDate = DateTime.Parse(targetDate);
-
         // Create a task to drag (9:00-10:00)
         var taskToDrag = await CreateTaskAsync(client, techId, targetDate, 9 * 60, 10 * 60, "Task to Drag");
 
@@ -505,8 +502,9 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
         {
             TaskId = taskToDrag.Id,
             TargetTechnicianId = techId,
-            TargetStartAt = DateTime.SpecifyKind(parsedDate.AddMinutes(14 * 60), DateTimeKind.Utc), // 14:00
-            TargetEndAt = DateTime.SpecifyKind(parsedDate.AddMinutes(15 * 60), DateTimeKind.Utc)   // 15:00
+            TargetDate = targetDate,
+            TargetSlotStartMinutes = 14 * 60,
+            TimezoneOffsetMinutes = 0
         });
 
         // Assert

@@ -1191,3 +1191,11 @@ td.is-drag-origin .task-card.is-dragging {
 .task-card.task-card--success-flash {
   animation: flash-success 0.6s ease-out;
 }
+
+
+/* ── Current-time slot: header cell highlight only ──────────────────────── */
+th.time-header.is-now {
+  background-color: rgba(13, 110, 253, 0.12) !important;
+  color: rgba(13, 110, 253, 0.95);
+  font-weight: 600;
+}

@@ -25,5 +25,10 @@ namespace ServiceTaskPlanningSystem.Models.DTOs.Responses
         public double WeeklyUtilization { get; set; }
         public double TravelTimeHours { get; set; }
         public int? RequiredInboundTravelMinutes { get; set; }
+
+        // Placement guard feedback for drag preview
+        public bool IsPlacementAllowed { get; set; } = true;
+        public string? RejectionCode { get; set; }
+        public string? RejectionMessage { get; set; }
     }
 }
