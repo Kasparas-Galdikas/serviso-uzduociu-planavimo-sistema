@@ -131,7 +131,8 @@ public class PlanServiceSwapCompactionTests
             _time,
             new RouteChainBuilder(db),
             new DayScheduleFitCore(),
-            new TravelTimeResolver(db, Substitute.For<ILogger<TravelTimeResolver>>()));
+            new TravelTimeResolver(db, Substitute.For<ILogger<TravelTimeResolver>>()),
+            Substitute.For<IRouteEvaluationService>());
 
         return new PlanService(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, repairService, _travelResolver, _logger);
     }

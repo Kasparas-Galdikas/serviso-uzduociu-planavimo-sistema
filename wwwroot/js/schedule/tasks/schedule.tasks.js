@@ -1,4 +1,4 @@
-﻿/**
+/**
  * schedule.tasks.js
  *
  * Main orchestrator for task-related functionality.
@@ -19,6 +19,7 @@
   const table = schedule.table;
   const panel = schedule.panel;
   const selection = schedule.selection;
+  const toast = schedule.ui?.toast;
 
   // Import from sub-modules (with fallbacks for load order)
   const getModal = () => schedule.tasks?.modal;
@@ -29,6 +30,12 @@
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
+  const showError = (message, fallback = "Ivyko klaida.") =>
+    toast?.showError?.(message || fallback) || alert(message || fallback);
+  const showWarning = (message, fallback = "Patikrinkite veiksma.") =>
+    toast?.showWarning?.(message || fallback) || alert(message || fallback);
+  const showSuccess = (message, fallback = "Veiksmas pavyko.") =>
+    toast?.showSuccess?.(message || fallback) || alert(message || fallback);
 
   // ========== Active Card Management ==========
 
@@ -81,7 +88,7 @@
     const isManager = viewModelManagerFlag || tables?.dataset?.isManager === "true";
 
     if (mode === "update" && !taskId) {
-      alert("Nepavyko nustatyti uzduoties ID.");
+      showError("Nepavyko nustatyti uzduoties ID.");
       return;
     }
 
@@ -130,11 +137,12 @@
         if (result?.success) {
           const bsModal = window.bootstrap?.Offcanvas?.getInstance?.(modalEl);
           bsModal?.hide?.();
+          showSuccess("Uzduotis sukurta.");
         } else if (result?.validationErrors) {
           const fieldMapping = modal?.CREATE_FIELD_MAPPING || {};
           modal?.displayValidationErrors?.(modalEl, result.validationErrors, fieldMapping);
         } else if (result?.error) {
-          alert(result.error);
+          showWarning(result.error, "Nepavyko sukurti uzduoties.");
         }
 
       } else {
@@ -173,11 +181,12 @@
             if (!query.has("view")) query.set("view", "day");
             await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
             panel?.hide?.();
+            showSuccess("Uzduotis issaugota.");
           } else if (result?.validationErrors) {
             const fieldMapping = modal?.UPDATE_FIELD_MAPPING || {};
             modal?.displayValidationErrors?.(modalEl, result.validationErrors, fieldMapping);
           } else if (result?.error) {
-            alert(result.error);
+            showWarning(result.error, "Nepavyko issaugoti uzduoties.");
           }
         }
 
@@ -185,7 +194,7 @@
       }
     } catch (err) {
       logEvent("ui.task.save.error", { taskId, error: err?.message }, "error");
-      alert("Nepavyko issaugoti uzduoties.");
+      showError("Nepavyko issaugoti uzduoties.");
     } finally {
       setBusy(false);
     }
@@ -219,7 +228,7 @@
         panel?.show?.();
       } catch (err) {
         logEvent("ui.task.fetch.error", { taskId, error: err?.message }, "error");
-        alert("Nepavyko atidaryti uÅ¾duoties.");
+        showError("Nepavyko atidaryti uzduoties.");
       }
     } else {
       // CREATE MODE
@@ -300,7 +309,7 @@
       } catch (err) {
         clearActiveCards();
         logEvent("ui.task.fetch.error", { taskId, error: err?.message }, "error");
-        alert("Nepavyko atidaryti uzduoties duomenu.");
+        showError("Nepavyko atidaryti uzduoties duomenu.");
       }
     });
 

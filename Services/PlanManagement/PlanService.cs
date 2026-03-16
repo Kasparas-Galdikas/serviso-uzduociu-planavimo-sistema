@@ -95,6 +95,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         }
         private sealed record WorkingWindow(int StartMinutes, int EndMinutes);
 
+        private static string FormatDurationLabel(int totalMinutes)
+        {
+            var minutes = Math.Max(0, totalMinutes);
+            var hours = minutes / 60;
+            var remainder = minutes % 60;
+            return $"{hours:00}:{remainder:00}";
+        }
+
+        private static string FormatClockLabel(DateTime dateLocal, int minutesLocal)
+        {
+            var safeMinutes = Math.Max(0, minutesLocal);
+            return dateLocal.Date.AddMinutes(safeMinutes).ToString("HH:mm");
+        }
+
         private static WorkingWindow GetWorkingWindow(long technicianId, DateTime date) =>
             new WorkingWindow(ScheduleGrid.DayStartMinutes, ScheduleGrid.DayEndMinutes);
 
@@ -136,7 +150,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 ScheduleGrid.DayStartMinutes);
             if (taskDateLocal == userLocalToday && startMinutesLocal < earliestStartMinutes)
             {
-                return new TimingTravelValidationResult(TimingTravelViolationKind.InvalidWindow, "Negalima planuoti ankstesniame nei artimiausias galimas 30 min. laiko langas.", null);
+                var allowedFrom = FormatClockLabel(taskDateLocal, earliestStartMinutes);
+                return new TimingTravelValidationResult(TimingTravelViolationKind.InvalidWindow, $"Per ankstyvas planavimo laikas: galima nuo {allowedFrom}.", null);
             }
 
             var travelCheck = await _travelFeasibilityService.EvaluatePlacementAsync(
@@ -160,7 +175,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var inboundTravelMinutes = Math.Max(0, travelCheck.InboundTravelMinutes ?? 0);
             if (!_timeService.IsTravelStartFeasible(startAtUtc, inboundTravelMinutes))
             {
-                return new TimingTravelValidationResult(TimingTravelViolationKind.TravelInfeasible, "Nepakanka laiko kelionei nuo dabartinio laiko.", null);
+                var availableFromNowMinutes = Math.Max(0, (int)Math.Floor((startAtUtc - _timeService.GetCurrentUtcTime()).TotalMinutes));
+                var requiredDuration = FormatDurationLabel(inboundTravelMinutes);
+                var availableDuration = FormatDurationLabel(availableFromNowMinutes);
+                return new TimingTravelValidationResult(
+                    TimingTravelViolationKind.TravelInfeasible,
+                    $"Nepakanka laiko kelionei: kelionei reikia {requiredDuration}, nuo dabar laisvo laiko yra {availableDuration}.",
+                    null);
             }
 
             return TimingTravelValidationResult.Success;
@@ -377,7 +398,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             InvalidWindow,
             Overlap,
             TechnicianNotFound,
-            NotEditable
+            NotEditable,
+            Forbidden
         }
 
         private readonly record struct PlacementValidationResult(
@@ -429,6 +451,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             validation.Error switch
             {
                 PlacementError.NotEditable => new TaskCreateResult(TaskCreateError.NotEditable, validation.Message),
+                PlacementError.Forbidden => new TaskCreateResult(TaskCreateError.NotEditable, validation.Message),
                 PlacementError.TechnicianNotFound => new TaskCreateResult(TaskCreateError.TechnicianNotFound, validation.Message),
                 PlacementError.Overlap => new TaskCreateResult(TaskCreateError.Overlap, validation.Message),
                 _ => new TaskCreateResult(TaskCreateError.InvalidWindow, validation.Message)
@@ -438,6 +461,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             validation.Error switch
             {
                 PlacementError.NotEditable => new TaskUpdateResult(TaskUpdateError.NotEditable, validation.Message),
+                PlacementError.Forbidden => new TaskUpdateResult(TaskUpdateError.NotEditable, validation.Message),
                 PlacementError.TechnicianNotFound => new TaskUpdateResult(TaskUpdateError.TechnicianNotFound, validation.Message),
                 _ => new TaskUpdateResult(TaskUpdateError.InvalidWindow, validation.Message)
             };
@@ -445,7 +469,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private static TaskMoveResult MapPlacementErrorForMove(PlacementValidationResult validation) =>
             validation.Error switch
             {
-                PlacementError.NotEditable => new TaskMoveResult(TaskMoveError.NotEditable, "Neturite teisiu perkelti sios uzduoties."),
+                PlacementError.NotEditable => new TaskMoveResult(TaskMoveError.NotEditable, validation.Message),
+                PlacementError.Forbidden => new TaskMoveResult(TaskMoveError.NotEditable, "Neturite teisių perkelti šios užduoties."),
                 PlacementError.TechnicianNotFound => new TaskMoveResult(TaskMoveError.TechnicianNotFound, validation.Message),
                 PlacementError.Overlap => new TaskMoveResult(TaskMoveError.Overlap, validation.Message),
                 _ => new TaskMoveResult(TaskMoveError.InvalidWindow, validation.Message)
@@ -455,6 +480,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             validation.Error switch
             {
                 PlacementError.NotEditable => new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, validation.Message),
+                PlacementError.Forbidden => new TaskTimeUpdateResult(TaskTimeUpdateError.NotEditable, validation.Message),
                 PlacementError.Overlap => new TaskTimeUpdateResult(TaskTimeUpdateError.Overlap, validation.Message),
                 _ => new TaskTimeUpdateResult(TaskTimeUpdateError.InvalidWindow, validation.Message)
             };
@@ -462,6 +488,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private static TaskSwapResult MapPlacementErrorForSwap(PlacementValidationResult validation) =>
             validation.Error switch
             {
+                PlacementError.Forbidden => new TaskSwapResult(TaskSwapError.NotEditable, validation.Message),
                 PlacementError.Overlap => new TaskSwapResult(TaskSwapError.Overlap, validation.Message),
                 PlacementError.NotEditable => new TaskSwapResult(TaskSwapError.NotEditable, validation.Message),
                 _ => new TaskSwapResult(TaskSwapError.InvalidSwap, validation.Message,
@@ -487,12 +514,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (startMinutes % ScheduleGrid.SlotSizeMinutes != 0)
             {
-                return (PlacementError.InvalidWindow, "Laikas turi atitikti grafiko zingsni.", default, default, string.Empty);
+                return (PlacementError.InvalidWindow, "Laikas turi atitikti grafiko žingsni.", default, default, string.Empty);
             }
 
             if (requireEndAligned && (endMinutes % ScheduleGrid.SlotSizeMinutes != 0))
             {
-                return (PlacementError.InvalidWindow, "Pabaigos laikas turi atitikti grafiko zingsni.", default, default, string.Empty);
+                return (PlacementError.InvalidWindow, "Pabaigos laikas turi atitikti grafiko žingsnį.", default, default, string.Empty);
             }
 
             var window = GetWorkingWindow(targetTechnicianId, targetDate);
@@ -503,7 +530,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (endMinutes > window.EndMinutes)
             {
-                return (PlacementError.InvalidWindow, "Uzduotis netelpa i darbo laika.", default, default, string.Empty);
+                return (PlacementError.InvalidWindow, "Užduotis netelpa i darbo laiką.", default, default, string.Empty);
             }
 
             // Convert local time to UTC for storage
@@ -532,10 +559,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 Status = status
             };
 
+            if (!_timeService.IsTaskStillEditable(permissionProbe.EndAt))
+            {
+                return (PlacementError.InvalidWindow, "Negalima planuoti praeityje.", default, default, string.Empty);
+            }
+
+            if (permissionProbe.Status != ScheduleTaskStatus.InProgress)
+            {
+                return (PlacementError.NotEditable, "Užduoties nebegalima redaguoti, nes pakeistas jos statusas.", default, default, string.Empty);
+            }
+
             var canEdit = await _taskPermissionService.CanEditTaskAsync(permissionProbe, user, timezoneOffsetMinutes);
             if (!canEdit)
             {
-                return (PlacementError.NotEditable, "Neturite teisiu atlikti sio veiksmo.", default, default, string.Empty);
+                return (PlacementError.Forbidden, "Neturite teisių atlikti šio veiksmo.", default, default, string.Empty);
             }
 
             var hasOverlap = await _db.Tasks
@@ -548,7 +585,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (hasOverlap)
             {
-                return (PlacementError.Overlap, "Laiko langas uzimtas (persidengia uzduotys).", default, default, string.Empty);
+                return (PlacementError.Overlap, "Laiko langas užimtas (persidengia užduotys).", default, default, string.Empty);
             }
 
             return (PlacementError.None, string.Empty, startAt, endAt, targetTech.City ?? string.Empty);
@@ -691,7 +728,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             if (task == null)
             {
-                return new TechnicianUpdateResult(TechnicianUpdateError.TaskNotFound, "Uzduotis nerasta.");
+                return new TechnicianUpdateResult(TechnicianUpdateError.TaskNotFound, "Užduotis nerasta.");
             }
 
             // Single authorization check - TaskPermissionService is the sole authority
@@ -702,16 +739,16 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 // Check if it's an ownership issue for technicians (for specific error message)
                 if (user.IsTechnician && (!user.TechnicianId.HasValue || task.TechnicianId != user.TechnicianId.Value))
                 {
-                    return new TechnicianUpdateResult(TechnicianUpdateError.NotOwner, "Galite redaguoti tik savo uzduotis.");
+                    return new TechnicianUpdateResult(TechnicianUpdateError.NotOwner, "Galite redaguoti tik savo užduotis.");
                 }
-                return new TechnicianUpdateResult(TechnicianUpdateError.NotEditable, "Si uzduotis nebegali buti redaguojama.");
+                return new TechnicianUpdateResult(TechnicianUpdateError.NotEditable, "ši uzduotis nebegali buti redaguojama.");
             }
 
             // Check version
             var currentVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
             if (currentVersion != expectedVersion)
             {
-                return new TechnicianUpdateResult(TechnicianUpdateError.Stale, "Uzduotis buvo pakeista kito vartotojo. Prasome atnaujinti puslapi.", CurrentVersion: currentVersion);
+                return new TechnicianUpdateResult(TechnicianUpdateError.Stale, "Užduotis buvo pakeista kito vartotojo. Prašome atnaujinti puslapį.", CurrentVersion: currentVersion);
             }
 
             // Update task
@@ -732,7 +769,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
             catch (DbUpdateConcurrencyException)
             {
-                return new TechnicianUpdateResult(TechnicianUpdateError.Stale, "Uzduotis buvo pakeista kito vartotojo. Prasome atnaujinti puslapi.");
+                return new TechnicianUpdateResult(TechnicianUpdateError.Stale, "Užduotis buvo pakeista kito vartotojo. Prašome atnaujinti puslapį.");
             }
         }
 
@@ -1747,7 +1784,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     if (!_timeService.IsTravelStartFeasible(task.StartAt, smartSwapInbound))
                     {
                         if (transaction != null) await transaction.RollbackAsync(cancellationToken);
-                        return new TaskSwapResult(TaskSwapError.TravelInfeasible, "Nepakanka laiko kelionei nuo dabartinio laiko.");
+                        var availableFromNowMinutes = Math.Max(0, (int)Math.Floor((task.StartAt - _timeService.GetCurrentUtcTime()).TotalMinutes));
+        return new TaskSwapResult(
+            TaskSwapError.TravelInfeasible,
+            $"Nepakanka laiko kelionei: kelionei reikia {FormatDurationLabel(smartSwapInbound)}, nuo dabar laisvo laiko yra {FormatDurationLabel(availableFromNowMinutes)}.");
                     }
                 }
 
@@ -2247,8 +2287,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var addressIds = scopeTasks
                 .Select(t => t.ServiceObject!.AddressId)
                 .Append(hoverTech.WorkplaceAddressId)
-                .Distinct();
-            
+                .Distinct()
+                .ToList();
+
+            await _routeEvaluationService.EnsureAllPairwiseRoutesAsync(addressIds, cancellationToken);
             var routeLookup = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
 
             var response = new Models.DTOs.Responses.DragPreviewResponseDto

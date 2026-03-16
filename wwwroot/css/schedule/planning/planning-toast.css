@@ -1,0 +1,72 @@
+.schedule-toast-host {
+  z-index: 1090;
+  width: min(24rem, calc(100vw - 1rem));
+  pointer-events: none;
+}
+
+.schedule-toast-host .toast {
+  pointer-events: auto;
+}
+
+.schedule-toast {
+  background: linear-gradient(180deg, rgba(251, 248, 242, 0.98), rgba(245, 241, 234, 0.98));
+  border: 1px solid rgba(135, 106, 69, 0.18);
+  border-radius: 1rem;
+  overflow: hidden;
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.14);
+}
+
+.schedule-toast__header {
+  gap: 0.5rem;
+  background: rgba(255, 252, 246, 0.82);
+  border-bottom: 1px solid rgba(135, 106, 69, 0.14);
+}
+
+.schedule-toast__icon {
+  font-size: 1rem;
+}
+
+.schedule-toast--success {
+  border-left: 4px solid #2f855a;
+}
+
+.schedule-toast--info {
+  border-left: 4px solid #2563eb;
+}
+
+.schedule-toast--warning {
+  border-left: 4px solid #c27c00;
+}
+
+.schedule-toast--error {
+  border-left: 4px solid #dc3545;
+}
+
+.schedule-toast--success .schedule-toast__icon {
+  color: #198754;
+}
+
+.schedule-toast--info .schedule-toast__icon {
+  color: #0d6efd;
+}
+
+.schedule-toast--warning .schedule-toast__icon {
+  color: #c27c00;
+}
+
+.schedule-toast--error .schedule-toast__icon {
+  color: #dc3545;
+}
+
+.schedule-toast .toast-body {
+  color: #1f2937;
+}
+
+@media (max-width: 575.98px) {
+  .schedule-toast-host {
+    left: 0.5rem;
+    right: 0.5rem;
+    width: auto;
+    padding: 0.5rem;
+  }
+}

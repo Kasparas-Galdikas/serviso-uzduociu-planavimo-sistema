@@ -368,6 +368,91 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             }
         }
 
+        public async Task EnsureAllPairwiseRoutesAsync(IEnumerable<long> addressIds, CancellationToken cancellationToken = default)
+        {
+            if (!IsConfigured())
+                return;
+
+            var addressIdList = addressIds.Distinct().ToList();
+            if (addressIdList.Count < 2)
+                return;
+
+            var addresses = await _db.Addresses
+                .Where(a => addressIdList.Contains(a.Id))
+                .ToListAsync(cancellationToken);
+
+            if (addresses.Count < 2)
+                return;
+
+            await EnsureCoordinatesAsync(addresses, cancellationToken);
+
+            var missingPairs = await GetMissingAllPairwiseAsync(addresses, cancellationToken);
+
+            var required = addresses.Count * (addresses.Count - 1);
+            _logger.LogInformation(
+                "[route.ensure] addresses={Count} required={Required} missing={Missing}",
+                addresses.Count, required, missingPairs.Count);
+
+            if (missingPairs.Count == 0)
+                return;
+
+            var points = addresses
+                .Select(a => new GeoPoint(a.Latitude ?? 0m, a.Longitude ?? 0m))
+                .ToList();
+
+            try
+            {
+                var matrix = await _distanceApiClient.GetMatrixAsync(points, cancellationToken);
+                await UpsertSequentialRoutesAsync(addresses, matrix, missingPairs, cancellationToken);
+
+                _logger.LogInformation(
+                    "[route.ensure] fetch-result fetched={Fetched}",
+                    missingPairs.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[route.ensure] fetch-failed addresses={Count} missing={Missing}",
+                    addresses.Count, missingPairs.Count);
+            }
+        }
+
+        private async Task<List<(long FromAddressId, long ToAddressId, int MatrixFrom, int MatrixTo)>> GetMissingAllPairwiseAsync(
+            IReadOnlyList<AddressEntity> addresses,
+            CancellationToken cancellationToken)
+        {
+            var requiredPairs = Enumerable.Range(0, addresses.Count)
+                .SelectMany(i => Enumerable.Range(0, addresses.Count)
+                    .Where(j => j != i && addresses[i].Id != addresses[j].Id)
+                    .Select(j => (
+                        FromAddressId: addresses[i].Id,
+                        ToAddressId: addresses[j].Id,
+                        MatrixFrom: i,
+                        MatrixTo: j)))
+                .Distinct()
+                .ToList();
+
+            if (requiredPairs.Count == 0)
+                return new List<(long FromAddressId, long ToAddressId, int MatrixFrom, int MatrixTo)>();
+
+            var fromIds = requiredPairs.Select(p => p.FromAddressId).Distinct().ToList();
+            var toIds = requiredPairs.Select(p => p.ToAddressId).Distinct().ToList();
+
+            var existingPairs = await _db.TravelRoutes
+                .AsNoTracking()
+                .Where(r => fromIds.Contains(r.FromAddressId) && toIds.Contains(r.ToAddressId))
+                .Select(r => new { r.FromAddressId, r.ToAddressId })
+                .ToListAsync(cancellationToken);
+
+            var existingLookup = existingPairs
+                .Select(p => (p.FromAddressId, p.ToAddressId))
+                .ToHashSet();
+
+            return requiredPairs
+                .Where(p => !existingLookup.Contains((p.FromAddressId, p.ToAddressId)))
+                .ToList();
+        }
+
         private async Task<List<(long FromAddressId, long ToAddressId, int MatrixFrom, int MatrixTo)>> GetMissingSequentialPairsAsync(
             IReadOnlyList<AddressEntity> routeAddresses,
             CancellationToken cancellationToken)

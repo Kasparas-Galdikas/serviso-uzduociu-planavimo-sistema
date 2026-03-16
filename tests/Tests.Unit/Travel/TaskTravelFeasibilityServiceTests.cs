@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Xunit;
@@ -178,7 +179,7 @@ public sealed class TaskTravelFeasibilityServiceTests
     }
 
     private static TaskTravelFeasibilityService CreateService(ScheduleDbContext db) =>
-        new(new RouteChainBuilder(db), new TravelTimeResolver(db, Substitute.For<ILogger<TravelTimeResolver>>()), Substitute.For<ILogger<TaskTravelFeasibilityService>>());
+        new(new RouteChainBuilder(db), new TravelTimeResolver(db, Substitute.For<ILogger<TravelTimeResolver>>()), Substitute.For<IRouteEvaluationService>(), Substitute.For<ILogger<TaskTravelFeasibilityService>>());
 
     private static ScheduleDbContext CreateContext()
     {

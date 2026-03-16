@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 
@@ -83,19 +84,22 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
         private readonly IRouteChainBuilder _routeChainBuilder;
         private readonly IDayScheduleFitCore _fitCore;
         private readonly ITravelTimeResolver _travelResolver;
+        private readonly IRouteEvaluationService _routeEvalService;
 
         public ScheduleRepairService(
             ScheduleDbContext db,
             IScheduleTimeService timeService,
             IRouteChainBuilder routeChainBuilder,
             IDayScheduleFitCore fitCore,
-            ITravelTimeResolver travelResolver)
+            ITravelTimeResolver travelResolver,
+            IRouteEvaluationService routeEvalService)
         {
             _db = db;
             _timeService = timeService;
             _routeChainBuilder = routeChainBuilder;
             _fitCore = fitCore;
             _travelResolver = travelResolver;
+            _routeEvalService = routeEvalService;
         }
 
         public async Task<ScheduleRepairPlan> BuildPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken = default)
@@ -584,8 +588,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             var addressIds = tasks
                 .Select(t => t.AddressId)
                 .Append(workplaceAddressId)
-                .Distinct();
+                .Distinct()
+                .ToList();
 
+            await _routeEvalService.EnsureAllPairwiseRoutesAsync(addressIds, cancellationToken);
             return await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
         }
 

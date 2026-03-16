@@ -13,10 +13,16 @@
   // Import from shared modules
   const grid = schedule.grid;
   const dom = schedule.ui?.dom;
+  const toast = schedule.ui?.toast;
   const taskApi = schedule.tasks?.api;
 
   const logger = window.scheduleLogger;
-  const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
+  const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);  const showError = (message, fallback = "Ivyko klaida.") =>
+    toast?.showError?.(message || fallback) || alert(message || fallback);
+  const showWarning = (message, fallback = "Veiksmo atlikti nepavyko.") =>
+    toast?.showWarning?.(message || fallback) || alert(message || fallback);
+  const showSuccess = (message, fallback = "Pakeitimai išsaugoti.") =>
+    toast?.showSuccess?.(message || fallback) || alert(message || fallback);
 
   const isEditModeEnabled = () => {
     const toggles = document.querySelectorAll("[data-edit-toggle]");
@@ -1243,7 +1249,7 @@
         if (dragState.swapCandidate?.eligible === false) {
           const reason = dragState.swapCandidate.reason || "Sukeitimas neimanomas.";
           clearDragState();
-          alert(reason);
+          showWarning(reason);
           return;
         }
 
@@ -1391,7 +1397,7 @@
                 await new Promise(r => setTimeout(r, 350));
                 swapSnapshot = null;
               }
-              alert(result.error || "Nepavyko sukeisti uzduociu.");
+              showWarning(result.error, "Nepavyko sukeisti uzduociu.");
               await refreshAfterFailedSwap();
             } else {
               logEvent("ui.drag.drop.swap.status", {
@@ -1412,6 +1418,7 @@
               });
 
               await tasks?.refreshOpenTask?.(taskId);
+              showSuccess("Pakeitimai issaugoti.");
             }
           } else {
             const timezoneOffset = -new Date().getTimezoneOffset();
@@ -1455,7 +1462,7 @@
                 await new Promise(r => setTimeout(r, 350));
                 swapSnapshot = null;
               }
-              alert(msg);
+              showWarning(msg);
               await refreshAfterFailedSwap();
             } else if (!resp.ok) {
               smartSwapFailed = true;
@@ -1485,6 +1492,7 @@
               });
 
               await tasks?.refreshOpenTask?.(taskId);
+              showSuccess("Pakeitimai issaugoti.");
             }
           }
         } catch (err) {
@@ -1502,7 +1510,7 @@
             await new Promise(r => setTimeout(r, 350));
             swapSnapshot = null;
           }
-          alert("Nepavyko sukeisti uzduociu.");
+          showError("Nepavyko sukeisti uzduociu.");
           const query =
             state?.getQuery?.() ||
             new URLSearchParams(window.location.search || "");
@@ -1534,7 +1542,7 @@
           { taskId: dragState.taskId, rejectionCode: previewState.rejectionCode || dragState.previewRejectCode },
           "warn"
         );
-        alert(message);
+        showWarning(message, "Negalima planuoti pasirinktame laike.");
         clearDragState();
         return;
       }
@@ -1554,7 +1562,7 @@
           { taskId: dragState.taskId },
           "warn"
         );
-        alert("Užduotis netelpa į laisvą laiko tarpą.");
+        showWarning("Uzduotis netelpa i laisva laiko tarpa.");
         clearDragState();
         return;
       }
@@ -1709,7 +1717,7 @@
               optimistic.rollback();
               await new Promise(r => setTimeout(r, 350));
             }
-            alert(result.error || "Nepavyko perkelti užduoties.");
+            showWarning(result.error, "Nepavyko perkelti uzduoties.");
             await refreshAfterFailedMove();
           } else {
             const query =
@@ -1727,6 +1735,7 @@
             });
 
             await tasks?.refreshOpenTask?.(taskId);
+            showSuccess("Pakeitimai išsaugoti.");
           }
         } else {
           // Fallback: direct fetch
@@ -1767,7 +1776,7 @@
               optimistic.rollback();
               await new Promise(r => setTimeout(r, 350));
             }
-            alert(msg);
+            showWarning(msg);
             await refreshAfterFailedMove();
           } else if (!resp.ok) {
             throw new Error("Nepavyko perkelti užduoties.");
@@ -1783,6 +1792,7 @@
             });
 
             await tasks?.refreshOpenTask?.(taskId);
+            showSuccess("Pakeitimai išsaugoti.");
           }
         }
       } catch (err) {
@@ -1795,7 +1805,7 @@
           optimistic.rollback();
           await new Promise(r => setTimeout(r, 350));
         }
-        alert("Nepavyko perkelti užduoties.");
+        showError("Nepavyko perkelti uzduoties.");
 
         const query =
           state?.getQuery?.() ||
