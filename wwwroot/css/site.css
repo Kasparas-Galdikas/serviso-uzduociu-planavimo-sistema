@@ -32,7 +32,7 @@ body {
 }
 
 /* Schedule page: allow the grid to use as much screen width as available.
-   On small screens drop the 160px sidebar offset – the table scrolls
+   On small screens drop the 160px sidebar offset ï¿½ the table scrolls
    horizontally inside its own container so we just need full viewport width. */
 .page-container:has(#scheduleTables) {
   max-width: min(1920px, calc(100vw - 160px));
@@ -354,6 +354,20 @@ body {
   box-shadow: var(--focus-ring-shadow);
 }
 
+
+@media (min-width: 1200px) {
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 1035;
+  }
+
+  header .navbar {
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+}
 
 .footer {
   background: #fff;

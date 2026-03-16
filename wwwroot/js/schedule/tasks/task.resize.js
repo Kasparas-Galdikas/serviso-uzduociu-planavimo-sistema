@@ -20,6 +20,7 @@
   const state = schedule.state;
   const table = schedule.table;
   const grid = schedule.grid;
+  const toast = schedule.ui?.toast;
   const taskApi = schedule.tasks?.api;
 
   // Import slot overlay utilities (with fallbacks for load order)
@@ -27,6 +28,12 @@
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
+  const showError = (message, fallback = "Nepavyko pakeisti laiko.") =>
+    toast?.showError?.(message || fallback) || alert(message || fallback);
+  const showWarning = (message, fallback = "Nepavyko pakeisti laiko.") =>
+    toast?.showWarning?.(message || fallback) || alert(message || fallback);
+  const showSuccess = (message, fallback = "Uzduoties laikas pakeistas.") =>
+    toast?.showSuccess?.(message || fallback) || alert(message || fallback);
 
   // Helper: format time range using grid utility (stable load order)
   const formatRange = grid.formatRange;
@@ -115,7 +122,7 @@
         }, currentVersion);
 
         if (!result.success) {
-          alert(result.error || "Nepavyko pakeisti laiko.");
+          (result.errorType === "conflict" || result.errorType === "forbidden" ? showWarning : showError)(result.error, "Nepavyko pakeisti laiko.");
           if (result.errorType === "conflict" || result.errorType === "forbidden") {
             teardown();
           }
@@ -132,6 +139,7 @@
 
         const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
         await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
+        showSuccess("Uzduoties laikas pakeistas.");
         return true;
       }
 

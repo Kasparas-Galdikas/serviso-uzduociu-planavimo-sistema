@@ -21,10 +21,17 @@
   const table = schedule.table;
   const panel = schedule.panel;
   const dom = schedule.ui?.dom;
+  const toast = schedule.ui?.toast;
   const taskApi = schedule.tasks?.api;
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
+  const showError = (message, fallback = "Nepavyko istrinti uzduoties.") =>
+    toast?.showError?.(message || fallback) || alert(message || fallback);
+  const showWarning = (message, fallback = "Patikrinkite uzduoties busena.") =>
+    toast?.showWarning?.(message || fallback) || alert(message || fallback);
+  const showSuccess = (message, fallback = "Uzduotis istrinta.") =>
+    toast?.showSuccess?.(message || fallback) || alert(message || fallback);
 
   // ========== Helpers ==========
 
@@ -126,7 +133,7 @@
         if (result.newVersion) {
           updateTaskVersion(taskId, result.newVersion);
         }
-        alert(result.error || "Nepavyko ištrinti užduoties.");
+        (result.errorType === "conflict" || result.errorType === "forbidden" || result.errorType === "not_found" ? showWarning : showError)(result.error, "Nepavyko istrinti uzduoties.");
         return false;
       }
 
@@ -135,6 +142,7 @@
       await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
       panel?.hide?.();
       clearActiveCards();
+      showSuccess("Uzduotis istrinta.");
       return true;
     }
 
@@ -156,25 +164,25 @@
     if (resp.status === 409) {
       const body = await resp.json().catch(() => ({}));
       updateTaskVersion(taskId, body?.version);
-      alert(body.message || "Uzduotis pasikeite (stale). Atnaujinkite lentele.");
+      showWarning(body.message, "Uzduotis pasikeite. Atnaujinkite lentele.");
       return false;
     }
 
     if (resp.status === 403) {
       const body = await resp.json().catch(() => ({}));
-      alert(body.message || "Neturite teisiu istrinti sios uzduoties.");
+      showWarning(body.message, "Neturite teisiu istrinti sios uzduoties.");
       return false;
     }
 
     if (resp.status === 404) {
       const body = await resp.json().catch(() => ({}));
-      alert(body.message || "Uzduotis nerasta.");
+      showWarning(body.message, "Uzduotis nerasta.");
       return false;
     }
 
     if (!resp.ok) {
       const body = await resp.json().catch(() => ({}));
-      alert(body.message || "Nepavyko istrinti uzduoties.");
+      showError(body.message, "Nepavyko istrinti uzduoties.");
       return false;
     }
 
@@ -202,7 +210,7 @@
       const version = parseInt(modalEl.dataset.version || "0", 10);
       const autoCompact = getAutoCompactCheckbox()?.checked !== false;
       if (!taskId) {
-        alert("Nepavyko nustatyti uzduoties.");
+        showError("Nepavyko nustatyti uzduoties.");
         return;
       }
 
@@ -221,7 +229,7 @@
         }
       } catch (err) {
         logEvent("ui.task.delete.error", { taskId, error: err?.message }, "error");
-        alert("Nepavyko istrinti uzduoties.");
+        showError("Nepavyko istrinti uzduoties.");
       } finally {
         confirmBtn.disabled = false;
         confirmBtn.removeAttribute("aria-busy");

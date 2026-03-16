@@ -17,6 +17,13 @@ namespace ServiceTaskPlanningSystem.Services.Travel
         private readonly IRouteEvaluationService _routeEvalService;
         private readonly ILogger<TaskTravelFeasibilityService> _logger;
 
+        private static string FormatDurationLabel(int totalMinutes)
+        {
+            var minutes = Math.Max(0, totalMinutes);
+            var hours = minutes / 60;
+            var remainder = minutes % 60;
+            return $"{hours:00}:{remainder:00}";
+        }
         public TaskTravelFeasibilityService(
             IRouteChainBuilder routeChainBuilder,
             ITravelTimeResolver travelResolver,
@@ -176,7 +183,7 @@ namespace ServiceTaskPlanningSystem.Services.Travel
                 if (required > 0 && required > available)
                 {
                     var shownAvailable = Math.Max(0, available);
-                    var message = $"Nepakanka laiko kelionei: reikia {required} min., galima {shownAvailable} min.";
+                    var message = $"Nepakanka laiko kelionei: kelionei reikia {FormatDurationLabel(required)}, laisvo laiko yra {FormatDurationLabel(shownAvailable)}.";
 
                     LogSummary(
                         technicianId,

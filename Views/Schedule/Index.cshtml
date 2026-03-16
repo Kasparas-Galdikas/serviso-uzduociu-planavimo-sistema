@@ -170,7 +170,7 @@
                     window.location.href = redirect;
                 } catch (err) {
                     logger?.log('error', 'ui.plan.discard.error', { error: err?.message });
-                    alert('Nepavyko atsaukti juodrascio. Bandykite dar karta.');
+                    window.schedule?.ui?.toast?.showError?.('Nepavyko atsaukti juodrascio. Bandykite dar karta.') || alert('Nepavyko atsaukti juodrascio. Bandykite dar karta.');
                 } finally {
                     discardBtn.removeAttribute('aria-busy');
                     discardBtn.removeAttribute('disabled');
@@ -200,7 +200,7 @@
                     window.location.href = redirect;
                 } catch (err) {
                     logger?.log('error', 'ui.plan.publish.error', { error: err?.message });
-                    alert(err?.message || 'Nepavyko patvirtinti plano. Bandykite dar karta.');
+                    window.schedule?.ui?.toast?.showError?.(err?.message || 'Nepavyko patvirtinti plano. Bandykite dar karta.') || alert(err?.message || 'Nepavyko patvirtinti plano. Bandykite dar karta.');
                 } finally {
                     publishBtn.removeAttribute('aria-busy');
                     publishBtn.removeAttribute('disabled');
