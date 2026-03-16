@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 
@@ -13,15 +14,18 @@ namespace ServiceTaskPlanningSystem.Services.Travel
     {
         private readonly IRouteChainBuilder _routeChainBuilder;
         private readonly ITravelTimeResolver _travelResolver;
+        private readonly IRouteEvaluationService _routeEvalService;
         private readonly ILogger<TaskTravelFeasibilityService> _logger;
 
         public TaskTravelFeasibilityService(
             IRouteChainBuilder routeChainBuilder,
             ITravelTimeResolver travelResolver,
+            IRouteEvaluationService routeEvalService,
             ILogger<TaskTravelFeasibilityService> logger)
         {
             _routeChainBuilder = routeChainBuilder;
             _travelResolver = travelResolver;
+            _routeEvalService = routeEvalService;
             _logger = logger;
         }
 
@@ -118,8 +122,10 @@ namespace ServiceTaskPlanningSystem.Services.Travel
 
             var addressIds = pairsToCheck
                 .SelectMany(p => new[] { p.From, p.To })
-                .Distinct();
+                .Distinct()
+                .ToList();
 
+            await _routeEvalService.EnsureAllPairwiseRoutesAsync(addressIds, cancellationToken);
             var routes = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
 
             int? inbound = null;

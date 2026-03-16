@@ -2247,8 +2247,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var addressIds = scopeTasks
                 .Select(t => t.ServiceObject!.AddressId)
                 .Append(hoverTech.WorkplaceAddressId)
-                .Distinct();
-            
+                .Distinct()
+                .ToList();
+
+            await _routeEvaluationService.EnsureAllPairwiseRoutesAsync(addressIds, cancellationToken);
             var routeLookup = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
 
             var response = new Models.DTOs.Responses.DragPreviewResponseDto

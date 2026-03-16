@@ -10,6 +10,7 @@ using NSubstitute;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Xunit;
@@ -46,7 +47,7 @@ public sealed class ScheduleRepairServiceTests
                 }
             });
 
-        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db));
+        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db), Substitute.For<IRouteEvaluationService>());
 
         var result = await service.BuildPlanAsync(new ScheduleRepairRequest
         {
@@ -94,7 +95,7 @@ public sealed class ScheduleRepairServiceTests
 
         var timeService = CreateTimeService();
         timeService.GetCurrentUtcTime().Returns(DateTime.SpecifyKind(day.AddHours(4), DateTimeKind.Utc));
-        var service = new ScheduleRepairService(db, timeService, routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db));
+        var service = new ScheduleRepairService(db, timeService, routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db), Substitute.For<IRouteEvaluationService>());
 
         var result = await service.BuildPlanAsync(new ScheduleRepairRequest
         {
@@ -124,7 +125,7 @@ public sealed class ScheduleRepairServiceTests
         SeedRoute(db, 1, 4, 0);
         SeedAddress(db, 4, "New, City");
 
-        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore(), CreateTravelResolver(db));
+        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore(), CreateTravelResolver(db), Substitute.For<IRouteEvaluationService>());
 
         var result = await service.BuildPlanAsync(new ScheduleRepairRequest
         {
@@ -153,7 +154,7 @@ public sealed class ScheduleRepairServiceTests
         SeedTask(db, 100, 1, 10, day.AddHours(8), day.AddHours(9));
         SeedTask(db, 101, 1, 11, day.AddHours(11), day.AddHours(12));
 
-        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore(), CreateTravelResolver(db));
+        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore(), CreateTravelResolver(db), Substitute.For<IRouteEvaluationService>());
         var compactRequest = new ScheduleRepairRequest
         {
             ScenarioKind = ScheduleRepairScenarioKind.Compact,
@@ -207,7 +208,7 @@ public sealed class ScheduleRepairServiceTests
                 }
             });
 
-        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db));
+        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db), Substitute.For<IRouteEvaluationService>());
 
         var result = await service.BuildPlanAsync(new ScheduleRepairRequest
         {
@@ -257,7 +258,7 @@ public sealed class ScheduleRepairServiceTests
                 }
             });
 
-        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db));
+        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db), Substitute.For<IRouteEvaluationService>());
 
         var result = await service.BuildPlanAsync(new ScheduleRepairRequest
         {
@@ -310,7 +311,7 @@ public sealed class ScheduleRepairServiceTests
                 }
             });
 
-        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db));
+        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db), Substitute.For<IRouteEvaluationService>());
 
         var result = await service.BuildPlanAsync(new ScheduleRepairRequest
         {
@@ -340,7 +341,7 @@ public sealed class ScheduleRepairServiceTests
         SeedTask(db, 100, 1, 10, day.AddHours(8), day.AddHours(9));
         SeedTask(db, 101, 1, 11, day.AddHours(9), day.AddHours(10));
 
-        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore(), CreateTravelResolver(db));
+        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore(), CreateTravelResolver(db), Substitute.For<IRouteEvaluationService>());
         var plan = new ScheduleRepairPlan(
             true,
             null,
