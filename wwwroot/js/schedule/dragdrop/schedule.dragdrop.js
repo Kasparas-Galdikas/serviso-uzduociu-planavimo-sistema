@@ -1419,6 +1419,7 @@
 
               await tasks?.refreshOpenTask?.(taskId);
               showSuccess("Pakeitimai issaugoti.");
+              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
             }
           } else {
             const timezoneOffset = -new Date().getTimezoneOffset();
@@ -1493,6 +1494,7 @@
 
               await tasks?.refreshOpenTask?.(taskId);
               showSuccess("Pakeitimai issaugoti.");
+              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
             }
           }
         } catch (err) {
@@ -1736,6 +1738,7 @@
 
             await tasks?.refreshOpenTask?.(taskId);
             showSuccess("Pakeitimai išsaugoti.");
+            document.dispatchEvent(new CustomEvent("schedule:action-completed"));
           }
         } else {
           // Fallback: direct fetch
@@ -1793,6 +1796,7 @@
 
             await tasks?.refreshOpenTask?.(taskId);
             showSuccess("Pakeitimai išsaugoti.");
+            document.dispatchEvent(new CustomEvent("schedule:action-completed"));
           }
         }
       } catch (err) {

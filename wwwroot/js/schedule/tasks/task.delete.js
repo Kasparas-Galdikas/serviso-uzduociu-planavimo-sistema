@@ -143,6 +143,7 @@
       panel?.hide?.();
       clearActiveCards();
       showSuccess("Uzduotis istrinta.");
+      document.dispatchEvent(new CustomEvent("schedule:action-completed"));
       return true;
     }
 

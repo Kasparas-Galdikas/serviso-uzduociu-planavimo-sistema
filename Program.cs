@@ -13,6 +13,7 @@ using ServiceTaskPlanningSystem.Infrastructure.Logging;
 using ServiceTaskPlanningSystem.Services.ExternalServices.ExternalApis;
 using ServiceTaskPlanningSystem.Services.ExternalServices.Common;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
+using ServiceTaskPlanningSystem.Services.History;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -58,11 +59,11 @@ try
 {
     using var conn = new NpgsqlConnection(connectionString);
     await conn.OpenAsync();
-    Console.WriteLine("✅ Database connection test SUCCESS");
+    Console.WriteLine("âœ… Database connection test SUCCESS");
 }
 catch (Exception ex)
 {
-    Console.WriteLine("❌ Database connection test FAILED");
+    Console.WriteLine("âŒ Database connection test FAILED");
     Console.WriteLine(ex.GetType().FullName);
     Console.WriteLine(ex.Message);
     throw; // keep failing fast
@@ -118,6 +119,8 @@ builder.Services.AddTransient<DatabaseSeeder>();
 builder.Services.AddScoped<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 builder.Services.AddHostedService<EvaluationRepairService>();
 builder.Services.AddHostedService<TaskAutoExpirationService>();
+builder.Services.AddHostedService<TaskHistoryCleanupService>();
+builder.Services.AddScoped<ITaskHistoryWriter, TaskHistoryService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>

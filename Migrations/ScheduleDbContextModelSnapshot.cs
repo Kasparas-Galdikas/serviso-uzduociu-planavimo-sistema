@@ -186,6 +186,95 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.ToTable("service_objects", (string)null);
                 });
 
+            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.TaskActionLogEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ActionType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("action_type");
+
+                    b.Property<string>("ActorName")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasDefaultValue("")
+                        .HasColumnName("actor_name");
+
+                    b.Property<string>("ActorRole")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("")
+                        .HasColumnName("actor_role");
+
+                    b.Property<long?>("ActorUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("actor_user_id");
+
+                    b.Property<string>("CorrelationId")
+                        .HasColumnType("text")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<string>("DetailsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("details_json");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasDefaultValue("success")
+                        .HasColumnName("outcome");
+
+                    b.Property<long?>("PlanId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("plan_id");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("user")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("summary");
+
+                    b.Property<long?>("TaskId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("task_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_task_action_logs");
+
+                    b.HasIndex("PlanId", "OccurredAtUtc")
+                        .HasDatabaseName("ix_task_action_logs_plan_id_occurred_at_utc");
+
+                    b.HasIndex("TaskId", "OccurredAtUtc")
+                        .HasDatabaseName("ix_task_action_logs_task_id_occurred_at_utc");
+
+                    b.ToTable("task_action_logs", (string)null);
+                });
+
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.TaskEntity", b =>
                 {
                     b.Property<long>("Id")

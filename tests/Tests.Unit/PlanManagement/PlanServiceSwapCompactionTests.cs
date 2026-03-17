@@ -11,6 +11,7 @@ using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
+using ServiceTaskPlanningSystem.Services.History;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.Scheduling;
@@ -134,7 +135,7 @@ public class PlanServiceSwapCompactionTests
             new TravelTimeResolver(db, Substitute.For<ILogger<TravelTimeResolver>>()),
             Substitute.For<IRouteEvaluationService>());
 
-        return new PlanService(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, repairService, _travelResolver, _logger);
+        return new PlanService(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, repairService, _travelResolver, Substitute.For<ITaskHistoryWriter>(), _logger);
     }
 
     private static ScheduleDbContext CreateContext()

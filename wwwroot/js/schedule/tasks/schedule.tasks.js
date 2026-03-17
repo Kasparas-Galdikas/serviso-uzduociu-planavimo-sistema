@@ -138,6 +138,7 @@
           const bsModal = window.bootstrap?.Offcanvas?.getInstance?.(modalEl);
           bsModal?.hide?.();
           showSuccess("Uzduotis sukurta.");
+          document.dispatchEvent(new CustomEvent("schedule:action-completed"));
         } else if (result?.validationErrors) {
           const fieldMapping = modal?.CREATE_FIELD_MAPPING || {};
           modal?.displayValidationErrors?.(modalEl, result.validationErrors, fieldMapping);
@@ -182,6 +183,7 @@
             await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
             panel?.hide?.();
             showSuccess("Uzduotis issaugota.");
+            document.dispatchEvent(new CustomEvent("schedule:action-completed"));
           } else if (result?.validationErrors) {
             const fieldMapping = modal?.UPDATE_FIELD_MAPPING || {};
             modal?.displayValidationErrors?.(modalEl, result.validationErrors, fieldMapping);

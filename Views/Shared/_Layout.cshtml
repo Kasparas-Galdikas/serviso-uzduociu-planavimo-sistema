@@ -9,7 +9,6 @@
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/schedule/schedule.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/ServiceTaskPlanningSystem.styles.css" asp-append-version="true" />
-    <!-- Select2 for searchable dropdowns -->
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
     <link rel="stylesheet" href="~/css/select2-overrides.css" asp-append-version="true" />
@@ -19,6 +18,7 @@
         var isAuthPage = Context?.Request?.Path.StartsWithSegments("/Authentication") ?? false;
         var currentEmail = Context?.Request?.Cookies["stsps_email"] ?? string.Empty;
         var isLoggedIn = Context?.User?.Identity?.IsAuthenticated == true;
+        var isPlanner = isLoggedIn && (Context?.User?.IsInRole("manager") ?? false);
         var currentName = Context?.User?.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value?.Trim() ?? string.Empty;
         var displayName = !string.IsNullOrWhiteSpace(currentName)
             ? currentName
@@ -37,7 +37,6 @@
                 </button>
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
                     <ul class="navbar-nav flex-grow-1">
-
                         <li class="d-sm-none"><hr class="my-0" /></li>
 
                         @if (!isAuthPage && isLoggedIn)
@@ -61,6 +60,17 @@
 
                         @if (!isAuthPage && isLoggedIn)
                         {
+                            @if (isPlanner)
+                            {
+                                <li class="d-sm-none"><hr class="my-1" /></li>
+                                <li class="d-sm-none">
+                                    <button class="nav-link nav-history-trigger w-100 text-start" type="button" data-bs-toggle="offcanvas" data-bs-target="#scheduleHistoryPanel" aria-controls="scheduleHistoryPanel">
+                                        <i class="bi bi-clock-history" aria-hidden="true"></i>
+                                        <span>Istorija</span>
+                                    </button>
+                                </li>
+                            }
+
                             <li class="d-sm-none"><hr class="my-1" /></li>
                             <li class="d-sm-none">
                                 <a class="nav-link nav-mobile-logout" asp-controller="Authentication" asp-action="Logout">
@@ -76,10 +86,18 @@
                             </li>
                         }
                     </ul>
-                    <!-- Avatar dropdown � sm+ only -->
+
                     <div class="d-none d-sm-flex align-items-center gap-2">
                         @if (!isAuthPage && isLoggedIn)
                         {
+                            @if (isPlanner)
+                            {
+                                <button class="btn nav-history-trigger nav-history-trigger-desktop" type="button" data-bs-toggle="offcanvas" data-bs-target="#scheduleHistoryPanel" aria-controls="scheduleHistoryPanel">
+                                    <i class="bi bi-clock-history" aria-hidden="true"></i>
+                                    <span>Istorija</span>
+                                </button>
+                            }
+
                             <div class="dropdown">
                                 <button class="btn p-0 border-0 bg-transparent nav-avatar-btn dropdown-toggle d-flex align-items-center"
                                         type="button"
@@ -118,6 +136,7 @@
             </div>
         </nav>
     </header>
+
     <main role="main" class="pb-3">
         <div class="page-container">
             @RenderBody()
@@ -129,28 +148,39 @@
          aria-live="polite"
          aria-atomic="true"></div>
 
+    @if (isPlanner)
+    {
+        <div class="offcanvas offcanvas-end schedule-history-panel" tabindex="-1" id="scheduleHistoryPanel" aria-labelledby="scheduleHistoryPanelLabel">
+            <div class="offcanvas-header">
+                <div>
+                    <h5 class="offcanvas-title" id="scheduleHistoryPanelLabel">Veiksmų istorija</h5>
+                    <div class="small text-muted">Naujausi veiksmai rodomi viršuje</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="UÅ¾daryti"></button>
+            </div>
+            <div class="offcanvas-body">
+                <div id="scheduleHistoryLoading" class="small text-muted">Kraunama istorija...</div>
+                <div id="scheduleHistoryEmpty" class="schedule-history-empty d-none">Istorijos įrašų vis dar nėra.</div>
+                <div id="scheduleHistoryList" class="schedule-history-list"></div>
+            </div>
+        </div>
+    }
+
     @await RenderSectionAsync("Overlays", required: false)
 
     <footer class="footer text-muted">
         <div class="container d-flex justify-content-center align-items-center">
-            <span>&copy; 2025 - Planavimo sistema</span>
+            <span>&copy; 2026 - Planavimo sistema</span>
         </div>
     </footer>
+
     <script src="~/js/schedule/infra/timezone.js" asp-append-version="true"></script>
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/schedule/ui/schedule.toast.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/history/schedule.history.js" asp-append-version="true"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
-
-
-
-
-
-
-
-
-

@@ -15,4 +15,3 @@ public class TaskSwappedResponseDto
     public long TechnicianId { get; set; }
     public LoadSnapshotDto? Load { get; set; }
 }
-

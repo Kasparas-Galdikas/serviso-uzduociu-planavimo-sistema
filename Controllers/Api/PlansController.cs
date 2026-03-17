@@ -1,10 +1,14 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
-using ServiceTaskPlanningSystem.Services.PlanManagement;
-using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Models.DTOs.Responses;
+using ServiceTaskPlanningSystem.Services.PlanManagement;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -15,12 +19,14 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         private readonly IPlanService _planService;
         private readonly IEvaluationEngine _evaluationEngine;
         private readonly ILogger<PlansController> _logger;
+        private readonly ScheduleDbContext _db;
 
-        public PlansController(IPlanService planService, IEvaluationEngine evaluationEngine, ILogger<PlansController> logger)
+        public PlansController(IPlanService planService, IEvaluationEngine evaluationEngine, ILogger<PlansController> logger, ScheduleDbContext db)
         {
             _planService = planService;
             _evaluationEngine = evaluationEngine;
             _logger = logger;
+            _db = db;
         }
 
         public class CreateDraftRequest
@@ -89,6 +95,33 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             _logger.LogInformation("api.plan.discard.ok");
             Response.Headers["X-Trace-Summary"] = "plan.discard.ok";
             return Ok();
+        }
+
+        [HttpGet("{planId:long}/history")]
+        [Authorize(Policy = "RequireManager")]
+        public async Task<IActionResult> GetPlanHistory(long planId, [FromQuery] int limit = 50, CancellationToken cancellationToken = default)
+        {
+            var clampedLimit = Math.Clamp(limit, 1, 200);
+            var items = await _db.TaskActionLogs
+                .AsNoTracking()
+                .Where(l => l.PlanId == planId)
+                .OrderByDescending(l => l.OccurredAtUtc)
+                .Take(clampedLimit)
+                .Select(l => new TaskHistoryItemDto
+                {
+                    Id = l.Id,
+                    TaskId = l.TaskId,
+                    ActionType = l.ActionType,
+                    Outcome = l.Outcome,
+                    Summary = l.Summary,
+                    OccurredAt = l.OccurredAtUtc,
+                    ActorDisplayName = l.ActorName,
+                    ActorRole = l.ActorRole,
+                    Source = l.Source,
+                    DetailsJson = l.DetailsJson
+                })
+                .ToListAsync(cancellationToken);
+            return Ok(items);
         }
 
         [HttpPost("recalculate-evaluations")]

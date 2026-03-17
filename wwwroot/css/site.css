@@ -32,7 +32,7 @@ body {
 }
 
 /* Schedule page: allow the grid to use as much screen width as available.
-   On small screens drop the 160px sidebar offset � the table scrolls
+   On small screens drop the 160px sidebar offset ï¿½ the table scrolls
    horizontally inside its own container so we just need full viewport width. */
 .page-container:has(#scheduleTables) {
   max-width: min(1920px, calc(100vw - 160px));
@@ -900,3 +900,139 @@ textarea:focus {
 
 
 
+
+.nav-history-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid var(--neutral-200);
+  background: linear-gradient(180deg, #ffffff 0%, #f5f7fa 100%);
+  color: var(--neutral-800);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.nav-history-trigger:hover,
+.nav-history-trigger:focus {
+  background: linear-gradient(180deg, #fdfefe 0%, #eef3f8 100%);
+  border-color: var(--neutral-300);
+  color: var(--accent-700);
+}
+
+.nav-history-trigger-desktop {
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+}
+
+.navbar .nav-history-trigger {
+  border-radius: var(--radius-md);
+}
+
+.schedule-history-panel {
+  --bs-offcanvas-width: min(420px, 100vw);
+  border-left: 1px solid var(--neutral-200);
+  background: linear-gradient(180deg, #fbfcfe 0%, #f4f7fb 100%);
+  box-shadow: var(--shadow-lg);
+}
+
+.schedule-history-panel .offcanvas-header {
+  border-bottom: 1px solid var(--neutral-200);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.schedule-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.schedule-history-empty {
+  padding: 1rem;
+  border: 1px dashed var(--neutral-300);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--neutral-600);
+}
+
+.schedule-history-item {
+  padding: 0.95rem 1rem;
+  border: 1px solid var(--neutral-200);
+  border-left-width: 4px;
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--shadow-sm);
+}
+
+.schedule-history-item__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
+.schedule-history-item__action {
+  flex: 1;
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--neutral-800);
+}
+
+.schedule-history-item__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.schedule-history-item__time {
+  color: var(--neutral-500);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.schedule-history-item__message {
+  margin: 0;
+  color: var(--neutral-900);
+  font-weight: 600;
+}
+
+.schedule-history-item__meta {
+  margin-top: 0.55rem;
+  color: var(--neutral-600);
+  font-size: 0.85rem;
+}
+
+.schedule-history-item.outcome-success {
+  border-left-color: #1f7a45;
+}
+
+.schedule-history-item.outcome-success .schedule-history-item__badge {
+  color: #1f7a45;
+}
+
+.schedule-history-item.outcome-warning {
+  border-left-color: #b7791f;
+}
+
+.schedule-history-item.outcome-warning .schedule-history-item__badge {
+  color: #b7791f;
+}
+
+.schedule-history-item.outcome-error {
+  border-left-color: #b42318;
+}
+
+.schedule-history-item.outcome-error .schedule-history-item__badge {
+  color: #b42318;
+}
+
+@media (max-width: 991.98px) {
+  .schedule-history-panel {
+    --bs-offcanvas-width: min(100vw, 360px);
+  }
+}
