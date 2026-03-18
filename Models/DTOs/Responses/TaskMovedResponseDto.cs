@@ -30,6 +30,12 @@ public class TaskMovedResponseDto
     public DateTime EndAt { get; set; }
 
     /// <summary>
+    /// Human-readable message describing the operation result (from TaskHistoryMessages).
+    /// Use this for toast notifications to match what is saved in history.
+    /// </summary>
+    public string? Message { get; set; }
+
+    /// <summary>
     /// Snapshot of technician load after the move.
     /// </summary>
     public LoadSnapshotDto? Load { get; set; }

@@ -10,13 +10,17 @@
 
     <div class="offcanvas-header border-bottom">
         <div>
-            <h5 class="offcanvas-title" id="taskDetailLabel">Užduoties informacija</h5>
-            <small class="text-muted" id="taskDetailCode">Kodas:</small>
+            <h5 class="offcanvas-title" id="taskDetailLabel" data-task-title="Užduoties informacija" data-history-title="Veiksmų istorija">Užduoties informacija</h5>
+            <small class="text-muted" id="taskDetailCode" data-task-subtitle="Kodas:" data-history-subtitle="">Kodas:</small>
+            <small class="text-muted d-none" id="taskDetailHistorySubtitle">Naujausi veiksmai rodomi viršuje</small>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Uždaryti"></button>
     </div>
 
     <div class="offcanvas-body">
+
+        <!-- Task Content Container -->
+        <div id="taskPanelContent">
 
         <!-- PLANAVIMAS -->
         <section class="mb-4 task-section">
@@ -226,8 +230,13 @@
             <hr>
         </section>
 
+        </div>
+
+        <!-- History Content Container -->
+        @await Html.PartialAsync("~/Views/Schedule/Partials/_HistoryContent.cshtml")
+
         <!-- FOOTER -->
-        <div class="d-flex justify-content-between gap-2 border-top pt-3 mt-4">
+        <div id="taskDetailFooter" class="d-flex justify-content-between gap-2 border-top pt-3 mt-4">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="offcanvas">
                 Uždaryti
             </button>

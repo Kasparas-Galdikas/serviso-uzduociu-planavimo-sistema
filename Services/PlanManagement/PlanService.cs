@@ -1327,6 +1327,16 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var oldTechnicianId = task.TechnicianId;
             var oldStartAt = task.StartAt;
             var oldDay = task.StartAt.Date;
+            var targetTechnicianProjection = oldTechnicianId == targetTechnicianId
+                ? null
+                : await _db.Technicians
+                    .AsNoTracking()
+                    .Where(t => t.Id == targetTechnicianId)
+                    .Select(t => new { UserName = t.User != null ? t.User.Name : null })
+                    .FirstOrDefaultAsync(cancellationToken);
+            var targetTechnicianName = !string.IsNullOrWhiteSpace(targetTechnicianProjection?.UserName)
+                ? targetTechnicianProjection.UserName
+                : null;
 
             task.TechnicianId = targetTechnicianId;
             task.StartAt = placementValidation.StartAtUtc;
@@ -1384,11 +1394,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                         TaskMoveError.None,
                         BuildRepairAppliedMessage(moveTimingTravelValidation.Message, moveTimingTravelValidation.RepairPlan?.PrimaryPlacement, timezoneOffsetMinutes),
                         task,
-                        _db.Entry(task).Property<uint>("xmin").CurrentValue);
+                        _db.Entry(task).Property<uint>("xmin").CurrentValue,
+                        oldStartAt,
+                        oldTechnicianId,
+                        targetTechnicianName);
                     var (_mRepair, _oRepair) = TaskHistoryMessages.ForMove(_rRepair, task.Title,
-                        oldStartAt, task.StartAt, timezoneOffsetMinutes, technicianChanged: oldTechnicianId != task.TechnicianId);
+                        oldStartAt, task.StartAt, timezoneOffsetMinutes, technicianChanged: oldTechnicianId != task.TechnicianId,
+                        newTechnicianName: targetTechnicianName);
                     await _historyWriter.RecordAsync(taskId, task.PlanId, "move", _oRepair, _mRepair, user.UserId, user.Role.ToString().ToLower(),
-                        new { oldTechnicianId, newTechnicianId = task.TechnicianId, oldStartAt, newStartAt = task.StartAt, repairApplied = true }, cancellationToken: cancellationToken);
+                        new { oldTechnicianId, newTechnicianId = task.TechnicianId, newTechnicianName = targetTechnicianName, oldStartAt, newStartAt = task.StartAt, repairApplied = true }, cancellationToken: cancellationToken);
                     return _rRepair;
                 }
 
@@ -1422,11 +1436,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 await TriggerRouteEvaluationSafelyAsync(oldTechnicianId, oldDay, "move-old-day", cancellationToken);
             }
 
-            var _rOk = new TaskMoveResult(TaskMoveError.None, Task: task, CurrentVersion: _db.Entry(task).Property<uint>("xmin").CurrentValue);
+            var _rOk = new TaskMoveResult(TaskMoveError.None, Task: task, CurrentVersion: _db.Entry(task).Property<uint>("xmin").CurrentValue, OldStartAt: oldStartAt, OldTechnicianId: oldTechnicianId, NewTechnicianName: targetTechnicianName);
             var (_mOk, _oOk) = TaskHistoryMessages.ForMove(_rOk, task.Title,
-                oldStartAt, task.StartAt, timezoneOffsetMinutes, technicianChanged: oldTechnicianId != task.TechnicianId);
+                oldStartAt, task.StartAt, timezoneOffsetMinutes, technicianChanged: oldTechnicianId != task.TechnicianId,
+                newTechnicianName: targetTechnicianName);
             await _historyWriter.RecordAsync(taskId, task.PlanId, "move", _oOk, _mOk, user.UserId, user.Role.ToString().ToLower(),
-                new { oldTechnicianId, newTechnicianId = task.TechnicianId, oldStartAt, newStartAt = task.StartAt }, cancellationToken: cancellationToken);
+                new { oldTechnicianId, newTechnicianId = task.TechnicianId, newTechnicianName = targetTechnicianName, oldStartAt, newStartAt = task.StartAt }, cancellationToken: cancellationToken);
             return _rOk;
         }
         public async Task<TaskSwapResult> SwapTasksAsync(
@@ -2215,7 +2230,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                         TaskTimeUpdateError.None,
                         BuildRepairAppliedMessage(timeTimingTravelValidation.Message, timeTimingTravelValidation.RepairPlan?.PrimaryPlacement, timezoneOffsetMinutes),
                         task,
-                        repairedVersion);
+                        repairedVersion,
+                        oldStartAt,
+                        oldEndAt);
                     var (_mRep, _oRep) = TaskHistoryMessages.ForReschedule(_rRep, task.Title,
                         oldStartAt, oldEndAt, task.StartAt, task.EndAt, timezoneOffsetMinutes);
                     await _historyWriter.RecordAsync(task.Id, task.PlanId, "reschedule", _oRep, _mRep, user.UserId, user.Role.ToString().ToLower(),
@@ -2252,7 +2269,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             var newVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
-            var _rOk = new TaskTimeUpdateResult(TaskTimeUpdateError.None, Task: task, CurrentVersion: newVersion);
+            var _rOk = new TaskTimeUpdateResult(TaskTimeUpdateError.None, Task: task, CurrentVersion: newVersion, OldStartAt: oldStartAt, OldEndAt: oldEndAt);
             var (_mOk, _oOk) = TaskHistoryMessages.ForReschedule(_rOk, task.Title,
                 oldStartAt, oldEndAt, task.StartAt, task.EndAt, timezoneOffsetMinutes);
             await _historyWriter.RecordAsync(task.Id, task.PlanId, "reschedule", _oOk, _mOk, user.UserId, user.Role.ToString().ToLower(),
@@ -3017,3 +3034,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         }
     }
 }
+
+
+
+

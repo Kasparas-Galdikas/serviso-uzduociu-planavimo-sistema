@@ -47,6 +47,34 @@
     forceClearPushLayout();
   };
 
+  const showContent = (type) => {
+    const panelEl = getPanelEl();
+    if (!panelEl) return;
+    
+    const taskContent = panelEl.querySelector("#taskPanelContent");
+    const historyContent = panelEl.querySelector("#historyPanelContent");
+    const headerTitle = panelEl.querySelector("#taskDetailLabel");
+    const headerSubtitle = panelEl.querySelector("#taskDetailCode");
+    const historySubtitle = panelEl.querySelector("#taskDetailHistorySubtitle");
+    const footer = panelEl.querySelector("#taskDetailFooter");
+    
+    if (type === "history") {
+      if (taskContent) taskContent.style.display = "none";
+      if (historyContent) historyContent.style.display = "";
+      if (headerTitle) headerTitle.textContent = headerTitle.dataset.historyTitle || "Veiksmų istorija";
+      if (headerSubtitle) headerSubtitle.classList.add("d-none");
+      if (historySubtitle) historySubtitle.classList.remove("d-none");
+      if (footer) footer.classList.add("d-none");
+    } else if (type === "task") {
+      if (taskContent) taskContent.style.display = "";
+      if (historyContent) historyContent.style.display = "none";
+      if (headerTitle) headerTitle.textContent = headerTitle.dataset.taskTitle || "Užduoties informacija";
+      if (headerSubtitle) headerSubtitle.classList.remove("d-none");
+      if (historySubtitle) historySubtitle.classList.add("d-none");
+      if (footer) footer.classList.remove("d-none");
+    }
+  };
+
   const initOnce = () => {
     if (document.documentElement.dataset.schedulePanelInit === "1") return;
     document.documentElement.dataset.schedulePanelInit = "1";
@@ -245,5 +273,6 @@
     show,
     hide,
     closeForNonDailyContext,
+    showContent,
   };
 })();

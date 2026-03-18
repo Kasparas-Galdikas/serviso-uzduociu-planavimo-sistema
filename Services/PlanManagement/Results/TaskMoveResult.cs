@@ -18,9 +18,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         TaskMoveError Error,
         string? Message = null,
         TaskEntity? Task = null,
-        uint? CurrentVersion = null)
+        uint? CurrentVersion = null,
+        DateTime? OldStartAt = null,
+        long? OldTechnicianId = null,
+        string? NewTechnicianName = null)
     {
         public bool Ok => Error == TaskMoveError.None;
     }
 }
-

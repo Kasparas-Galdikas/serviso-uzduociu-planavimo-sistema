@@ -17,7 +17,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         TaskTimeUpdateError Error,
         string? Message = null,
         TaskEntity? Task = null,
-        uint? CurrentVersion = null)
+        uint? CurrentVersion = null,
+        DateTime? OldStartAt = null,
+        DateTime? OldEndAt = null)
     {
         public bool Ok => Error == TaskTimeUpdateError.None;
     }

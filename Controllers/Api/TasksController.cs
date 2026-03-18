@@ -12,6 +12,7 @@ using ServiceTaskPlanningSystem.Services.Scheduling;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
+using ServiceTaskPlanningSystem.Services.History;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -108,11 +109,12 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.Task != null)
             {
-
+                var (message, _) = TaskHistoryMessages.ForCreate(result, result.Task.Title);
                 var response = new TaskCreatedOrUpdatedResponseDto
                 {
                     Id = result.Task.Id,
                     Version = result.CurrentVersion ?? 0,
+                    Message = message,
                     Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken),
                 };
 
@@ -196,11 +198,12 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.Task != null)
             {
-
+                var (message, _) = TaskHistoryMessages.ForDelete(result, result.Task.Title);
                 var response = new TaskDeletedResponseDto
                 {
                     DeletedTaskId = result.Task.Id,
                     Version = result.CurrentVersion ?? dto.Version,
+                    Message = message,
                     Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken),
                 };
                 _logger.LogInformation("api.task.delete.succeeded id={Id}", id);
@@ -248,7 +251,12 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.Task != null)
             {
-
+                var oldStart = result.OldStartAt;
+                var oldEnd = result.OldEndAt;
+                var newStart = result.Task.StartAt;
+                var newEnd = result.Task.EndAt;
+                
+                var (message, _) = TaskHistoryMessages.ForReschedule(result, result.Task.Title, oldStart, oldEnd, newStart, newEnd, dto.TimezoneOffsetMinutes);
                 var localStart = _timeService.ConvertUtcToLocal(result.Task.StartAt, dto.TimezoneOffsetMinutes);
                 var localEnd = _timeService.ConvertUtcToLocal(result.Task.EndAt, dto.TimezoneOffsetMinutes);
                 var response = new TaskMovedResponseDto
@@ -258,6 +266,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     TechnicianId = result.Task.TechnicianId,
                     StartAt = localStart,
                     EndAt = localEnd,
+                    Message = message,
                     Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken),
                 };
                 _logger.LogInformation("api.task.time.succeeded id={Id}", id);
@@ -680,10 +689,12 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var updated = updateResult.Task!;
             var version = await _planService.GetTaskVersionAsync(id, cancellationToken);
 
+            var (message, _) = TaskHistoryMessages.ForUpdate(updateResult, updated.Title);
             var response = new TaskCreatedOrUpdatedResponseDto
             {
                 Id = updated.Id,
                 Version = version,
+                Message = message,
                 Load = await _planService.GetWorkloadSnapshotAsync(updated.TechnicianId, updated.StartAt.Date, cancellationToken),
             };
 
@@ -722,7 +733,11 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.Task != null)
             {
-
+                var oldStart = result.OldStartAt;
+                var newStart = result.Task.StartAt;
+                var techChanged = result.OldTechnicianId.HasValue && result.OldTechnicianId.Value != result.Task.TechnicianId;
+                
+                var (message, _) = TaskHistoryMessages.ForMove(result, result.Task.Title, oldStart, newStart, dto.TimezoneOffsetMinutes, techChanged, result.NewTechnicianName);
                 var timezoneOffset = dto.TimezoneOffsetMinutes;
                 var localStartAt = _timeService.ConvertUtcToLocal(result.Task.StartAt, timezoneOffset);
                 var localEndAt = _timeService.ConvertUtcToLocal(result.Task.EndAt, timezoneOffset);
@@ -734,6 +749,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     TechnicianId = result.Task.TechnicianId,
                     StartAt = localStartAt,
                     EndAt = localEndAt,
+                    Message = message,
                     Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken),
                 };
 
@@ -782,7 +798,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.SourceTask != null && result.TargetTask != null)
             {
-
+                var (message, _) = TaskHistoryMessages.ForSwap(result, result.SourceTask.Title, result.TargetTask.Title);
                 var sourceLocalStart = _timeService.ConvertUtcToLocal(result.SourceTask.StartAt, dto.TimezoneOffsetMinutes);
                 var sourceLocalEnd = _timeService.ConvertUtcToLocal(result.SourceTask.EndAt, dto.TimezoneOffsetMinutes);
                 var targetLocalStart = _timeService.ConvertUtcToLocal(result.TargetTask.StartAt, dto.TimezoneOffsetMinutes);
@@ -799,6 +815,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     TargetStartAt = targetLocalStart,
                     TargetEndAt = targetLocalEnd,
                     TechnicianId = result.SourceTask.TechnicianId,
+                    Message = message,
                     Load = await _planService.GetWorkloadSnapshotAsync(
                         result.SourceTask.TechnicianId,
                         result.SourceTask.StartAt.Date,
@@ -859,7 +876,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.SourceTask != null && result.TargetTask != null)
             {
-
+                var (message, _) = TaskHistoryMessages.ForSwap(result, result.SourceTask.Title, result.TargetTask.Title);
                 var sourceLocalStart = _timeService.ConvertUtcToLocal(result.SourceTask.StartAt, dto.TimezoneOffsetMinutes);
                 var sourceLocalEnd = _timeService.ConvertUtcToLocal(result.SourceTask.EndAt, dto.TimezoneOffsetMinutes);
                 var targetLocalStart = _timeService.ConvertUtcToLocal(result.TargetTask.StartAt, dto.TimezoneOffsetMinutes);
@@ -876,6 +893,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     TargetStartAt = targetLocalStart,
                     TargetEndAt = targetLocalEnd,
                     TechnicianId = result.SourceTask.TechnicianId,
+                    Message = message,
                     Load = await _planService.GetWorkloadSnapshotAsync(
                         result.SourceTask.TechnicianId,
                         result.SourceTask.StartAt.Date,
@@ -998,3 +1016,5 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
     }
 }
+
+

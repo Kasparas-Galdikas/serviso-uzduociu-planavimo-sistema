@@ -109,7 +109,12 @@
 
       const responseData = await readJsonSafe(resp);
       logEvent("api.task.create.ok", { id: responseData?.id });
-      return { success: true, id: responseData?.id, version: responseData?.version};
+      return {
+        success: true,
+        id: responseData?.id,
+        version: responseData?.version,
+        message: responseData?.message,
+      };
     } catch (err) {
       logEvent("api.task.create.error", { error: err?.message }, "error");
       return { success: false, error: err?.message || "Ã„Â®vyko nenumatyta klaida.", errorType: "exception" };
@@ -234,7 +239,13 @@
 
       const data = await readJsonSafe(resp);
       logEvent("api.task.time.ok", { taskId, newVersion: data?.version });
-      return { success: true, version: data?.version, startAt: data?.startAt, endAt: data?.endAt};
+      return {
+        success: true,
+        version: data?.version,
+        startAt: data?.startAt,
+        endAt: data?.endAt,
+        message: data?.message,
+      };
     } catch (err) {
       logEvent("api.task.time.error", { taskId, error: err?.message }, "error");
       return { success: false, error: err?.message || "Nepavyko pakeisti laiko.", errorType: "exception" };
@@ -288,7 +299,7 @@
 
       const data = await readJsonSafe(resp);
       logEvent("api.task.delete.ok", { taskId });
-      return { success: true};
+      return { success: true, message: data?.message };
     } catch (err) {
       logEvent("api.task.delete.error", { taskId, error: err?.message }, "error");
       return { success: false, error: err?.message || "Nepavyko iÃ…Â¡trinti uÃ…Â¾duoties.", errorType: "exception" };
@@ -399,7 +410,11 @@
 
       const data = await readJsonSafe(resp);
       logEvent("api.task.move.ok", { taskId, newVersion: data?.version });
-      return { success: true, version: data?.version};
+      return {
+        success: true,
+        version: data?.version,
+        message: data?.message,
+      };
     } catch (err) {
       logEvent("api.task.move.error", { taskId, error: err?.message }, "error");
       return { success: false, error: err?.message || "Nepavyko perkelti uÃ…Â¾duoties.", errorType: "exception" };
@@ -455,7 +470,7 @@
         success: true,
         sourceVersion: data?.sourceVersion,
         targetVersion: data?.targetVersion,
-        
+        message: data?.message,
       };
     } catch (err) {
       logEvent("api.task.swap.error", { sourceTaskId, targetTaskId, error: err?.message }, "error");
@@ -512,7 +527,7 @@
         success: true,
         sourceVersion: data?.sourceVersion,
         targetVersion: data?.targetVersion,
-        
+        message: data?.message,
       };
     } catch (err) {
       logEvent("api.task.swap.smart.error", { sourceTaskId, targetTaskId, error: err?.message }, "error");
@@ -621,7 +636,11 @@
 
     const responseData = await readJsonSafe(resp);
     logEvent("api.task.update.ok", { taskId, newVersion: responseData?.version });
-    return { success: true, version: responseData?.version};
+    return {
+      success: true,
+      version: responseData?.version,
+      message: responseData?.message,
+    };
   };
 
   /**

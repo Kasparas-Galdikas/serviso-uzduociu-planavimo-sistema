@@ -64,7 +64,7 @@
                             {
                                 <li class="d-sm-none"><hr class="my-1" /></li>
                                 <li class="d-sm-none">
-                                    <button class="nav-link nav-history-trigger w-100 text-start" type="button" data-bs-toggle="offcanvas" data-bs-target="#scheduleHistoryPanel" aria-controls="scheduleHistoryPanel">
+                                    <button class="nav-link nav-history-trigger w-100 text-start" type="button" onclick="window.schedule?.history?.openHistoryPanel?.()">
                                         <i class="bi bi-clock-history" aria-hidden="true"></i>
                                         <span>Istorija</span>
                                     </button>
@@ -92,7 +92,7 @@
                         {
                             @if (isPlanner)
                             {
-                                <button class="btn nav-history-trigger nav-history-trigger-desktop" type="button" data-bs-toggle="offcanvas" data-bs-target="#scheduleHistoryPanel" aria-controls="scheduleHistoryPanel">
+                                <button class="btn nav-history-trigger nav-history-trigger-desktop" type="button" onclick="window.schedule?.history?.openHistoryPanel?.()">
                                     <i class="bi bi-clock-history" aria-hidden="true"></i>
                                     <span>Istorija</span>
                                 </button>
@@ -147,24 +147,6 @@
          class="toast-container schedule-toast-host position-fixed top-0 end-0 p-3"
          aria-live="polite"
          aria-atomic="true"></div>
-
-    @if (isPlanner)
-    {
-        <div class="offcanvas offcanvas-end schedule-history-panel" tabindex="-1" id="scheduleHistoryPanel" aria-labelledby="scheduleHistoryPanelLabel">
-            <div class="offcanvas-header">
-                <div>
-                    <h5 class="offcanvas-title" id="scheduleHistoryPanelLabel">Veiksmų istorija</h5>
-                    <div class="small text-muted">Naujausi veiksmai rodomi viršuje</div>
-                </div>
-                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="UÅ¾daryti"></button>
-            </div>
-            <div class="offcanvas-body">
-                <div id="scheduleHistoryLoading" class="small text-muted">Kraunama istorija...</div>
-                <div id="scheduleHistoryEmpty" class="schedule-history-empty d-none">Istorijos įrašų vis dar nėra.</div>
-                <div id="scheduleHistoryList" class="schedule-history-list"></div>
-            </div>
-        </div>
-    }
 
     @await RenderSectionAsync("Overlays", required: false)
 

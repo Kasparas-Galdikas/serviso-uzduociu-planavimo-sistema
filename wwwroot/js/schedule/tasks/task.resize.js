@@ -139,7 +139,7 @@
 
         const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
         await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
-        showSuccess("Uzduoties laikas pakeistas.");
+        showSuccess(result.message, "Uzduoties laikas pakeistas.");
         document.dispatchEvent(new CustomEvent("schedule:action-completed"));
         return true;
       }

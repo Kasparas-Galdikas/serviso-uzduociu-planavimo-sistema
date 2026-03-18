@@ -1,0 +1,150 @@
+/* Panel content containers */
+
+#taskPanelContent,
+#historyPanelContent {
+  animation: fadeIn 0.2s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+#taskPanelContent[style*="display: none"],
+#historyPanelContent[style*="display: none"] {
+  display: none !important;
+}
+
+/* History grouped sections */
+.schedule-history-group {
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.schedule-history-group:last-child {
+  border-bottom: none;
+}
+
+.schedule-history-group__trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.schedule-history-group__trigger:hover {
+  background-color: rgba(0, 0, 0, 0.02);
+  border-radius: 0.25rem;
+}
+
+.schedule-history-group__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #495057;
+}
+
+.schedule-history-group__icon {
+  margin-left: auto;
+  transition: transform 0.2s ease;
+}
+
+.schedule-history-group__trigger[aria-expanded="true"] .schedule-history-group__icon {
+  transform: rotate(-180deg);
+}
+
+.schedule-history-group__content {
+  padding-left: 0.5rem;
+  border-left: 2px solid #e0e0e0;
+}
+
+.schedule-history-group .schedule-history-item {
+  margin-bottom: 0.75rem;
+}
+
+.schedule-history-group .schedule-history-item:last-child {
+  margin-bottom: 0;
+}
+
+/* History subsections (Success/Failure/Warning) */
+.schedule-history-subsection {
+  margin-bottom: 1rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 0.25rem;
+  overflow: hidden;
+}
+
+.schedule-history-subsection:last-child {
+  margin-bottom: 0;
+}
+
+.schedule-history-subsection__trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem;
+  background-color: #f8f9fa;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.schedule-history-subsection__trigger:hover {
+  background-color: #e9ecef;
+}
+
+.schedule-history-subsection__trigger i:first-child {
+  font-size: 1rem;
+}
+
+.schedule-history-subsection__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #495057;
+  flex: 1;
+}
+
+.schedule-history-subsection__icon {
+  transition: transform 0.2s ease;
+  color: #6c757d;
+}
+
+.schedule-history-subsection__trigger[aria-expanded="true"] .schedule-history-subsection__icon {
+  transform: rotate(-180deg);
+}
+
+.schedule-history-subsection__content {
+  padding: 0.75rem;
+}
+
+.schedule-history-empty-message {
+  padding: 1rem;
+  text-align: center;
+  color: #6c757d;
+  font-size: 0.875rem;
+  font-style: italic;
+  background-color: #f8f9fa;
+}
+
+.schedule-history-subsection__content .schedule-history-item {
+  margin-bottom: 0.75rem;
+}
+
+.schedule-history-subsection__content .schedule-history-item:last-child {
+  margin-bottom: 0;
+}
+
+/* Remove old filter button styles */
+.schedule-history-group__filters {
+  display: none;
+}
+
+.schedule-history-group__filter-btn {
+  display: none;
+
