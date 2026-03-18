@@ -1571,7 +1571,7 @@
           { taskId: dragState.taskId },
           "warn"
         );
-        const message = dragState.previewRejectMessage || (dragState.previewRejectCode === "InvalidWindow" ? "Nepavyko perkelti – neteisingas laiko langas." : "Negalima planuoti pasirinktame laike.");
+        const message = dragState.previewRejectMessage || (dragState.previewRejectCode === "InvalidWindow" ? "Nepavyko perkelti ï¿½ neteisingas laiko langas." : "Negalima planuoti pasirinktame laike.");
         showWarning(message, "Negalima planuoti pasirinktame laike.");
         clearDragState();
         return;

@@ -18,8 +18,6 @@
 
   const isDayView = () => (state?.getView?.() || "day") === "day";
 
-  const formatRange = (start, end) => grid.formatRange(start, end);
-
   // Use shared DOM utilities (with fallbacks for load order)
   const isEmptySlotCell = (td) => dom?.isEmptySlotCell?.(td) ??
     (td?.classList?.contains("empty-slot") && !!td.querySelector?.(".schedule-slot"));

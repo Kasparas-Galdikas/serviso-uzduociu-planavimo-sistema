@@ -19,6 +19,7 @@ using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -40,6 +41,7 @@ if (!string.IsNullOrWhiteSpace(csb.Host) &&
 }
 
 var connectionString = csb.ConnectionString;
+var isE2ETestMode = builder.Configuration.GetValue<bool>("E2E_TEST_MODE");
 // SAFE logging (no password)
 Console.WriteLine("=== DATABASE CONFIG CHECK ===");
 Console.WriteLine($"Host: {csb.Host}");
@@ -59,11 +61,11 @@ try
 {
     using var conn = new NpgsqlConnection(connectionString);
     await conn.OpenAsync();
-    Console.WriteLine("âœ… Database connection test SUCCESS");
+    Console.WriteLine("ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Database connection test SUCCESS");
 }
 catch (Exception ex)
 {
-    Console.WriteLine("âŒ Database connection test FAILED");
+    Console.WriteLine("ÃƒÂ¢Ã‚ÂÃ…â€™ Database connection test FAILED");
     Console.WriteLine(ex.GetType().FullName);
     Console.WriteLine(ex.Message);
     throw; // keep failing fast
@@ -108,8 +110,19 @@ builder.Services.AddSingleton(new HeigitApiOptions());
 builder.Services.AddSingleton<IExternalCallPolicy, ExternalCallPolicy>();
 builder.Services.AddSingleton<IExternalCallKeyedLock, ExternalCallKeyedLock>();
 builder.Services.AddScoped<IRouteEvaluationService, RouteEvaluationService>();
-builder.Services.AddHttpClient<ILocationApiClient, LocationApiClient>();
-builder.Services.AddHttpClient<IDistanceApiClient, DistanceApiClient>();
+
+if (isE2ETestMode)
+{
+    builder.Services.RemoveAll<ILocationApiClient>();
+    builder.Services.RemoveAll<IDistanceApiClient>();
+    builder.Services.AddSingleton<ILocationApiClient, E2ETestLocationApiClient>();
+    builder.Services.AddSingleton<IDistanceApiClient, E2ETestDistanceApiClient>();
+}
+else
+{
+    builder.Services.AddHttpClient<ILocationApiClient, LocationApiClient>();
+    builder.Services.AddHttpClient<IDistanceApiClient, DistanceApiClient>();
+}
 
 // Register strategy pattern implementations for plan-status-specific edit policies
 builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Interfaces.IPlanStatusEditPolicy, ServiceTaskPlanningSystem.Services.Authorization.Policies.DraftPlanEditPolicy>();

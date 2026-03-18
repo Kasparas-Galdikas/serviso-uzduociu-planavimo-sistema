@@ -631,7 +631,8 @@
 
     const setVal = (selector, value) => {
       const el = modalEl.querySelector(selector);
-      if (el) el.value = value ?? "";
+      if (!el) return;
+      el.value = value ?? "";
     };
 
     setVal("#taskDetailTitle", data.title);
@@ -687,7 +688,8 @@
 
     const setVal = (selector, value) => {
       const el = modalEl.querySelector(selector);
-      if (el) el.value = value ?? "";
+      if (!el) return;
+      el.value = value ?? "";
     };
 
     setVal("#taskDetailTitle", "");
