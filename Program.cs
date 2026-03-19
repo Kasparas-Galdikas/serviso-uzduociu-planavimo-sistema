@@ -61,11 +61,11 @@ try
 {
     using var conn = new NpgsqlConnection(connectionString);
     await conn.OpenAsync();
-    Console.WriteLine("ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Database connection test SUCCESS");
+    Console.WriteLine("✓ Database connection test SUCCESS");
 }
 catch (Exception ex)
 {
-    Console.WriteLine("ÃƒÂ¢Ã‚ÂÃ…â€™ Database connection test FAILED");
+    Console.WriteLine("Database connection test FAILED");
     Console.WriteLine(ex.GetType().FullName);
     Console.WriteLine(ex.Message);
     throw; // keep failing fast

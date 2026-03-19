@@ -32,21 +32,33 @@ namespace ServiceTaskPlanningSystem.Services.History
             // Let the app fully start before the first run.
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
 
-            var timer = new PeriodicTimer(Interval);
+            _logger.LogInformation(
+                "history.cleanup.started interval={IntervalHours}h retention={RetentionHours}h",
+                Interval.TotalHours,
+                Retention.TotalHours);
+
+            await RunPruneCycleAsync(stoppingToken);
+
+            using var timer = new PeriodicTimer(Interval);
             while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                try
-                {
-                    await PruneAsync(stoppingToken);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "history.cleanup.error");
-                }
+                await RunPruneCycleAsync(stoppingToken);
+            }
+        }
+
+        private async Task RunPruneCycleAsync(CancellationToken stoppingToken)
+        {
+            try
+            {
+                await PruneAsync(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "history.cleanup.error");
             }
         }
 
@@ -61,8 +73,7 @@ namespace ServiceTaskPlanningSystem.Services.History
                 .Where(l => l.OccurredAtUtc < cutoff)
                 .ExecuteDeleteAsync(cancellationToken);
 
-            if (deleted > 0)
-                _logger.LogInformation("history.cleanup.pruned count={Count} cutoff={Cutoff:O}", deleted, cutoff);
+            _logger.LogInformation("history.cleanup.completed count={Count} cutoff={Cutoff:O}", deleted, cutoff);
         }
     }
 }
