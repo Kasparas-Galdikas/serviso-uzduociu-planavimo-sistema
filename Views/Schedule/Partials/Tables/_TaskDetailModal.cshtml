@@ -9,7 +9,7 @@
     </button>
 
     <div class="offcanvas-header border-bottom">
-        <div>
+        <div class="offcanvas-title-wrap">
             <h5 class="offcanvas-title" id="taskDetailLabel" data-task-title="Užduoties informacija" data-history-title="Veiksmų istorija">Užduoties informacija</h5>
             <small class="text-muted" id="taskDetailCode" data-task-subtitle="Kodas:" data-history-subtitle="">Kodas:</small>
             <small class="text-muted d-none" id="taskDetailHistorySubtitle">Naujausi veiksmai rodomi viršuje</small>
@@ -18,6 +18,19 @@
     </div>
 
     <div class="offcanvas-body">
+
+        <!-- Backlog tab bar — visible only in backlog mode -->
+        <div id="backlogTabBar" class="d-none mb-3">
+            <div class="btn-group w-100" role="group" aria-label="Laukiančių darbų valdymas">
+                <button type="button" class="btn btn-primary active backlog-tab-btn" id="backlogTabCreate" data-backlog-tab="create">
+                    <i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Sukurti
+                </button>
+                <button type="button" class="btn btn-outline-secondary backlog-tab-btn" id="backlogTabList" data-backlog-tab="list">
+                    <i class="bi bi-list-ul me-1" aria-hidden="true"></i>Sąrašas
+                    <span class="badge bg-secondary ms-1" id="backlogCountBadge">0</span>
+                </button>
+            </div>
+        </div>
 
         <!-- Task Content Container -->
         <div id="taskPanelContent">
@@ -51,18 +64,18 @@
                         <input type="text" class="form-control" id="taskDetailTitle">
                     </div>
 
-                    <div class="col-md-6">
+                    <div class="col-md-6" id="taskFieldAssignee">
                         <label class="form-label small">Priskirtas darbuotojas</label>
                         <select class="form-select" id="taskDetailAssignee"
                                 data-select2-dropdown="technician"></select>
                     </div>
 
-                    <div class="col-md-6">
+                    <div class="col-md-6" id="taskFieldStart">
                         <label class="form-label small">Pradžia</label>
                         <input type="datetime-local" class="form-control" id="taskDetailStart">
                     </div>
 
-                    <div class="col-md-6">
+                    <div class="col-md-6" id="taskFieldEnd">
                         <label class="form-label small">Pabaiga</label>
                         <input type="datetime-local" class="form-control" id="taskDetailEnd">
                     </div>
@@ -120,7 +133,7 @@
         </section>
 
         <!-- SAUGOMAS OBJEKTAS -->
-        <section class="mb-4 task-section">
+        <section class="mb-4 task-section" id="taskSectionAsset">
             <div class="task-section-header" role="button" tabindex="0"
                  data-bs-toggle="collapse"
                  data-bs-target="#taskSecAsset">
@@ -235,6 +248,19 @@
         <!-- History Content Container -->
         @await Html.PartialAsync("~/Views/Schedule/Partials/_HistoryContent.cshtml")
 
+        <!-- Backlog List Container — shown when list tab is active -->
+        <div id="backlogPanelContent" style="display: none;">
+            <div class="backlog-drag-hint">
+                <i class="bi bi-arrows-move me-1" aria-hidden="true"></i>
+                Nutempkite užduoties kortelę į grafiką ir paleiskite norimoje vietoje
+            </div>
+            <div id="backlogListEmpty" class="text-center text-muted py-4 d-none">
+                <i class="bi bi-inbox fs-3 d-block mb-2" aria-hidden="true"></i>
+                <div class="small">Eilė tuščia. Sukurkite naują įrašą.</div>
+            </div>
+            <div id="backlogItemsList"></div>
+        </div>
+
         <!-- FOOTER -->
         <div id="taskDetailFooter" class="d-flex justify-content-between gap-2 border-top pt-3 mt-4">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="offcanvas">
@@ -243,6 +269,9 @@
             <div class="d-flex gap-2">
                 <button type="button" class="btn btn-primary" id="taskDetailSave">
                     Išsaugoti
+                </button>
+                <button type="button" class="btn btn-primary d-none" id="backlogSaveBtn">
+                    <i class="bi bi-inbox me-1" aria-hidden="true"></i>Įtraukti į eilę
                 </button>
             </div>
         </div>

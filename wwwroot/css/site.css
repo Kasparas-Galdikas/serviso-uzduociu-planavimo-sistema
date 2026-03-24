@@ -966,14 +966,14 @@ textarea:focus {
 
 .schedule-history-item__head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 0.5rem;
   margin-bottom: 0.45rem;
 }
 
 .schedule-history-item__action {
   flex: 1;
+  min-width: 0;
   font-weight: 500;
   font-size: 0.85rem;
   color: var(--neutral-800);

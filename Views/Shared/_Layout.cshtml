@@ -69,6 +69,15 @@
                                         <span>Istorija</span>
                                     </button>
                                 </li>
+                                <li class="d-sm-none nav-backlog-mobile-item"><hr class="my-1" /></li>
+                                <li class="d-sm-none nav-backlog-mobile-item">
+                                    <button class="nav-link nav-history-trigger w-100 text-start" type="button"
+                                            onclick="window.schedule?.backlog?.openBacklogPanel?.()">
+                                        <i class="bi bi-inbox" aria-hidden="true"></i>
+                                        <span>Laukiantys darbai</span>
+                                        <span class="badge bg-primary ms-1 d-none" id="navBacklogBadgeMobile">0</span>
+                                    </button>
+                                </li>
                             }
 
                             <li class="d-sm-none"><hr class="my-1" /></li>
@@ -95,6 +104,13 @@
                                 <button class="btn nav-history-trigger nav-history-trigger-desktop" type="button" onclick="window.schedule?.history?.openHistoryPanel?.()">
                                     <i class="bi bi-clock-history" aria-hidden="true"></i>
                                     <span>Istorija</span>
+                                </button>
+                                <button class="btn nav-history-trigger nav-history-trigger-desktop" type="button"
+                                        id="navBacklogTriggerDesktop"
+                                        onclick="window.schedule?.backlog?.openBacklogPanel?.()">
+                                    <i class="bi bi-inbox" aria-hidden="true"></i>
+                                    <span>Laukiantys darbai</span>
+                                    <span class="badge bg-primary ms-1 d-none" id="navBacklogBadge">0</span>
                                 </button>
                             }
 

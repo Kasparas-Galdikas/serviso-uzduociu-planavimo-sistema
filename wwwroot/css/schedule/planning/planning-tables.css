@@ -1199,3 +1199,10 @@ th.time-header.is-now {
   color: rgba(13, 110, 253, 0.95);
   font-weight: 600;
 }
+
+/* ── Backlog drag drop target ── */
+.schedule-slot.backlog-drop-over {
+  background-color: rgba(13, 110, 253, 0.12) !important;
+  outline: 2px dashed #0d6efd;
+  outline-offset: -2px;
+}

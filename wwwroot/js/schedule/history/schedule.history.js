@@ -149,11 +149,16 @@
     <span class="schedule-history-item__badge">${icon}</span>
     <span class="schedule-history-item__action">${actionLabel}</span>
     <span class="schedule-history-item__time">${time}</span>
+    <button type="button" class="schedule-history-item__toggle" data-history-toggle aria-expanded="false" aria-label="Rodyti detales">
+      <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    </button>
   </div>
-  <p class="schedule-history-item__message">${summary}</p>
-  ${details}
-  <div class="schedule-history-item__meta">
-    <span>${actor}</span>${role ? `<span class="ms-1 text-muted">(${role})</span>` : ""}
+  <div class="schedule-history-item__body" hidden>
+    <p class="schedule-history-item__message">${summary}</p>
+    ${details}
+    <div class="schedule-history-item__meta">
+      <span>${actor}</span>${role ? `<span class="ms-1 text-muted">(${role})</span>` : ""}
+    </div>
   </div>
 </div>`;
   }
@@ -378,6 +383,25 @@
       if (panelOpen) {
         loadHistory();
       }
+    });
+
+    // Expand/collapse individual history entries
+    document.getElementById("historyPanelContent")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-history-toggle]");
+      if (!btn) return;
+      const item = btn.closest(".schedule-history-item");
+      if (!item) return;
+      const body = item.querySelector(".schedule-history-item__body");
+      if (!body) return;
+      const expanded = btn.getAttribute("aria-expanded") === "true";
+      body.hidden = expanded;
+      btn.setAttribute("aria-expanded", String(!expanded));
+      const icon = btn.querySelector("i");
+      if (icon) {
+        icon.classList.toggle("bi-chevron-right", expanded);
+        icon.classList.toggle("bi-chevron-down", !expanded);
+      }
+      item.classList.toggle("is-expanded", !expanded);
     });
   }
 
