@@ -15,3 +15,29 @@ export function addDays(dateStr: string, days: number): string {
   date.setDate(date.getDate() + days);
   return formatLocalDate(date);
 }
+
+export function defaultPlanningDate(): string {
+  return addDays(today(), 1);
+}
+
+export function compareLocalDates(left: string, right: string): number {
+  return left.localeCompare(right);
+}
+
+export function isDateBefore(left: string, right: string): boolean {
+  return compareLocalDates(left, right) < 0;
+}
+
+export function isDateTimeInPast(dateStr: string, minutes: number): boolean {
+  const currentDate = today();
+  if (isDateBefore(dateStr, currentDate)) {
+    return true;
+  }
+
+  if (compareLocalDates(dateStr, currentDate) > 0) {
+    return false;
+  }
+
+  const now = new Date();
+  return minutes < now.getHours() * 60 + now.getMinutes();
+}

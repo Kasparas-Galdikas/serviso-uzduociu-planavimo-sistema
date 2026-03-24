@@ -5,9 +5,10 @@ import {
   getAnotherTechnicianId,
   getTaskScheduleContext,
   getVisibleScheduleSlotForTechnician,
+  normalizeImplicitScheduleToSafeFuture,
   type ScheduleSlotContext,
 } from "../support/task-api";
-import { addDays, today } from "../support/date";
+import { compareLocalDates, defaultPlanningDate, today } from "../support/date";
 import { switchToManager, switchToTechnician } from "../actions/auth.actions";
 import {
   openDaySchedule,
@@ -24,7 +25,7 @@ type SlotOptions = {
 };
 
 function nextPlanningDate(): string {
-  return addDays(today(), 1);
+  return defaultPlanningDate();
 }
 
 export async function openManagerPlanningDay(page: Page, preferredDate = nextPlanningDate()): Promise<string> {
@@ -48,7 +49,8 @@ async function openTechnicianDayWithAvailability(page: Page, technicianId: numbe
         .filter((value): value is string => Boolean(value))
     );
 
-  const selectedDate = [...new Set(candidateDates)].sort()[0];
+  const sortedDates = [...new Set(candidateDates)].sort((left, right) => compareLocalDates(left, right));
+  const selectedDate = sortedDates.find((date) => compareLocalDates(date, preferredDate) >= 0) ?? sortedDates[0];
   if (!selectedDate) {
     throw new Error(`No visible schedule day found for technician ${technicianId}`);
   }
@@ -70,16 +72,18 @@ async function createTaskForTechnicianWithSlotRetry(
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const schedule = await getVisibleScheduleSlotForTechnician(page, technicianId, {
       slotIndex: startIndex + attempt,
+      minTargetDate: nextPlanningDate(),
     });
+    const safeSchedule = normalizeImplicitScheduleToSafeFuture(schedule, { minTargetDate: nextPlanningDate() });
 
     try {
-      const taskId = await createTaskViaApi(page, { ...schedule, ...overrides });
-      return { taskId, schedule };
+      const taskId = await createTaskViaApi(page, { ...safeSchedule, ...overrides });
+      return { taskId, schedule: safeSchedule };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       lastError = message;
 
-      if (!/Failed to create task via API: (409|422|500)\b/.test(message)) {
+      if (!/Failed to create task via API: (409|422|500)\b/.test(message) && !/Negalima planuoti praeityje/i.test(message)) {
         throw error;
       }
     }
@@ -182,5 +186,3 @@ export async function createTaskForOtherTechnician(
     schedule,
   };
 }
-
-
