@@ -11,6 +11,14 @@ function isJsonResponse(response: APIResponse): boolean {
   return contentType.toLowerCase().includes("application/json");
 }
 
+function isRetryableDraftCreationError(status: number, responseText: string): boolean {
+  if (status === 409) {
+    return true;
+  }
+
+  return status === 500 && /ix_plans_status_draft|transient failure|deadlock detected|40P01/i.test(responseText);
+}
+
 export async function discardDraftIfExists(page: Page): Promise<void> {
   const response = await page.request.get("/api/plans/state");
   if (!response.ok() || !isJsonResponse(response)) {
@@ -29,13 +37,28 @@ export async function createDraftViaApi(page: Page): Promise<DraftPlanContext> {
   const startDate = minAttr || today();
   const endDate = addDays(startDate, 13);
 
-  const response = await page.request.post("/api/plans/draft", {
-    data: { startDate, endDate, weeks: 2 },
-  });
+  const maxAttempts = 4;
+  let lastError = "unknown error";
 
-  if (!response.ok()) {
-    throw new Error(`Failed to create draft via API: ${response.status()} ${await response.text()}`);
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await discardDraftIfExists(page);
+
+    const response = await page.request.post("/api/plans/draft", {
+      data: { startDate, endDate, weeks: 2 },
+    });
+
+    if (response.ok()) {
+      return { startDate, endDate };
+    }
+
+    const responseText = await response.text();
+    lastError = `${response.status()} ${responseText}`;
+    if (!isRetryableDraftCreationError(response.status(), responseText)) {
+      break;
+    }
+
+    await page.waitForTimeout(250 * (attempt + 1));
   }
 
-  return { startDate, endDate };
+  throw new Error(`Failed to create draft via API: ${lastError}`);
 }

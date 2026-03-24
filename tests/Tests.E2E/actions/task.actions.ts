@@ -28,6 +28,10 @@ export async function waitForTaskPanel(page: Page): Promise<void> {
   await taskPanel(page).waitFor({ state: "visible", timeout: 5_000 });
 }
 
+export async function waitForTaskPanelToClose(page: Page): Promise<void> {
+  await expect(taskPanel(page)).not.toHaveClass(/show/, { timeout: 30_000 });
+}
+
 export async function openFirstScheduleSlot(page: Page): Promise<void> {
   const slots = scheduleSlots(page);
   const count = await slots.count();
@@ -53,14 +57,19 @@ async function selectFirstNonEmptyOption(locator: Locator): Promise<string> {
     throw new Error("No selectable option available");
   }
 
-  await locator.selectOption(value);
+  await selectOptionAndWait(locator, value);
   return value;
+}
+
+async function selectOptionAndWait(locator: Locator, value: string): Promise<void> {
+  await locator.selectOption(value);
+  await expect(locator).toHaveValue(value);
 }
 
 export async function fillTaskForm(page: Page, input: TaskFormInput): Promise<void> {
   await taskTitleInput(page).fill(input.title);
-  await page.locator("#taskDetailSkill").selectOption(input.skill ?? "Basic");
-  await page.locator("#taskDetailPriority").selectOption(input.priority ?? "1");
+  await selectOptionAndWait(page.locator("#taskDetailSkill"), input.skill ?? "Basic");
+  await selectOptionAndWait(page.locator("#taskDetailPriority"), input.priority ?? "1");
   await selectFirstNonEmptyOption(page.locator("#taskDetailObject"));
 
   const location = page.locator("#taskDetailLocation");
@@ -70,33 +79,92 @@ export async function fillTaskForm(page: Page, input: TaskFormInput): Promise<vo
 }
 
 export async function saveTask(page: Page): Promise<void> {
-  await taskSaveBtn(page).click();
+  await taskSaveBtn(page).click({ force: true });
+}
+
+export async function saveTaskAndWaitForClose(page: Page): Promise<void> {
+  await saveTask(page);
+  await waitForTaskPanelToClose(page);
+}
+
+export async function saveTaskAndWaitForVersionChange(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const modal = document.getElementById("taskDetailModal");
+    return modal?.dataset.mode === "update" && !!modal?.dataset.taskId;
+  }, { timeout: 10_000 });
+
+  // Dismiss the filter console modal if it somehow opened (it would block the save button via its backdrop).
+  const filterModal = page.locator("#filterConsoleModal.show");
+  if (await filterModal.isVisible()) {
+    await page.locator("#filterConsoleModal [data-bs-dismiss='modal']").click();
+    await filterModal.waitFor({ state: "hidden", timeout: 5_000 });
+  }
+
+  const responsePromise = page.waitForResponse(
+    (resp) => /\/api\/tasks\/\d+/.test(resp.url()) &&
+      (resp.request().method() === "PATCH" || resp.request().method() === "PUT"),
+    { timeout: 15_000 }
+  );
+
+  // Use evaluate to dispatch the click directly on the element, bypassing any z-index overlays.
+  await page.evaluate(() => {
+    document.getElementById("taskDetailSave")?.click();
+  });
+
+  await responsePromise;
 }
 
 export async function confirmTaskDeletion(page: Page): Promise<void> {
   await page.locator("#taskDeleteConfirm").click();
 }
 
+export async function openTaskDeleteConfirmation(card: Locator, page: Page): Promise<void> {
+  await card.hover();
+  const deleteBtn = card.locator(".task-card-action-delete");
+  await expect(deleteBtn).toBeVisible({ timeout: 5_000 });
+
+  // Retrieve the task ID so we can click the button via evaluate, which dispatches the event
+  // directly to the DOM element and bypasses any z-index overlays (e.g. the task detail offcanvas
+  // that may auto-open after task creation in Firefox).
+  const taskId = await card.getAttribute("data-task-id");
+  await page.evaluate((tid) => {
+    const btn = document.querySelector(
+      `.task-card[data-task-id="${CSS.escape(String(tid ?? ""))}"] .task-card-action-delete`
+    ) as HTMLElement | null;
+    btn?.click();
+  }, taskId);
+
+  await page.waitForFunction(() => {
+    const modal = document.getElementById("taskDeleteModal");
+    return !!modal && modal.classList.contains("show");
+  }, { timeout: 30_000 });
+}
+
+export async function reopenTaskCard(page: Page, card: Locator): Promise<void> {
+  await card.click();
+  await waitForTaskPanel(page);
+}
+
 export async function editPanelPriority(page: Page, value: string): Promise<void> {
-  await page.locator("#taskDetailPriority").selectOption(value);
+  await selectOptionAndWait(page.locator("#taskDetailPriority"), value);
 }
 
 export async function editPanelSkill(page: Page, value: string): Promise<void> {
-  await page.locator("#taskDetailSkill").selectOption(value);
+  await selectOptionAndWait(page.locator("#taskDetailSkill"), value);
 }
 
 export async function editPanelInstructions(page: Page, text: string): Promise<void> {
   const section = page.locator("#taskSecSafety");
   const isExpanded = await section.evaluate((el) => el.classList.contains("show"));
   if (!isExpanded) {
-    await page.locator('[data-bs-target="#taskSecSafety"]').first().click();
+    await page.locator('#taskDetailModal [data-bs-target="#taskSecSafety"]').first().click();
     await section.waitFor({ state: "visible", timeout: 3_000 });
   }
   await page.locator("#taskDetailInstructions").fill(text);
 }
 
 export async function editTechnicianStatus(page: Page, value: string): Promise<void> {
-  await taskStatusSelect(page).selectOption(value);
+  await selectOptionAndWait(taskStatusSelect(page), value);
 }
 
 export async function editTechnicianComment(page: Page, text: string): Promise<void> {

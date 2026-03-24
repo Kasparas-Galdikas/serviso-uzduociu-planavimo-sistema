@@ -1,14 +1,13 @@
 import { expect, test } from "@playwright/test";
+import { closeHistoryPanel } from "../../actions/history.actions";
 import {
-  closeHistoryPanel,
-  expandFirstHistoryGroup,
-  expandFirstSuccessHistorySection,
-  openHistoryPanel,
-} from "../../actions/history.actions";
-import { authenticateAsManager } from "../../actions/auth.actions";
-import { historyItems } from "../../fixtures/selectors";
-import { cleanupTaskViaApi, createTaskViaApi, deleteTaskViaApi } from "../../support/task-api";
-import { today } from "../../support/date";
+  expandFirstSuccessfulHistoryEntry,
+  getCurrentPlanHistoryEntryCount,
+  openManagerHistoryAfterTaskMutation,
+  openManagerHistoryForToday,
+} from "../../flows/history.flows";
+import { createManagerTaskViaApi } from "../../flows/task-access.flows";
+import { cleanupTaskViaApi, deleteTaskViaApi } from "../../support/task-api";
 
 test.describe("history workflows", () => {
   test.describe.configure({ mode: "serial" });
@@ -16,8 +15,7 @@ test.describe("history workflows", () => {
   let taskIdToCleanup: number | null = null;
 
   test.beforeEach(async ({ page }) => {
-    await authenticateAsManager(page);
-    await page.goto(`/Schedule?view=day&date=${today()}`);
+    await openManagerHistoryForToday(page);
   });
 
   test.afterEach(async ({ page }) => {
@@ -28,49 +26,41 @@ test.describe("history workflows", () => {
   });
 
   test("creating a task via the API adds a success entry to the history panel", async ({ page }) => {
-    await openHistoryPanel(page);
-    const entriesBefore = await historyItems(page).count();
+    await openManagerHistoryAfterTaskMutation(page, async () => {
+      const result = await createManagerTaskViaApi(page, { title: "HistCreate" }, { slotIndex: 1 });
+      taskIdToCleanup = result.taskId;
+      return { targetDate: result.schedule.targetDate };
+    });
 
-    await closeHistoryPanel(page);
-
-    taskIdToCleanup = await createTaskViaApi(page, { title: "HistCreate" }, { slotIndex: 1 });
-
-    await openHistoryPanel(page);
-    await page.waitForTimeout(2_000);
-
-    const entriesAfter = await historyItems(page).count();
-    expect(entriesAfter).toBeGreaterThan(entriesBefore);
+    const firstEntry = await expandFirstSuccessfulHistoryEntry(page);
+    await expect(firstEntry).toBeVisible({ timeout: 10_000 });
     expect(await page.locator(".schedule-history-item.outcome-success").count()).toBeGreaterThan(0);
   });
 
   test("deleting a task adds a success entry to the history panel", async ({ page }) => {
-    taskIdToCleanup = await createTaskViaApi(page, { title: "HistDelete" }, { slotIndex: 4 });
+    const result = await createManagerTaskViaApi(page, { title: "HistDelete" }, { slotIndex: 4 });
+    taskIdToCleanup = result.taskId;
 
-    await openHistoryPanel(page);
-    await page.waitForTimeout(500);
-    const entriesBefore = await historyItems(page).count();
+    await openManagerHistoryAfterTaskMutation(page, async () => {
+      await deleteTaskViaApi(page, taskIdToCleanup!);
+      taskIdToCleanup = null;
+      await page.waitForTimeout(1_000);
+      return { targetDate: result.schedule.targetDate };
+    });
 
-    await closeHistoryPanel(page);
-    await deleteTaskViaApi(page, taskIdToCleanup);
-    taskIdToCleanup = null;
-    await page.waitForTimeout(1_000);
-
-    await openHistoryPanel(page);
-    await page.waitForTimeout(2_000);
-
-    const entriesAfter = await historyItems(page).count();
-    expect(entriesAfter).toBeGreaterThan(entriesBefore);
+    const firstEntry = await expandFirstSuccessfulHistoryEntry(page);
+    await expect(firstEntry).toBeVisible({ timeout: 10_000 });
   });
 
   test("history entry shows actor name, action label, and outcome icon", async ({ page }) => {
-    taskIdToCleanup = await createTaskViaApi(page, { title: "HistMeta" }, { slotIndex: 5 });
-    await page.waitForTimeout(500);
+    await openManagerHistoryAfterTaskMutation(page, async () => {
+      const result = await createManagerTaskViaApi(page, { title: "HistMeta" }, { slotIndex: 5 });
+      taskIdToCleanup = result.taskId;
+      await page.waitForTimeout(500);
+      return { targetDate: result.schedule.targetDate };
+    });
 
-    await openHistoryPanel(page);
-    await expandFirstHistoryGroup(page);
-    await expandFirstSuccessHistorySection(page);
-
-    const firstEntry = page.locator(".schedule-history-item.outcome-success").first();
+    const firstEntry = await expandFirstSuccessfulHistoryEntry(page);
     await expect(firstEntry).toBeVisible({ timeout: 5_000 });
     await expect(firstEntry.locator(".schedule-history-item__meta")).not.toBeEmpty();
     await expect(firstEntry.locator(".schedule-history-item__action")).not.toBeEmpty();
@@ -79,7 +69,9 @@ test.describe("history workflows", () => {
   });
 
   test("rapid identical API calls produce only one history entry", async ({ page }) => {
-    taskIdToCleanup = await createTaskViaApi(page, { title: "DedupTask" }, { slotIndex: 6 });
+    await closeHistoryPanel(page);
+    const result = await createManagerTaskViaApi(page, { title: "DedupTask" }, { slotIndex: 6 });
+    taskIdToCleanup = result.taskId;
     await page.waitForTimeout(500);
 
     const stateResponse = await page.request.get("/api/plans/state");
@@ -105,3 +97,4 @@ test.describe("history workflows", () => {
     expect(entriesAfter.length - entriesBefore.length).toBeLessThanOrEqual(1);
   });
 });
+

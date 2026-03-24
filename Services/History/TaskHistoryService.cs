@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 
@@ -10,7 +11,7 @@ namespace ServiceTaskPlanningSystem.Services.History
 {
     public class TaskHistoryService : ITaskHistoryWriter
     {
-        private readonly ScheduleDbContext _db;
+        private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<TaskHistoryService> _logger;
 
         private static readonly JsonSerializerOptions _jsonOptions = new()
@@ -18,9 +19,9 @@ namespace ServiceTaskPlanningSystem.Services.History
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
 
-        public TaskHistoryService(ScheduleDbContext db, ILogger<TaskHistoryService> logger)
+        public TaskHistoryService(IServiceScopeFactory scopeFactory, ILogger<TaskHistoryService> logger)
         {
-            _db = db;
+            _scopeFactory = scopeFactory;
             _logger = logger;
         }
 
@@ -39,10 +40,13 @@ namespace ServiceTaskPlanningSystem.Services.History
         {
             try
             {
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+
                 var actorName = string.Empty;
                 if (actorUserId.HasValue)
                 {
-                    actorName = await _db.Users
+                    actorName = await db.Users
                         .AsNoTracking()
                         .Where(u => u.Id == actorUserId.Value)
                         .Select(u => u.Name)
@@ -50,7 +54,7 @@ namespace ServiceTaskPlanningSystem.Services.History
                 }
 
                 var cutoff = DateTime.UtcNow.AddSeconds(-15);
-                var duplicate = await _db.TaskActionLogs
+                var duplicate = await db.TaskActionLogs
                     .Where(l => l.PlanId == planId
                              && l.TaskId == taskId
                              && l.ActionType == actionType
@@ -63,7 +67,7 @@ namespace ServiceTaskPlanningSystem.Services.History
                 if (duplicate != null)
                 {
                     duplicate.OccurredAtUtc = DateTime.UtcNow;
-                    await _db.SaveChangesAsync(cancellationToken);
+                    await db.SaveChangesAsync(cancellationToken);
                     return;
                 }
 
@@ -85,8 +89,8 @@ namespace ServiceTaskPlanningSystem.Services.History
                     CorrelationId = correlationId
                 };
 
-                _db.TaskActionLogs.Add(entry);
-                await _db.SaveChangesAsync(cancellationToken);
+                db.TaskActionLogs.Add(entry);
+                await db.SaveChangesAsync(cancellationToken);
             }
             catch (Exception ex)
             {

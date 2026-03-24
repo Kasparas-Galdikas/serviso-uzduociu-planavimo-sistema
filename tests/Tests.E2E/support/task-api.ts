@@ -37,6 +37,36 @@ function parseMinutesFromDateTime(value: string): number {
   return hours * 60 + minutes;
 }
 
+function getCurrentLocalSlotBoundary(): { date: string; minutes: number } {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+
+  return {
+    date: `${year}-${month}-${day}`,
+    minutes: now.getHours() * 60 + now.getMinutes(),
+  };
+}
+
+function compareSlots(left: { targetDate: string; startMinutes: number }, right: { targetDate: string; startMinutes: number }): number {
+  if (left.targetDate !== right.targetDate) {
+    return left.targetDate.localeCompare(right.targetDate);
+  }
+
+  return left.startMinutes - right.startMinutes;
+}
+
+function preferFutureSlots<T extends { targetDate: string; startMinutes: number }>(slots: T[]): T[] {
+  const boundary = getCurrentLocalSlotBoundary();
+  const futureSlots = slots.filter(
+    (slot) => slot.targetDate > boundary.date || (slot.targetDate === boundary.date && slot.startMinutes >= boundary.minutes + 60)
+  );
+
+  const prioritized = futureSlots.length ? futureSlots : slots;
+  return [...prioritized].sort(compareSlots);
+}
+
 export async function getVisibleScheduleSlot(
   page: Page,
   options?: { preferredCity?: string; slotIndex?: number }
@@ -56,10 +86,11 @@ export async function getVisibleScheduleSlot(
     }))
   );
 
-  const sortedSlots = slots
+  const validSlots = slots
     .filter((slot) => Number.isFinite(slot.technicianId) && slot.targetDate && Number.isFinite(slot.startMinutes))
-    .filter((slot) => slot.startMinutes >= 8 * 60 && slot.startMinutes + 30 <= 20 * 60)
-    .sort((left, right) => right.startMinutes - left.startMinutes);
+    .filter((slot) => slot.startMinutes >= 8 * 60 && slot.startMinutes + 30 <= 20 * 60);
+
+  const sortedSlots = preferFutureSlots(validSlots);
 
   if (!sortedSlots.length) {
     throw new Error("No empty schedule slots available in the rendered schedule");
@@ -96,10 +127,11 @@ export async function getVisibleScheduleSlotForTechnician(
     technicianId
   );
 
-  const sortedSlots = slots
+  const validSlots = slots
     .filter((slot) => slot.targetDate && Number.isFinite(slot.startMinutes))
-    .filter((slot) => slot.startMinutes >= 8 * 60 && slot.startMinutes + 30 <= 20 * 60)
-    .sort((left, right) => right.startMinutes - left.startMinutes);
+    .filter((slot) => slot.startMinutes >= 8 * 60 && slot.startMinutes + 30 <= 20 * 60);
+
+  const sortedSlots = preferFutureSlots(validSlots);
 
   if (!sortedSlots.length) {
     throw new Error(`No visible empty schedule slots available for technician ${technicianId}`);
@@ -257,6 +289,18 @@ export async function getTaskDetailViaApi(page: Page, taskId: number): Promise<T
   };
 }
 
+function isRetryableTaskCreationError(status: number, responseText: string, hasExplicitSchedule: boolean): boolean {
+  if (status === 409) {
+    return !hasExplicitSchedule;
+  }
+
+  if (status === 422) {
+    return !hasExplicitSchedule && /Nepakanka laiko kelionei|travel/i.test(responseText);
+  }
+
+  return status === 500 && /pk_task_evaluations|dbupdateconcurrencyexception|deadlock detected|transient failure|40P01/i.test(responseText);
+}
+
 export async function createTaskViaApi(
   page: Page,
   overrides: Record<string, unknown> = {},
@@ -268,7 +312,7 @@ export async function createTaskViaApi(
     typeof overrides.startMinutes === "number" ||
     typeof overrides.endMinutes === "number";
 
-  const maxAttempts = hasExplicitSchedule ? 1 : 12;
+  const maxAttempts = hasExplicitSchedule ? 6 : 12;
   let lastError: string | null = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -320,10 +364,13 @@ export async function createTaskViaApi(
       return body.id ?? body.taskId;
     }
 
-    lastError = `${response.status()} ${await response.text()}`;
-    if (response.status() !== 409 || hasExplicitSchedule) {
+    const responseText = await response.text();
+    lastError = `${response.status()} ${responseText}`;
+    if (!isRetryableTaskCreationError(response.status(), responseText, hasExplicitSchedule)) {
       break;
     }
+
+    await page.waitForTimeout(250 * (attempt + 1));
   }
 
   throw new Error(`Failed to create task via API: ${lastError ?? "unknown error"}`);
@@ -400,3 +447,7 @@ export async function getTaskScheduleContext(page: Page, taskId: number): Promis
     endMinutes: task.endMinutes,
   };
 }
+
+
+
+

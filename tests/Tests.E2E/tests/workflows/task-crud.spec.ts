@@ -1,10 +1,30 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { authenticateAsManager } from "../../actions/auth.actions";
-import { confirmTaskDeletion, editPanelInstructions, editPanelPriority, editPanelSkill, saveTask, waitForTaskPanel } from "../../actions/task.actions";
+import {
+  confirmTaskDeletion,
+  editPanelInstructions,
+  editPanelPriority,
+  editPanelSkill,
+  openTaskDeleteConfirmation,
+  reopenTaskCard,
+  saveTask,
+  saveTaskAndWaitForVersionChange,
+} from "../../actions/task.actions";
 import { successToasts, taskPanel, taskPrioritySelect, taskSkillSelect, taskTitleInput } from "../../fixtures/selectors";
+import {
+  createDraftTaskAndOpenPanel,
+  createDraftTaskAndReturnCard,
+  openDraftDayScheduleAndTaskCreatePanel,
+} from "../../flows/task.flows";
 import { discardDraftIfExists } from "../../support/plan-api";
 import { cleanupTaskViaApi } from "../../support/task-api";
-import { createTaskInDraftThroughUi, openCreateTaskPanelFromFirstSlot, openDraftDaySchedule } from "../../flows/task.flows";
+
+async function reloadTaskCard(page: Page, taskId: number) {
+  await page.reload({ waitUntil: "networkidle" });
+  const card = page.locator(`.task-card[data-task-id="${taskId}"]`);
+  await expect(card).toBeVisible({ timeout: 10_000 });
+  return card;
+}
 
 test.describe("task CRUD workflows", () => {
   test.describe.configure({ mode: "serial" });
@@ -26,7 +46,7 @@ test.describe("task CRUD workflows", () => {
 
   test("creates a task by clicking an empty slot, filling the panel, and saving", async ({ page }) => {
     const title = `E2E${Date.now().toString().slice(-6)}`;
-    const { card } = await createTaskInDraftThroughUi(page, { title });
+    const { card } = await createDraftTaskAndReturnCard(page, { title });
 
     await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
     await expect(card).toBeVisible({ timeout: 10_000 });
@@ -37,7 +57,7 @@ test.describe("task CRUD workflows", () => {
 
   test("updates a task title via the task panel and persists the change", async ({ page }) => {
     const initialTitle = `E2E${Date.now().toString().slice(-6)}`;
-    const { card } = await createTaskInDraftThroughUi(page, { title: initialTitle });
+    const { card } = await createDraftTaskAndOpenPanel(page, { title: initialTitle });
 
     await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
     await expect(card).toBeVisible({ timeout: 10_000 });
@@ -46,19 +66,15 @@ test.describe("task CRUD workflows", () => {
     taskIdToCleanup = taskId;
     const newTitle = `U${Date.now().toString().slice(-6)}`;
 
-    await card.click();
-    await waitForTaskPanel(page);
     await taskTitleInput(page).fill(newTitle);
-    await saveTask(page);
-
-    await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
-    await expect(taskPanel(page)).not.toHaveClass(/show/, { timeout: 10_000 });
-    await expect(page.locator(`.task-card[data-task-id="${taskId}"] .task-title`)).toHaveText(newTitle, { timeout: 10_000 });
+    await saveTaskAndWaitForVersionChange(page);
+    const refreshedCard = await reloadTaskCard(page, taskId);
+    await expect(refreshedCard.locator(".task-title")).toHaveText(newTitle, { timeout: 10_000 });
   });
 
   test("deletes a task via the card delete button and removes it from the grid", async ({ page }) => {
     const title = `D${Date.now().toString().slice(-6)}`;
-    const { card } = await createTaskInDraftThroughUi(page, { title });
+    const { card } = await createDraftTaskAndReturnCard(page, { title });
 
     await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
     await expect(card).toBeVisible({ timeout: 10_000 });
@@ -66,13 +82,7 @@ test.describe("task CRUD workflows", () => {
     const taskId = await card.getAttribute("data-task-id");
     taskIdToCleanup = taskId ? Number(taskId) : null;
 
-    await card.hover();
-    const deleteBtn = card.locator(".task-card-action-delete");
-    await expect(deleteBtn).toBeVisible({ timeout: 5_000 });
-    await deleteBtn.click();
-
-    const deleteModal = page.locator("#taskDeleteModal");
-    await expect(deleteModal).toBeVisible({ timeout: 5_000 });
+    await openTaskDeleteConfirmation(card, page);
     await confirmTaskDeletion(page);
 
     await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
@@ -81,8 +91,7 @@ test.describe("task CRUD workflows", () => {
   });
 
   test("shows an error message when saving a task with no title", async ({ page }) => {
-    await openDraftDaySchedule(page);
-    await openCreateTaskPanelFromFirstSlot(page);
+    await openDraftDayScheduleAndTaskCreatePanel(page);
 
     await taskTitleInput(page).fill("");
     await saveTask(page);
@@ -93,62 +102,50 @@ test.describe("task CRUD workflows", () => {
 
   test("updates task priority via the panel and persists the change", async ({ page }) => {
     const title = `P${Date.now().toString().slice(-6)}`;
-    const { card } = await createTaskInDraftThroughUi(page, { title, priority: "1" });
+    const { card } = await createDraftTaskAndOpenPanel(page, { title, priority: "1" });
 
     await expect(card).toBeVisible({ timeout: 10_000 });
     const taskId = Number(await card.getAttribute("data-task-id"));
     taskIdToCleanup = taskId;
 
-    await card.click();
-    await waitForTaskPanel(page);
     await editPanelPriority(page, "2");
-    await saveTask(page);
+    await saveTaskAndWaitForVersionChange(page);
 
-    await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
-
-    await card.click();
-    await waitForTaskPanel(page);
+    const refreshedCard = await reloadTaskCard(page, taskId);
+    await reopenTaskCard(page, refreshedCard);
     await expect(taskPrioritySelect(page)).toHaveValue("2");
   });
 
   test("updates task skill level via the panel and persists the change", async ({ page }) => {
     const title = `S${Date.now().toString().slice(-6)}`;
-    const { card } = await createTaskInDraftThroughUi(page, { title, skill: "Basic" });
+    const { card } = await createDraftTaskAndOpenPanel(page, { title, skill: "Basic" });
 
     await expect(card).toBeVisible({ timeout: 10_000 });
     const taskId = Number(await card.getAttribute("data-task-id"));
     taskIdToCleanup = taskId;
 
-    await card.click();
-    await waitForTaskPanel(page);
     await editPanelSkill(page, "Advanced");
-    await saveTask(page);
+    await saveTaskAndWaitForVersionChange(page);
 
-    await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
-
-    await card.click();
-    await waitForTaskPanel(page);
+    const refreshedCard = await reloadTaskCard(page, taskId);
+    await reopenTaskCard(page, refreshedCard);
     await expect(taskSkillSelect(page)).toHaveValue("Advanced");
   });
 
   test("updates task instructions via the panel and persists the change", async ({ page }) => {
     const title = `I${Date.now().toString().slice(-6)}`;
-    const { card } = await createTaskInDraftThroughUi(page, { title });
+    const { card } = await createDraftTaskAndOpenPanel(page, { title });
 
     await expect(card).toBeVisible({ timeout: 10_000 });
     const taskId = Number(await card.getAttribute("data-task-id"));
     taskIdToCleanup = taskId;
 
     const instructions = `Test instructions ${Date.now()}`;
-    await card.click();
-    await waitForTaskPanel(page);
     await editPanelInstructions(page, instructions);
-    await saveTask(page);
+    await saveTaskAndWaitForVersionChange(page);
 
-    await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
-
-    await card.click();
-    await waitForTaskPanel(page);
+    const refreshedCard = await reloadTaskCard(page, taskId);
+    await reopenTaskCard(page, refreshedCard);
     await expect(page.locator("#taskDetailInstructions")).toHaveValue(instructions);
   });
 

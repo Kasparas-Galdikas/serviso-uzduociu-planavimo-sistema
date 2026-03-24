@@ -23,7 +23,9 @@
       "Bash(find c:UsersKasparasOneDriveDesktopserviso-uzduociu-planavimo-sistemawwwroot -type f \\\\\\(-name *.js -o -name *.ts -o -name *.tsx \\\\\\))",
       "Bash(grep -r \"ExceptionFilter\\\\|ActionFilter\\\\|ResultFilter\\\\|ResourceFilter\" /c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema --include=*.cs)",
       "Bash(ls -ltr /c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Migrations/*.cs)",
-      "Read(//c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sula/tests/Tests.E2E/tests/**)"
+      "Read(//c/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sula/tests/Tests.E2E/tests/**)",
+      "Bash(npx playwright:*)",
+      "Bash(npx tsc:*)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Kasparas\\OneDrive\\Desktop\\serviso-uzduociu-planavimo-sistema\\tests\\Tests.E2E\\tests\\smoke"

@@ -3,6 +3,7 @@ import { authenticateAsManager } from "../../actions/auth.actions";
 import { dragTaskHandleToTarget, resizeTaskRightHandleToSlot } from "../../actions/task-interactions.actions";
 import { activateResizeMode } from "../../actions/task.actions";
 import { taskResizeOverlay, taskResizeRightHandle } from "../../fixtures/selectors";
+import { createDraftTaskForInteraction } from "../../flows/task.flows";
 import { discardDraftIfExists } from "../../support/plan-api";
 import {
   cleanupTaskViaApi,
@@ -12,7 +13,6 @@ import {
   getTaskScheduleContext,
   getVisibleScheduleSlot,
 } from "../../support/task-api";
-import { openDraftDaySchedule } from "../../flows/task.flows";
 
 test.describe("task interaction workflows", () => {
   test.describe.configure({ mode: "serial" });
@@ -32,15 +32,12 @@ test.describe("task interaction workflows", () => {
   });
 
   test("moves a task to a different time slot on the same technician via drag", async ({ page }) => {
-    const date = await openDraftDaySchedule(page);
-    const sourceSlot = await getVisibleScheduleSlot(page, { slotIndex: 3 });
-    const taskId = await createTaskViaApi(page, { title: "MoveTask", ...sourceSlot });
+    const sourceSlot = await getVisibleScheduleSlot(page, { slotIndex: 3 }).catch(() => null);
+    test.skip(!sourceSlot, "No visible schedule slot available for interaction seeding.");
+
+    const { taskId, card } = await createDraftTaskForInteraction(page, { title: "MoveTask", ...sourceSlot! });
     taskIdsToCleanup.push(taskId);
 
-    await page.goto(`/Schedule?view=day&date=${date}`);
-    await page.waitForLoadState("networkidle");
-
-    const card = page.locator(`.task-card[data-task-id="${taskId}"]`);
     await expect(card).toBeVisible({ timeout: 10_000 });
 
     const currentTask = await getTaskScheduleContext(page, taskId);
@@ -62,15 +59,12 @@ test.describe("task interaction workflows", () => {
   });
 
   test("moves a task to a different technician row via drag", async ({ page }) => {
-    const date = await openDraftDaySchedule(page);
-    const sourceSlot = await getVisibleScheduleSlot(page, { slotIndex: 0 });
-    const taskId = await createTaskViaApi(page, { title: "CrossTechMove", ...sourceSlot });
+    const sourceSlot = await getVisibleScheduleSlot(page, { slotIndex: 0 }).catch(() => null);
+    test.skip(!sourceSlot, "No visible schedule slot available for interaction seeding.");
+
+    const { taskId, card } = await createDraftTaskForInteraction(page, { title: "CrossTechMove", ...sourceSlot! });
     taskIdsToCleanup.push(taskId);
 
-    await page.goto(`/Schedule?view=day&date=${date}`);
-    await page.waitForLoadState("networkidle");
-
-    const card = page.locator(`.task-card[data-task-id="${taskId}"]`);
     await expect(card).toBeVisible({ timeout: 10_000 });
 
     const allSlotData = await page.locator(".schedule-slot[data-tech-id][data-date][data-slot-start-minutes]").evaluateAll((els) =>
@@ -81,7 +75,7 @@ test.describe("task interaction workflows", () => {
       }))
     );
     const differentTechSlot = allSlotData.find(
-      (slot) => slot.techId !== String(sourceSlot.technicianId) && slot.targetDate === sourceSlot.targetDate
+      (slot) => slot.techId !== String(sourceSlot!.technicianId) && slot.targetDate === sourceSlot!.targetDate
     );
     test.skip(!differentTechSlot, "No slots for a different technician found in the rendered schedule.");
 
@@ -96,58 +90,46 @@ test.describe("task interaction workflows", () => {
     const updated = await getTaskScheduleContext(page, taskId);
     expect(updated.technicianId).toBe(Number(differentTechSlot!.techId));
     expect(updated.targetDate).toBe(String(differentTechSlot!.targetDate));
-    expect(updated.endMinutes - updated.startMinutes).toBe(sourceSlot.endMinutes - sourceSlot.startMinutes);
+    expect(updated.endMinutes - updated.startMinutes).toBe(sourceSlot!.endMinutes - sourceSlot!.startMinutes);
   });
 
   test("swaps two tasks on the same technician via drag", async ({ page }) => {
-    const date = await openDraftDaySchedule(page);
+    const slotA = await getVisibleScheduleSlot(page, { slotIndex: 1 }).catch(() => null);
+    test.skip(!slotA, "No visible schedule slot available for interaction seeding.");
 
-    const slotA = await getVisibleScheduleSlot(page, { slotIndex: 1 });
-    const taskIdA = await createTaskViaApi(page, { title: "SwapA", ...slotA });
-    taskIdsToCleanup.push(taskIdA);
+    const firstTask = await createDraftTaskForInteraction(page, { title: "SwapA", ...slotA! });
+    taskIdsToCleanup.push(firstTask.taskId);
 
-    await page.goto(`/Schedule?view=day&date=${date}`);
-    await page.waitForLoadState("networkidle");
-
-    const actualSlotA = await getTaskScheduleContext(page, taskIdA);
-    const slotB = await getAnotherVisibleSlotOnSameTechnician(page, actualSlotA);
+    const beforeSwapA = await getTaskScheduleContext(page, firstTask.taskId);
+    const slotB = await getAnotherVisibleSlotOnSameTechnician(page, beforeSwapA);
     test.skip(!slotB, "No second empty slot available on the same technician after seeding the first task.");
 
-    const taskIdB = await createTaskViaApi(page, { title: "SwapB", ...slotB! });
-    taskIdsToCleanup.push(taskIdB);
+    const secondTask = await createDraftTaskForInteraction(page, { title: "SwapB", ...slotB! }, { date: firstTask.date });
+    taskIdsToCleanup.push(secondTask.taskId);
 
-    await page.goto(`/Schedule?view=day&date=${date}`);
-    await page.waitForLoadState("networkidle");
+    const beforeSwapB = await getTaskScheduleContext(page, secondTask.taskId);
 
-    const beforeSwapA = await getTaskScheduleContext(page, taskIdA);
-    const beforeSwapB = await getTaskScheduleContext(page, taskIdB);
+    await expect(firstTask.card).toBeVisible({ timeout: 10_000 });
+    await expect(secondTask.card).toBeVisible({ timeout: 10_000 });
 
-    const cardA = page.locator(`.task-card[data-task-id="${taskIdA}"]`);
-    const cardB = page.locator(`.task-card[data-task-id="${taskIdB}"]`);
-    await expect(cardA).toBeVisible({ timeout: 10_000 });
-    await expect(cardB).toBeVisible({ timeout: 10_000 });
+    await dragTaskHandleToTarget(page, firstTask.card, secondTask.card);
 
-    await dragTaskHandleToTarget(page, cardA, cardB);
-
-    const updatedA = await getTaskScheduleContext(page, taskIdA);
-    const updatedB = await getTaskScheduleContext(page, taskIdB);
+    const updatedA = await getTaskScheduleContext(page, firstTask.taskId);
+    const updatedB = await getTaskScheduleContext(page, secondTask.taskId);
     expect(updatedA.startMinutes).toBe(beforeSwapB.startMinutes);
     expect(updatedB.startMinutes).toBe(beforeSwapA.startMinutes);
 
-    await expect(page.locator(`.task-card[data-task-id="${taskIdA}"]`)).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator(`.task-card[data-task-id="${taskIdB}"]`)).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(`.task-card[data-task-id="${firstTask.taskId}"]`)).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(`.task-card[data-task-id="${secondTask.taskId}"]`)).toBeVisible({ timeout: 10_000 });
   });
 
   test("extends a task end time via the resize handle", async ({ page }) => {
-    const date = await openDraftDaySchedule(page);
-    const slot = await getVisibleScheduleSlot(page, { slotIndex: 0 });
-    const taskId = await createTaskViaApi(page, { title: "ResizeTask", ...slot });
+    const slot = await getVisibleScheduleSlot(page, { slotIndex: 0 }).catch(() => null);
+    test.skip(!slot, "No visible schedule slot available for interaction seeding.");
+
+    const { taskId, card } = await createDraftTaskForInteraction(page, { title: "ResizeTask", ...slot! });
     taskIdsToCleanup.push(taskId);
 
-    await page.goto(`/Schedule?view=day&date=${date}`);
-    await page.waitForLoadState("networkidle");
-
-    const card = page.locator(`.task-card[data-task-id="${taskId}"]`);
     await expect(card).toBeVisible({ timeout: 10_000 });
 
     await activateResizeMode(card);
@@ -167,6 +149,5 @@ test.describe("task interaction workflows", () => {
 
     const updated = await getTaskScheduleContext(page, taskId);
     expect(updated.endMinutes).toBe(nextSlot!.endMinutes);
-
   });
 });

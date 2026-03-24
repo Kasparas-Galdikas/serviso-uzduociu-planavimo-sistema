@@ -1,11 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { switchToManager, switchToTechnician } from "../../actions/auth.actions";
-import { openDaySchedule, openTaskCardById, openTechnicianDaySchedule } from "../../actions/schedule.actions";
 import {
   editTechnicianComment,
   editTechnicianStatus,
   saveTask,
-  waitForTaskPanel,
 } from "../../actions/task.actions";
 import {
   successToasts,
@@ -13,15 +11,15 @@ import {
   taskStatusSelect,
   taskTechnicianCommentInput,
 } from "../../fixtures/selectors";
-import { openDraftDaySchedule } from "../../flows/task.flows";
+import {
+  createTaskForOtherTechnician,
+  createTaskForTechnicianAndOpenAsTechnician,
+} from "../../flows/task-access.flows";
 import { discardDraftIfExists } from "../../support/plan-api";
 import { getCurrentUserContext } from "../../support/auth-api";
 import {
   cleanupTaskViaApi,
-  createTaskViaApi,
-  getAnotherTechnicianId,
   getTaskDetailViaApi,
-  getVisibleScheduleSlotForTechnician,
   updateTaskAsTechnicianViaApi,
 } from "../../support/task-api";
 
@@ -46,20 +44,12 @@ test.describe("technician task workflows", () => {
     const currentUser = await getCurrentUserContext(page);
     test.skip(!currentUser.technicianId, "Current seeded technician user has no technician id.");
 
-    await switchToManager(page);
-    await discardDraftIfExists(page);
-    await openDaySchedule(page);
-
-    const slot = await getVisibleScheduleSlotForTechnician(page, currentUser.technicianId!).catch(() => null);
-    test.skip(!slot, "No visible active-plan slot available for the seeded technician.");
-
-    const taskId = await createTaskViaApi(page, { title: "TechDone", technicianId: currentUser.technicianId!, ...slot! });
-    taskIdsToCleanup.push(taskId);
-
-    await switchToTechnician(page);
-    await openTechnicianDaySchedule(page, currentUser.technicianId!, slot!.targetDate);
-    await openTaskCardById(page, taskId);
-    await waitForTaskPanel(page);
+    const result = await createTaskForTechnicianAndOpenAsTechnician(
+      page,
+      currentUser.technicianId!,
+      { title: "TechDone" }
+    );
+    taskIdsToCleanup.push(result.taskId);
 
     const comment = `Done ${Date.now()}`;
     await editTechnicianStatus(page, "1");
@@ -68,7 +58,7 @@ test.describe("technician task workflows", () => {
 
     await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
 
-    const updated = await getTaskDetailViaApi(page, taskId);
+    const updated = await getTaskDetailViaApi(page, result.taskId);
     expect(updated.status).toBe(1);
     expect(updated.technicianComment).toBe(comment);
     expect(updated.isEditable).toBe(false);
@@ -79,20 +69,13 @@ test.describe("technician task workflows", () => {
     const currentUser = await getCurrentUserContext(page);
     test.skip(!currentUser.technicianId, "Current seeded technician user has no technician id.");
 
-    await switchToManager(page);
-    await discardDraftIfExists(page);
-    await openDaySchedule(page);
-
-    const slot = await getVisibleScheduleSlotForTechnician(page, currentUser.technicianId!, { slotIndex: 1 }).catch(() => null);
-    test.skip(!slot, "No second visible active-plan slot available for the seeded technician.");
-
-    const taskId = await createTaskViaApi(page, { title: "TechProb", technicianId: currentUser.technicianId!, ...slot! });
-    taskIdsToCleanup.push(taskId);
-
-    await switchToTechnician(page);
-    await openTechnicianDaySchedule(page, currentUser.technicianId!, slot!.targetDate);
-    await openTaskCardById(page, taskId);
-    await waitForTaskPanel(page);
+    const result = await createTaskForTechnicianAndOpenAsTechnician(
+      page,
+      currentUser.technicianId!,
+      { title: "TechProb" },
+      { slotIndex: 1 }
+    );
+    taskIdsToCleanup.push(result.taskId);
 
     const comment = `Prob ${Date.now()}`;
     await editTechnicianStatus(page, "2");
@@ -101,7 +84,7 @@ test.describe("technician task workflows", () => {
 
     await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
 
-    const updated = await getTaskDetailViaApi(page, taskId);
+    const updated = await getTaskDetailViaApi(page, result.taskId);
     expect(updated.status).toBe(2);
     expect(updated.technicianComment).toBe(comment);
     expect(updated.isEditable).toBe(false);
@@ -112,20 +95,12 @@ test.describe("technician task workflows", () => {
     const currentUser = await getCurrentUserContext(page);
     test.skip(!currentUser.technicianId, "Current seeded technician user has no technician id.");
 
-    await switchToManager(page);
-    await discardDraftIfExists(page);
-    await openDaySchedule(page);
-
-    const otherTechnicianId = await getAnotherTechnicianId(page, currentUser.technicianId!);
-    const slot = await getVisibleScheduleSlotForTechnician(page, otherTechnicianId).catch(() => null);
-    test.skip(!slot, "No visible active-plan slot available for a second technician.");
-
-    const taskId = await createTaskViaApi(page, { title: "OtherTech", technicianId: otherTechnicianId, ...slot! });
-    taskIdsToCleanup.push(taskId);
-    const detail = await getTaskDetailViaApi(page, taskId);
+    const result = await createTaskForOtherTechnician(page, currentUser.technicianId!, { title: "OtherTech" });
+    taskIdsToCleanup.push(result.taskId);
+    const detail = await getTaskDetailViaApi(page, result.taskId);
 
     await switchToTechnician(page);
-    const response = await updateTaskAsTechnicianViaApi(page, taskId, {
+    const response = await updateTaskAsTechnicianViaApi(page, result.taskId, {
       status: 1,
       comment: "Forbidden update",
       version: detail.version,
@@ -140,20 +115,13 @@ test.describe("technician task workflows", () => {
     const currentUser = await getCurrentUserContext(page);
     test.skip(!currentUser.technicianId, "Current seeded technician user has no technician id.");
 
-    await switchToManager(page);
-    await discardDraftIfExists(page);
-    const draftDate = await openDraftDaySchedule(page);
-
-    const slot = await getVisibleScheduleSlotForTechnician(page, currentUser.technicianId!).catch(() => null);
-    test.skip(!slot, "No visible draft slot available for the seeded technician.");
-
-    const taskId = await createTaskViaApi(page, { title: "DraftTech", technicianId: currentUser.technicianId!, ...slot! });
-    taskIdsToCleanup.push(taskId);
-
-    await switchToTechnician(page);
-    await openTechnicianDaySchedule(page, currentUser.technicianId!, draftDate);
-    await openTaskCardById(page, taskId);
-    await waitForTaskPanel(page);
+    const result = await createTaskForTechnicianAndOpenAsTechnician(
+      page,
+      currentUser.technicianId!,
+      { title: "DraftTech" },
+      { draft: true }
+    );
+    taskIdsToCleanup.push(result.taskId);
 
     await expect(taskSaveBtn(page)).toBeDisabled();
     await expect(taskStatusSelect(page)).toBeDisabled();

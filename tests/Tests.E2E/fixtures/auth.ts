@@ -47,6 +47,13 @@ export function getSeededUser(role: SeededUserRole): SeededUser {
 async function firstVisible(page: Page, selectors: string[], description: string): Promise<Locator> {
   for (const selector of selectors) {
     const locator = page.locator(selector).first();
+    if (await locator.isVisible().catch(() => false)) {
+      return locator;
+    }
+  }
+
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
     if (await locator.count()) {
       return locator;
     }
@@ -57,20 +64,50 @@ async function firstVisible(page: Page, selectors: string[], description: string
 
 export async function loginAsRole(page: Page, role: SeededUserRole): Promise<void> {
   const user = getSeededUser(role);
+  const maxAttempts = 8;
 
-  await page.goto("/");
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await page.goto("/");
 
-  if (!page.url().includes("/Authentication")) {
-    return;
+    const startupErrorVisible = await page
+      .getByText("An unhandled exception occurred while processing the request.")
+      .isVisible()
+      .catch(() => false);
+
+    if (startupErrorVisible) {
+      await page.waitForTimeout(2_000 * (attempt + 1));
+      continue;
+    }
+
+    if (!page.url().includes("/Authentication")) {
+      return;
+    }
+
+    const emailInput = await firstVisible(page, EMAIL_CANDIDATES, `${role} email input`);
+    const submitButton = await firstVisible(page, SUBMIT_CANDIDATES, "login submit action");
+
+    await emailInput.fill(user.email);
+    await submitButton.click();
+
+    try {
+      await expect(page).not.toHaveURL(/Authentication/i, { timeout: 10_000 });
+      return;
+    } catch {
+      const loginPageErrored = await page
+        .getByText("An unhandled exception occurred while processing the request.")
+        .isVisible()
+        .catch(() => false);
+
+      if (loginPageErrored || attempt < maxAttempts - 1) {
+        await page.waitForTimeout(2_000 * (attempt + 1));
+        continue;
+      }
+
+      throw new Error(`Failed to authenticate as ${role} after ${maxAttempts} attempts.`);
+    }
   }
 
-  const emailInput = await firstVisible(page, EMAIL_CANDIDATES, `${role} email input`);
-  const submitButton = await firstVisible(page, SUBMIT_CANDIDATES, "login submit action");
-
-  await emailInput.fill(user.email);
-  await submitButton.click();
-
-  await expect(page).not.toHaveURL(/Authentication/i);
+  throw new Error(`Failed to authenticate as ${role} after ${maxAttempts} attempts.`);
 }
 
 export async function loginAsManager(page: Page): Promise<void> {
@@ -84,3 +121,5 @@ export async function loginAsTechnician(page: Page): Promise<void> {
 export async function ensureAuthenticated(page: Page): Promise<void> {
   await loginAsManager(page);
 }
+
+

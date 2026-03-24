@@ -1,14 +1,15 @@
 import { expect, test } from "@playwright/test";
 import { authenticateAsManager } from "../../actions/auth.actions";
 import { discardPlanBtn, draftBadge, previewBanner, publishPlanBtn } from "../../fixtures/selectors";
+import {
+  createDraftAndOpenWeekPreview,
+  createDraftThroughUi,
+  discardCurrentDraftAndWaitForSchedule,
+  openManagerScheduleWithoutDraft,
+  publishCurrentDraftAndWaitForSchedule,
+} from "../../flows/plan.flows";
 import { discardDraftIfExists } from "../../support/plan-api";
 import { today } from "../../support/date";
-import {
-  createDraftThroughUi,
-  discardDraftThroughUi,
-  openDraftWeekPreview,
-  publishDraftThroughUi,
-} from "../../flows/plan.flows";
 
 test.describe("plan lifecycle workflows", () => {
   test.describe.configure({ mode: "serial" });
@@ -22,8 +23,7 @@ test.describe("plan lifecycle workflows", () => {
   });
 
   test("creates a draft plan through the UI and shows the preview banner", async ({ page }) => {
-    await discardDraftIfExists(page);
-    await page.goto("/Schedule");
+    await openManagerScheduleWithoutDraft(page);
 
     const draft = await createDraftThroughUi(page);
 
@@ -33,14 +33,12 @@ test.describe("plan lifecycle workflows", () => {
   });
 
   test("publishes a draft plan: preview banner disappears and no draft badge remains", async ({ page }) => {
-    await discardDraftIfExists(page);
-    const draft = await openDraftWeekPreview(page);
+    const draft = await createDraftAndOpenWeekPreview(page);
 
     await expect(previewBanner(page)).toBeVisible();
     await expect(publishPlanBtn(page)).toBeVisible();
 
-    await publishDraftThroughUi(page);
-    await page.waitForURL(/Schedule/i, { timeout: 20_000 });
+    await publishCurrentDraftAndWaitForSchedule(page);
 
     await expect(previewBanner(page)).not.toBeVisible();
     await page.goto(`/Schedule?view=day&date=${draft.startDate}`);
@@ -48,14 +46,12 @@ test.describe("plan lifecycle workflows", () => {
   });
 
   test("discards a draft plan: preview banner and draft badge both disappear", async ({ page }) => {
-    await discardDraftIfExists(page);
-    await openDraftWeekPreview(page);
+    await createDraftAndOpenWeekPreview(page);
 
     await expect(previewBanner(page)).toBeVisible();
     await expect(discardPlanBtn(page)).toBeVisible();
 
-    await discardDraftThroughUi(page);
-    await page.waitForURL(/Schedule/i, { timeout: 20_000 });
+    await discardCurrentDraftAndWaitForSchedule(page);
 
     await expect(previewBanner(page)).not.toBeVisible();
     await page.goto(`/Schedule?view=day&date=${today()}`);
@@ -63,8 +59,7 @@ test.describe("plan lifecycle workflows", () => {
   });
 
   test("creating a second draft via the API is rejected while one already exists", async ({ page }) => {
-    await discardDraftIfExists(page);
-    await openDraftWeekPreview(page);
+    await createDraftAndOpenWeekPreview(page);
 
     const response = await page.request.post("/api/plans/draft", {
       data: { weeks: 2 },

@@ -1,11 +1,16 @@
 import { expect, test } from "@playwright/test";
 
-import { authenticateAsManager, authenticateAsTechnician } from "../../actions/auth.actions";
-import { openDaySchedule, openSchedule, openTaskCardByTitle, openFirstTaskCard } from "../../actions/schedule.actions";
-import { waitForTaskPanel } from "../../actions/task.actions";
-import { createPlanBtn, taskSaveBtn } from "../../fixtures/selectors";
-import { cleanupTaskViaApi, createTaskViaApi, getTaskScheduleContext, getVisibleScheduleSlot } from "../../support/task-api";
-import { today } from "../../support/date";
+import { authenticateAsManager, authenticateAsTechnician, switchToManager } from "../../actions/auth.actions";
+import { openDaySchedule, openSchedule } from "../../actions/schedule.actions";
+import { taskSaveBtn } from "../../fixtures/selectors";
+import {
+  createManagerTaskAndOpenPanel,
+  createManagerTaskViaApi,
+  createTaskForTechnicianAndOpenAsTechnician,
+} from "../../flows/task-access.flows";
+import { getCurrentUserContext } from "../../support/auth-api";
+import { createPlanBtn } from "../../fixtures/selectors";
+import { cleanupTaskViaApi } from "../../support/task-api";
 
 test.describe("manager permissions", () => {
   let taskIdToCleanup: number | null = null;
@@ -27,37 +32,33 @@ test.describe("manager permissions", () => {
   });
 
   test("manager can create a task via the API", async ({ page }) => {
-    await openDaySchedule(page);
-    const slot = await getVisibleScheduleSlot(page).catch(() => null);
-    test.skip(!slot, "No visible schedule slot available for manager create test.");
-
-    taskIdToCleanup = await createTaskViaApi(page, {
-      technicianId: slot!.technicianId,
-      title: "MgrTask",
-      targetDate: slot!.targetDate,
-      startMinutes: slot!.startMinutes,
-      endMinutes: slot!.endMinutes,
-    });
+    const result = await createManagerTaskViaApi(page, { title: "MgrTask" });
+    taskIdToCleanup = result.taskId;
 
     expect(taskIdToCleanup).toBeTruthy();
   });
 
   test("manager sees save button when opening a task in the panel", async ({ page }) => {
-    await openDaySchedule(page);
-    taskIdToCleanup = await createTaskViaApi(page, { title: "SaveBtnTask" });
-    const taskSchedule = await getTaskScheduleContext(page, taskIdToCleanup);
-
-    await openDaySchedule(page, taskSchedule.targetDate);
-    await openTaskCardByTitle(page, "SaveBtnTask");
-    await waitForTaskPanel(page);
+    const result = await createManagerTaskAndOpenPanel(page, { title: "SaveBtnTask" }, { title: "SaveBtnTask" });
+    taskIdToCleanup = result.taskId;
 
     await expect(taskSaveBtn(page)).toBeVisible();
   });
 });
 
 test.describe("technician permissions", () => {
+  let taskIdToCleanup: number | null = null;
+
   test.beforeEach(async ({ page }) => {
     await authenticateAsTechnician(page);
+  });
+
+  test.afterEach(async ({ page }) => {
+    if (taskIdToCleanup !== null) {
+      await switchToManager(page);
+      await cleanupTaskViaApi(page, taskIdToCleanup);
+      taskIdToCleanup = null;
+    }
   });
 
   test("technician is forbidden from creating a draft plan via the API (403)", async ({ page }) => {
@@ -79,16 +80,13 @@ test.describe("technician permissions", () => {
 
   test("technician is forbidden from creating tasks via the API (403)", async ({ page }) => {
     await openDaySchedule(page);
-    const slot = await getVisibleScheduleSlot(page).catch(() => null);
-    test.skip(!slot, "No visible schedule slot available for technician create test.");
-
     const response = await page.request.post("/api/tasks", {
       data: {
-        technicianId: slot!.technicianId,
+        technicianId: 1,
         title: "ForbidTask",
-        targetDate: slot!.targetDate,
-        startMinutes: slot!.startMinutes,
-        endMinutes: slot!.endMinutes,
+        targetDate: "2099-01-01",
+        startMinutes: 540,
+        endMinutes: 570,
         priority: 1,
         status: 0,
         skillLevel: "Basic",
@@ -108,17 +106,19 @@ test.describe("technician permissions", () => {
     expect(isVisible && isEnabled).toBe(false);
   });
 
-  test("technician does NOT see the save button when opening a task panel", async ({ page }) => {
-    await openDaySchedule(page, today());
+  test("technician sees read-only controls when opening an assigned draft task", async ({ page }) => {
+    const currentUser = await getCurrentUserContext(page);
+    test.skip(!currentUser.technicianId, "Current seeded technician user has no technician id.");
 
-    try {
-      await openFirstTaskCard(page);
-    } catch {
-      test.skip(true, "No task cards present for technician panel test.");
-    }
+    const result = await createTaskForTechnicianAndOpenAsTechnician(
+      page,
+      currentUser.technicianId!,
+      { title: "ReadOnlyTask" },
+      { draft: true }
+    );
+    taskIdToCleanup = result.taskId;
 
-    await waitForTaskPanel(page);
-    await expect(taskSaveBtn(page)).not.toBeVisible();
+    await expect(taskSaveBtn(page)).toBeDisabled();
   });
 
   test("technician is in view-only mode (no edit mode toggle enabled)", async ({ page }) => {
