@@ -82,6 +82,7 @@ builder.Services.AddDbContext<ScheduleDbContext>(options =>
         npgsqlOptions.MapEnum<ScheduleTaskStatus>("task_status");
         npgsqlOptions.MapEnum<RiskLevel>();
         npgsqlOptions.MapEnum<LoadState>();
+        npgsqlOptions.MapEnum<BacklogItemType>();
     }).UseSnakeCaseNamingConvention());
 
 // Configure global authentication requirement - all endpoints require authentication by default

@@ -145,6 +145,7 @@
             bsModal?.hide?.();
           }
           showSuccess(result.message, "Uzduotis sukurta.");
+          document.dispatchEvent(new CustomEvent("schedule:task:created", { detail: { id: result.id } }));
           notifyActionCompleted();
         } else if (result?.validationErrors) {
           const fieldMapping = modal?.CREATE_FIELD_MAPPING || {};

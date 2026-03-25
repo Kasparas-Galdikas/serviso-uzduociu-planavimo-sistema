@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -29,7 +30,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             if (userId == null) return Unauthorized();
 
             var items = await _backlogService.GetItemsAsync(userId.Value, cancellationToken);
-            return Ok(items);
+            return Ok(items.Select(MapItem));
         }
 
         [HttpPost]
@@ -83,6 +84,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             id = item.Id,
             title = item.Title,
             priority = (int)item.Priority,
+            itemType = (int)item.ItemType,
             skillLevel = item.SkillLevel,
             objectName = item.ObjectName,
             objectAddress = item.ObjectAddress,

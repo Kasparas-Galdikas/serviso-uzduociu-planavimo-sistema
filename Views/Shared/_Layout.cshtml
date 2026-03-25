@@ -1,3 +1,4 @@
+@using ServiceTaskPlanningSystem.Data
 <!DOCTYPE html>
 <html lang="lt">
 <head>
@@ -172,6 +173,14 @@
         </div>
     </footer>
 
+    <script>
+      window.ScheduleEnums = {
+        BacklogItemType: {
+          Temporary: @((int)BacklogItemType.Temporary),
+          Permanent: @((int)BacklogItemType.Permanent)
+        }
+      };
+    </script>
     <script src="~/js/schedule/infra/timezone.js" asp-append-version="true"></script>
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>

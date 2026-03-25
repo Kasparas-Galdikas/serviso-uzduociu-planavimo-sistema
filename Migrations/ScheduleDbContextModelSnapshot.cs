@@ -26,6 +26,7 @@ namespace ServiceTaskPlanningSystem.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_priority", new[] { "low", "medium", "high" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", new[] { "canceled", "completed", "conflict", "in_progress" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", "schedule_task_status", new[] { "in_progress", "completed", "conflict", "canceled" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "backlog_item_type", new[] { "temporary", "permanent" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_role", new[] { "manager", "technician", "anonymous" });
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -107,6 +108,12 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("character varying(2000)")
                         .HasDefaultValue("")
                         .HasColumnName("instructions");
+
+                    b.Property<BacklogItemType>("ItemType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("backlog_item_type")
+                        .HasColumnName("item_type")
+                        .HasDefaultValueSql("'temporary'::backlog_item_type");
 
                     b.Property<string>("ObjectAddress")
                         .IsRequired()

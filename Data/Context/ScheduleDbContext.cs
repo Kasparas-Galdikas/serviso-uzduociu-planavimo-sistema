@@ -30,6 +30,7 @@ namespace ServiceTaskPlanningSystem.Data
             modelBuilder.HasPostgresEnum<ScheduleTaskStatus>("task_status");
             modelBuilder.HasPostgresEnum<RiskLevel>();
             modelBuilder.HasPostgresEnum<LoadState>();
+            modelBuilder.HasPostgresEnum<BacklogItemType>();
             ConfigureAddresses(modelBuilder);
             ConfigureUsers(modelBuilder);
             ConfigureTechnicians(modelBuilder);
@@ -314,6 +315,10 @@ namespace ServiceTaskPlanningSystem.Data
                 .HasDefaultValueSql("'medium'::task_priority")
                 .HasSentinel((TaskPriority)(-1))
                 .IsRequired();
+            entity.Property(e => e.ItemType)
+                .HasColumnName("item_type")
+                .HasDefaultValueSql("'temporary'::backlog_item_type")
+                .HasSentinel((BacklogItemType)(-1));
             entity.Property(e => e.CreatedAt)
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");

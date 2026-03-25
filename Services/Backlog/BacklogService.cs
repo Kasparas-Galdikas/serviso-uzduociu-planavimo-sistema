@@ -39,6 +39,7 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
                 CreatedByUserId = userId,
                 Title = dto.Title.Trim(),
                 Priority = dto.Priority ?? TaskPriority.Low,
+                ItemType = dto.ItemType,
                 SkillLevel = dto.SkillLevel?.Trim() ?? string.Empty,
                 ObjectName = dto.ObjectName?.Trim() ?? string.Empty,
                 ObjectAddress = dto.ObjectAddress?.Trim() ?? string.Empty,
@@ -70,6 +71,7 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
 
             item.Title = dto.Title.Trim();
             item.Priority = dto.Priority ?? item.Priority;
+            item.ItemType = dto.ItemType;
             item.SkillLevel = dto.SkillLevel?.Trim() ?? string.Empty;
             item.ObjectName = dto.ObjectName?.Trim() ?? string.Empty;
             item.ObjectAddress = dto.ObjectAddress?.Trim() ?? string.Empty;

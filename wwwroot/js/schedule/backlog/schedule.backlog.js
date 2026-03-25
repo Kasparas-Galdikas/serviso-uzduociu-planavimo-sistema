@@ -14,9 +14,13 @@
 (() => {
   "use strict";
 
+  // ── Enum constants (sourced from server via window.ScheduleEnums) ─────────
+  const ITEM_TYPE = window.ScheduleEnums?.BacklogItemType ?? { Temporary: 0, Permanent: 1 };
+
   // ── Storage (in-memory cache backed by /api/backlog) ─────────────────────
 
   let _items = [];
+  let _activeTypeTab = ITEM_TYPE.Permanent;
 
   function getItems() { return _items; }
 
@@ -36,6 +40,7 @@
       id: String(raw.id),
       title: raw.title || "",
       priority: raw.priority ?? "",
+      itemType: raw.itemType ?? ITEM_TYPE.Temporary,
       skillLevel: raw.skillLevel ?? "",
       instructions: raw.instructions ?? "",
       objectName: raw.objectName ?? "",
@@ -105,6 +110,7 @@
   // ── Field show/hide (backlog mode restrictions) ──────────────────────────
 
   function applyBacklogMode() {
+    clearSchedulingContext();
     const panel = getPanelEl();
     if (!panel) return;
 
@@ -116,11 +122,20 @@
     panel.querySelector("#taskFieldEnd")?.classList.add("d-none");
     panel.querySelector("#technicianSection")?.classList.add("d-none");
 
+    // Show backlog-only type field
+    panel.querySelector("#backlogTypeField")?.classList.remove("d-none");
+
+    // Reset active type tab to Permanent on each open
+    _activeTypeTab = ITEM_TYPE.Permanent;
+    document.getElementById("backlogTypeTabPerm")?.classList.add("active");
+    document.getElementById("backlogTypeTabTemp")?.classList.remove("active");
+
     // Cancel any pending edit and clear form
     cancelEdit();
     const set = (id, val) => { const el = panel.querySelector(id); if (el) el.value = val; };
     set("#taskDetailTitle", "");
     set("#taskDetailPriority", "");
+    set("#backlogItemType", "");
     set("#taskDetailSkill", "");
     set("#taskDetailInstructions", "");
 
@@ -154,6 +169,12 @@
     panel.querySelector("#taskFieldEnd")?.classList.remove("d-none");
     // technicianSection and taskSectionAsset are managed by task.modal.js — do not touch
 
+    // Hide backlog-only type field and reset it
+    const typeField = panel.querySelector("#backlogTypeField");
+    if (typeField) typeField.classList.add("d-none");
+    const typeSelect = panel.querySelector("#backlogItemType");
+    if (typeSelect) typeSelect.value = "";
+
     // Restore save buttons
     panel.querySelector("#taskDetailSave")?.classList.remove("d-none");
     panel.querySelector("#backlogSaveBtn")?.classList.add("d-none");
@@ -169,7 +190,7 @@
   // ── Badge ────────────────────────────────────────────────────────────────
 
   function updateBadge() {
-    const count = getItems().length;
+    const count = getItems().filter((i) => i.itemType === ITEM_TYPE.Temporary).length;
     const badgeDesktop = document.getElementById("navBacklogBadge");
     const badgeMobile = document.getElementById("navBacklogBadgeMobile");
     const panelBadge = document.getElementById("backlogCountBadge");
@@ -219,7 +240,7 @@
     const emptyEl = document.getElementById("backlogListEmpty");
     if (!listEl) return;
 
-    const items = getItems();
+    const items = getItems().filter((i) => i.itemType === _activeTypeTab);
     listEl.innerHTML = "";
 
     if (items.length === 0) {
@@ -321,13 +342,24 @@
 
     const modal = window.schedule?.tasks?.modal;
     const formData = modal?.collectFormData?.(panel);
-    if (formData && !modal.validateFormData(panel, formData, true, { skipScheduling: true })) return;
+    const itemTypeRaw = panel.querySelector("#backlogItemType")?.value ?? "";
+
+    let allValid = formData ? (modal?.validateFormData?.(panel, formData, true, { skipScheduling: true }) ?? true) : true;
+
+    if (itemTypeRaw === "") {
+      modal?.setFieldError?.(panel, "#backlogItemType", "Šablono tipas yra privalomas.");
+      allValid = false;
+    }
+
+    if (!allValid) return;
 
     const title = panel.querySelector("#taskDetailTitle")?.value?.trim() ?? "";
     const priorityRaw = panel.querySelector("#taskDetailPriority")?.value ?? "";
+
     const dto = {
       title,
       priority: priorityRaw !== "" ? Number(priorityRaw) : null,
+      itemType: Number(itemTypeRaw),
       skillLevel: panel.querySelector("#taskDetailSkill")?.value ?? "",
       instructions: panel.querySelector("#taskDetailInstructions")?.value?.trim() ?? "",
       objectId: objectId && objectId !== "" ? objectId : "",
@@ -342,6 +374,7 @@
       ObjectAddress: "#taskDetailLocation",
       Instructions: "#taskDetailInstructions",
       Priority: "#taskDetailPriority",
+      ItemType: "#backlogItemType",
     };
 
     let result;
@@ -369,6 +402,7 @@
     const clear = (id) => { const el = panel.querySelector(id); if (el) el.value = ""; };
     clear("#taskDetailTitle");
     clear("#taskDetailPriority");
+    clear("#backlogItemType");
     clear("#taskDetailSkill");
     clear("#taskDetailInstructions");
 
@@ -380,6 +414,13 @@
 
   let draggingBacklogId = null;
   let editingBacklogId = null;
+  let _schedulingFromBacklogId = null;
+  let _schedulingFromBacklogItemType = null;
+
+  function clearSchedulingContext() {
+    _schedulingFromBacklogId = null;
+    _schedulingFromBacklogItemType = null;
+  }
 
   async function startEdit(id) {
     const item = getItemById(id);
@@ -390,6 +431,7 @@
     const set = (sel, val) => { const el = panel?.querySelector(sel); if (el) el.value = val ?? ""; };
     set("#taskDetailTitle", item.title);
     set("#taskDetailPriority", item.priority);
+    set("#backlogItemType", item.itemType);
     set("#taskDetailSkill", item.skillLevel);
     set("#taskDetailInstructions", item.instructions);
 
@@ -490,8 +532,11 @@
     const openPanel = window.schedule?.tasks?.openTaskPanel;
     if (typeof openPanel !== "function") {
       window.schedule?.ui?.toast?.showError?.("Nepavyko atidaryti planavimo lango.");
+      clearSchedulingContext();
       return;
     }
+    _schedulingFromBacklogId = item.id;
+    _schedulingFromBacklogItemType = item.itemType;
     await openPanel({ technicianId: techId, targetDate: date, startMinutes, endMinutes });
     await applyPrefill(item);
   }
@@ -541,6 +586,20 @@
     // Tab switching
     document.getElementById("backlogTabCreate")?.addEventListener("click", () => switchTab("create"));
     document.getElementById("backlogTabList")?.addEventListener("click", () => switchTab("list"));
+
+    // Type sub-tab switching (Laikini / Nuolatiniai)
+    document.getElementById("backlogTypeTabTemp")?.addEventListener("click", () => {
+      _activeTypeTab = ITEM_TYPE.Temporary;
+      document.getElementById("backlogTypeTabTemp")?.classList.add("active");
+      document.getElementById("backlogTypeTabPerm")?.classList.remove("active");
+      renderList();
+    });
+    document.getElementById("backlogTypeTabPerm")?.addEventListener("click", () => {
+      _activeTypeTab = ITEM_TYPE.Permanent;
+      document.getElementById("backlogTypeTabPerm")?.classList.add("active");
+      document.getElementById("backlogTypeTabTemp")?.classList.remove("active");
+      renderList();
+    });
 
     // Save via footer button
     document.getElementById("backlogSaveBtn")?.addEventListener("click", handleSave);
@@ -610,6 +669,24 @@
 
     // Drag-to-schedule drop targets
     setupDropTargets();
+
+    // Auto-delete Temporary backlog item after confirmed task creation
+    document.addEventListener("schedule:task:created", async () => {
+      const id = _schedulingFromBacklogId;
+      const type = _schedulingFromBacklogItemType;
+      clearSchedulingContext();
+      if (id && type === ITEM_TYPE.Temporary) {
+        try {
+          await apiRemoveItem(id);
+        } catch { /* silent — task was created, backlog delete is best-effort */ }
+        updateBadge();
+        renderList();
+      }
+    });
+
+    // Abandonment: panel closed without creating a task
+    document.getElementById("taskDetailModal")
+      ?.addEventListener("hide.bs.offcanvas", clearSchedulingContext);
 
     // Hide trigger button when switching to weekly view
     document.addEventListener("schedule:view:changed", (e) => {

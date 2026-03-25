@@ -64,6 +64,15 @@
                         <input type="text" class="form-control" id="taskDetailTitle">
                     </div>
 
+                    <div class="col-md-6 d-none" id="backlogTypeField">
+                        <label class="form-label small">Šablono tipas</label>
+                        <select class="form-select" id="backlogItemType">
+                            <option value="" disabled selected>– Pasirinkite tipą –</option>
+                            <option value="0">Laikinas</option>
+                            <option value="1">Nuolatinis</option>
+                        </select>
+                    </div>
+
                     <div class="col-md-6" id="taskFieldAssignee">
                         <label class="form-label small">Priskirtas darbuotojas</label>
                         <select class="form-select" id="taskDetailAssignee"
@@ -253,6 +262,12 @@
             <div class="backlog-drag-hint">
                 <i class="bi bi-arrows-move me-1" aria-hidden="true"></i>
                 Nutempkite užduoties kortelę į grafiką ir paleiskite norimoje vietoje
+            </div>
+            <div id="backlogTypeTabBar" class="mb-2 px-1">
+                <div class="btn-group btn-group-sm w-100" role="group">
+                    <button id="backlogTypeTabTemp" type="button" class="btn btn-outline-secondary">Laikini</button>
+                    <button id="backlogTypeTabPerm" type="button" class="btn btn-outline-secondary active">Nuolatiniai</button>
+                </div>
             </div>
             <div id="backlogListEmpty" class="text-center text-muted py-4 d-none">
                 <i class="bi bi-inbox fs-3 d-block mb-2" aria-hidden="true"></i>
