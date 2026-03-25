@@ -81,6 +81,78 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.ToTable("addresses", (string)null);
                 });
 
+            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.BacklogItemEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<long>("CreatedByUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("Instructions")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasDefaultValue("")
+                        .HasColumnName("instructions");
+
+                    b.Property<string>("ObjectAddress")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasDefaultValue("")
+                        .HasColumnName("object_address");
+
+                    b.Property<string>("ObjectName")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasDefaultValue("")
+                        .HasColumnName("object_name");
+
+                    b.Property<TaskPriority>("Priority")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("task_priority")
+                        .HasColumnName("priority")
+                        .HasDefaultValueSql("'medium'::task_priority");
+
+                    b.Property<string>("SkillLevel")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasDefaultValue("")
+                        .HasColumnName("skill_level");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id")
+                        .HasName("pk_backlog_items");
+
+                    b.HasIndex("CreatedByUserId")
+                        .HasDatabaseName("ix_backlog_items_created_by_user_id");
+
+                    b.ToTable("backlog_items", (string)null);
+                });
+
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.PlanEntity", b =>
                 {
                     b.Property<long>("Id")
@@ -534,6 +606,18 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDatabaseName("ix_users_email");
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.BacklogItemEntity", b =>
+                {
+                    b.HasOne("ServiceTaskPlanningSystem.Data.UserEntity", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_backlog_items_users_created_by_user_id");
+
+                    b.Navigation("CreatedBy");
                 });
 
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.PlanEntity", b =>

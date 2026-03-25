@@ -15,6 +15,9 @@
     swap_smart: "Sukeitimas",
     delete: "Trynimas",
     technician_update: "Techniko atnaujinimas",
+    backlog_create: "Užduoties šablonas: pridėtas",
+    backlog_update: "Užduoties šablonas: atnaujintas",
+    backlog_delete: "Užduoties šablonas: pašalintas",
   };
 
   const OUTCOME_ICONS = {
@@ -194,7 +197,7 @@
     }
 
     try {
-      const resp = await fetch(`/api/plans/${planId}/history?limit=50`, { credentials: "same-origin" });
+      const resp = await fetch(`/api/plans/${planId}/history?limit=50&includeBacklog=true`, { credentials: "same-origin" });
       if (loadingEl) loadingEl.classList.add("d-none");
       if (!resp.ok) {
         listEl.innerHTML = '<div class="small text-danger">Nepavyko įkelti istorijos.</div>';

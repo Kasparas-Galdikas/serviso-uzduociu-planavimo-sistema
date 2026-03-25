@@ -13,12 +13,15 @@ public class BacklogItemDto
     [StringLength(20, ErrorMessage = "Pavadinimas negali virsyti 20 simboliu.")]
     public string Title { get; set; } = string.Empty;
 
+    [Required(ErrorMessage = "Reikalingas kvalifikacijos lygis yra privalomas.")]
     [StringLength(100, ErrorMessage = "Kvalifikacijos lygis negali virsyti 100 simboliu.")]
     public string SkillLevel { get; set; } = string.Empty;
 
+    [Required(ErrorMessage = "Objektas yra privalomas.")]
     [StringLength(500, ErrorMessage = "Objekto pavadinimas negali virsyti 500 simboliu.")]
     public string ObjectName { get; set; } = string.Empty;
 
+    [Required(ErrorMessage = "Adresas yra privalomas.")]
     [StringLength(500, ErrorMessage = "Objekto adresas negali virsyti 500 simboliu.")]
     public string ObjectAddress { get; set; } = string.Empty;
 

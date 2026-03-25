@@ -1,4 +1,4 @@
-﻿using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Data;
 using System;
 using System.ComponentModel.DataAnnotations;
 
@@ -6,19 +6,16 @@ namespace ServiceTaskPlanningSystem.Models.DTOs.Requests;
 
 /// <summary>
 /// Request DTO for updating an existing task.
-/// Includes version for optimistic concurrency control and timezone offset for time conversion.
+/// Inherits shared content fields (Title, SkillLevel, ObjectName, ObjectAddress, Instructions)
+/// from BacklogItemDto. Adds scheduling, versioning, and technician-specific fields.
 /// </summary>
-public class UpdateTaskRequestDto
+public class UpdateTaskRequestDto : BacklogItemDto
 {
-    [Required(ErrorMessage = "Pavadinimas yra privalomas.")]
-    [StringLength(20, ErrorMessage = "Pavadinimas negali virÅ¡yti 20 simboliÅ³.")]
-    public string Title { get; set; } = string.Empty;
-
     [Required(ErrorMessage = "Darbuotojas yra privalomas.")]
-    [Range(1, long.MaxValue, ErrorMessage = "Darbuotojas turi bÅ«ti pasirinktas.")]
+    [Range(1, long.MaxValue, ErrorMessage = "Darbuotojas turi buti pasirinktas.")]
     public long TechnicianId { get; set; }
 
-    [Required(ErrorMessage = "PradÅ¾ios laikas yra privalomas.")]
+    [Required(ErrorMessage = "Pradzios laikas yra privalomas.")]
     public DateTime StartAt { get; set; }
 
     [Required(ErrorMessage = "Pabaigos laikas yra privalomas.")]
@@ -45,22 +42,6 @@ public class UpdateTaskRequestDto
     [Range(-1440, 1440, ErrorMessage = "Laiko juostos poslinkis netinkamas.")]
     public int TimezoneOffsetMinutes { get; set; }
 
-    [Required(ErrorMessage = "Kvalifikacijos lygis yra privalomas.")]
-    [StringLength(100, ErrorMessage = "Kvalifikacijos lygis negali virÅ¡yti 100 simboliÅ³.")]
-    public string SkillLevel { get; set; } = string.Empty;
-
-    [Required(ErrorMessage = "Objekto pavadinimas yra privalomas.")]
-    [StringLength(500, ErrorMessage = "Objekto pavadinimas negali virÅ¡yti 500 simboliÅ³.")]
-    public string ObjectName { get; set; } = string.Empty;
-
-    [Required(ErrorMessage = "Objekto adresas yra privalomas.")]
-    [StringLength(500, ErrorMessage = "Objekto adresas negali virÅ¡yti 500 simboliÅ³.")]
-    public string ObjectAddress { get; set; } = string.Empty;
-
-    [StringLength(2000, ErrorMessage = "Instrukcijos negali virÅ¡yti 2000 simboliÅ³.")]
-    public string? Instructions { get; set; }
-
-    [StringLength(2000, ErrorMessage = "Darbuotojo komentaras negali virÅ¡yti 2000 simboliÅ³.")]
+    [StringLength(2000, ErrorMessage = "Darbuotojo komentaras negali virsyti 2000 simboliu.")]
     public string? TechnicianComment { get; set; }
 }
-

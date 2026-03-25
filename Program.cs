@@ -14,6 +14,7 @@ using ServiceTaskPlanningSystem.Services.ExternalServices.ExternalApis;
 using ServiceTaskPlanningSystem.Services.ExternalServices.Common;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.History;
+using ServiceTaskPlanningSystem.Services.Backlog;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -134,6 +135,7 @@ builder.Services.AddHostedService<EvaluationRepairService>();
 builder.Services.AddHostedService<TaskAutoExpirationService>();
 builder.Services.AddHostedService<TaskHistoryCleanupService>();
 builder.Services.AddScoped<ITaskHistoryWriter, TaskHistoryService>();
+builder.Services.AddScoped<IBacklogService, BacklogService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -215,8 +217,3 @@ if (migrateOnly)
 }
 
 await app.RunAsync();
-
-
-
-
-

@@ -7,71 +7,95 @@
  * Scheduling fields (assignee, start, end, asset section) are hidden in backlog mode
  * and restored when the panel switches back to task or history mode.
  *
- * Storage: localStorage (key: laukiantys_darbai_v1).
- * Swap storage helpers (getItems/saveItems) for API calls when backend is ready.
+ * Storage: server-side via /api/backlog (in-memory cache for rendering).
  *
  * Exposes: window.schedule.backlog.openBacklogPanel()
  */
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "laukiantys_darbai_v1";
+  // ── Storage (in-memory cache backed by /api/backlog) ─────────────────────
 
-  // ── Storage ──────────────────────────────────────────────────────────────
+  let _items = [];
 
-  function getItems() {
+  function getItems() { return _items; }
+
+  async function loadItemsFromApi() {
     try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+      const resp = await fetch("/api/backlog", { credentials: "same-origin" });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      _items = data.map(normalizeServerItem);
     } catch {
-      return [];
+      // keep existing cache on network error
     }
   }
 
-  function saveItems(items) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  }
-
-  function addItem(data) {
-    const items = getItems();
-    const item = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      title: data.title || "",
-      priority: data.priority ?? "",
-      skillLevel: data.skillLevel ?? "",
-      instructions: data.instructions ?? "",
-      objectId: data.objectId ?? "",
-      objectName: data.objectName ?? "",
-      locationText: data.locationText ?? "",
-      createdAt: new Date().toISOString(),
+  function normalizeServerItem(raw) {
+    return {
+      id: String(raw.id),
+      title: raw.title || "",
+      priority: raw.priority ?? "",
+      skillLevel: raw.skillLevel ?? "",
+      instructions: raw.instructions ?? "",
+      objectName: raw.objectName ?? "",
+      locationText: raw.objectAddress ?? "",
+      createdAt: raw.createdAt || new Date().toISOString(),
     };
-    items.unshift(item);
-    saveItems(items);
-    return item;
   }
 
-  function removeItem(id) {
-    saveItems(getItems().filter((i) => i.id !== id));
+  async function parseApiResponse(resp) {
+    if (resp.ok) return { ok: true, data: await resp.json() };
+    let body = {};
+    try { body = await resp.json(); } catch { /* ignore */ }
+    if (resp.status === 422 || resp.status === 400) {
+      return { ok: false, validationErrors: body.errors ?? null, error: body.title ?? body.message ?? null };
+    }
+    return { ok: false, error: body.message ?? null };
   }
 
-  function updateItem(id, data) {
-    const items = getItems();
-    const idx = items.findIndex((i) => i.id === id);
-    if (idx === -1) return;
-    items[idx] = {
-      ...items[idx],
-      title: data.title || "",
-      priority: data.priority ?? "",
-      skillLevel: data.skillLevel ?? "",
-      instructions: data.instructions ?? "",
-      objectId: data.objectId ?? "",
-      objectName: data.objectName ?? "",
-      locationText: data.locationText ?? "",
-    };
-    saveItems(items);
+  async function apiAddItem(dto) {
+    const resp = await fetch("/api/backlog", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(dto),
+    });
+    const result = await parseApiResponse(resp);
+    if (!result.ok) return result;
+    const mapped = normalizeServerItem(result.data.item);
+    _items.unshift(mapped);
+    return { ok: true, item: mapped, message: result.data.message };
+  }
+
+  async function apiUpdateItem(id, dto) {
+    const resp = await fetch(`/api/backlog/${id}`, {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(dto),
+    });
+    const result = await parseApiResponse(resp);
+    if (!result.ok) return result;
+    const mapped = normalizeServerItem(result.data.item);
+    const idx = _items.findIndex((i) => i.id === String(id));
+    if (idx !== -1) _items[idx] = mapped;
+    return { ok: true, item: mapped, message: result.data.message };
+  }
+
+  async function apiRemoveItem(id) {
+    const resp = await fetch(`/api/backlog/${id}`, {
+      method: "DELETE",
+      credentials: "same-origin",
+    });
+    if (!resp.ok) throw new Error("backlog.delete.failed");
+    const { message } = await resp.json();
+    _items = _items.filter((i) => i.id !== String(id));
+    return message;
   }
 
   function getItemById(id) {
-    return getItems().find((i) => i.id === id) ?? null;
+    return _items.find((i) => i.id === String(id)) ?? null;
   }
 
   // ── Panel element helpers ────────────────────────────────────────────────
@@ -116,8 +140,8 @@
     // Show the tab bar
     panel.querySelector("#backlogTabBar")?.classList.remove("d-none");
 
-    // Default to create tab
-    switchTab("create", false);
+    // Default to list tab
+    switchTab("list", false);
   }
 
   function restoreFromBacklogMode() {
@@ -284,17 +308,9 @@
 
   // ── Save (reads from shared form fields) ────────────────────────────────
 
-  function handleSave() {
+  async function handleSave() {
     const panel = getPanelEl();
     if (!panel) return;
-
-    const title = panel.querySelector("#taskDetailTitle")?.value?.trim() ?? "";
-
-    if (!title) {
-      panel.querySelector("#taskDetailTitle")?.focus();
-      window.schedule?.ui?.toast?.showError?.("Pavadinimas yra privalomas.");
-      return;
-    }
 
     // Read object/address from Select2
     const objectEl = panel.querySelector("#taskDetailObject");
@@ -303,23 +319,51 @@
     const objectText = objectEl?.options?.[objectEl.selectedIndex]?.text ?? "";
     const addressValue = locationEl?.value ?? "";
 
-    const data = {
+    const modal = window.schedule?.tasks?.modal;
+    const formData = modal?.collectFormData?.(panel);
+    if (formData && !modal.validateFormData(panel, formData, true, { skipScheduling: true })) return;
+
+    const title = panel.querySelector("#taskDetailTitle")?.value?.trim() ?? "";
+    const priorityRaw = panel.querySelector("#taskDetailPriority")?.value ?? "";
+    const dto = {
       title,
-      priority: panel.querySelector("#taskDetailPriority")?.value ?? "",
+      priority: priorityRaw !== "" ? Number(priorityRaw) : null,
       skillLevel: panel.querySelector("#taskDetailSkill")?.value ?? "",
       instructions: panel.querySelector("#taskDetailInstructions")?.value?.trim() ?? "",
       objectId: objectId && objectId !== "" ? objectId : "",
       objectName: objectText && objectText !== "– Pasirinkite –" ? objectText : "",
-      locationText: addressValue && addressValue !== "" ? addressValue : "",
+      objectAddress: addressValue && addressValue !== "" ? addressValue : "",
     };
 
-    if (editingBacklogId) {
-      updateItem(editingBacklogId, data);
-      window.schedule?.ui?.toast?.showSuccess?.("Pakeitimai išsaugoti.");
-    } else {
-      addItem(data);
-      window.schedule?.ui?.toast?.showSuccess?.("Užduotis įtraukta į eilę.");
+    const FIELD_MAP = {
+      Title: "#taskDetailTitle",
+      SkillLevel: "#taskDetailSkill",
+      ObjectName: "#taskDetailObject",
+      ObjectAddress: "#taskDetailLocation",
+      Instructions: "#taskDetailInstructions",
+      Priority: "#taskDetailPriority",
+    };
+
+    let result;
+    try {
+      result = editingBacklogId
+        ? await apiUpdateItem(editingBacklogId, dto)
+        : await apiAddItem(dto);
+    } catch {
+      window.schedule?.ui?.toast?.showError?.("Nepavyko išsaugoti.");
+      return;
     }
+
+    if (!result.ok) {
+      if (result.validationErrors && modal?.displayValidationErrors) {
+        modal.displayValidationErrors(panel, result.validationErrors, FIELD_MAP);
+      } else {
+        window.schedule?.ui?.toast?.showError?.(result.error ?? "Nepavyko išsaugoti.");
+      }
+      return;
+    }
+
+    window.schedule?.ui?.toast?.showSuccess?.(result.message);
 
     // Clear form fields
     const clear = (id) => { const el = panel.querySelector(id); if (el) el.value = ""; };
@@ -455,7 +499,7 @@
   async function applyPrefill(item) {
     const panel = getPanelEl();
     if (!panel) return;
-    const set = (id, val) => { const el = panel.querySelector(id); if (el && val) el.value = val; };
+    const set = (id, val) => { const el = panel.querySelector(id); if (el && val != null) el.value = val; };
     set("#taskDetailTitle", item.title);
     set("#taskDetailPriority", item.priority);
     set("#taskDetailSkill", item.skillLevel);
@@ -518,10 +562,15 @@
     });
 
     // Delete buttons (delegated on list container)
-    document.getElementById("backlogItemsList")?.addEventListener("click", (e) => {
+    document.getElementById("backlogItemsList")?.addEventListener("click", async (e) => {
       const btn = e.target.closest("[data-delete-id]");
       if (!btn) return;
-      removeItem(btn.dataset.deleteId);
+      try {
+        const message = await apiRemoveItem(btn.dataset.deleteId);
+        window.schedule?.ui?.toast?.showSuccess?.(message);
+      } catch {
+        window.schedule?.ui?.toast?.showError?.("Nepavyko pašalinti.");
+      }
       updateBadge();
       renderList();
     });
@@ -550,6 +599,7 @@
         if (type === "backlog") {
           panel.dataset.mode = "backlog";
           applyBacklogMode();
+          loadItemsFromApi().then(() => { renderList(); updateBadge(); });
         } else {
           // Do NOT touch dataset.mode here — task.modal.js owns create/update mode
           restoreFromBacklogMode();

@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.Authorization;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -20,13 +21,15 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         private readonly IEvaluationEngine _evaluationEngine;
         private readonly ILogger<PlansController> _logger;
         private readonly ScheduleDbContext _db;
+        private readonly IUserContextResolver _userContextResolver;
 
-        public PlansController(IPlanService planService, IEvaluationEngine evaluationEngine, ILogger<PlansController> logger, ScheduleDbContext db)
+        public PlansController(IPlanService planService, IEvaluationEngine evaluationEngine, ILogger<PlansController> logger, ScheduleDbContext db, IUserContextResolver userContextResolver)
         {
             _planService = planService;
             _evaluationEngine = evaluationEngine;
             _logger = logger;
             _db = db;
+            _userContextResolver = userContextResolver;
         }
 
         public class CreateDraftRequest
@@ -99,14 +102,13 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
         [HttpGet("{planId:long}/history")]
         [Authorize(Policy = "RequireManager")]
-        public async Task<IActionResult> GetPlanHistory(long planId, [FromQuery] int limit = 50, CancellationToken cancellationToken = default)
+        public async Task<IActionResult> GetPlanHistory(long planId, [FromQuery] int limit = 50, [FromQuery] bool includeBacklog = false, CancellationToken cancellationToken = default)
         {
             var clampedLimit = Math.Clamp(limit, 1, 200);
-            var items = await _db.TaskActionLogs
+
+            var planLogs = await _db.TaskActionLogs
                 .AsNoTracking()
                 .Where(l => l.PlanId == planId)
-                .OrderByDescending(l => l.OccurredAtUtc)
-                .Take(clampedLimit)
                 .Select(l => new TaskHistoryItemDto
                 {
                     Id = l.Id,
@@ -121,7 +123,56 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     DetailsJson = l.DetailsJson
                 })
                 .ToListAsync(cancellationToken);
-            return Ok(items);
+
+            if (includeBacklog)
+            {
+                var userId = _userContextResolver.GetCurrentUser().UserId;
+                if (userId != null)
+                {
+                    var cutoff = DateTime.UtcNow.AddDays(-7);
+                    var backlogLogs = await _db.TaskActionLogs
+                        .AsNoTracking()
+                        .Where(l => l.PlanId == null
+                            && l.ActorUserId == userId
+                            && l.OccurredAtUtc >= cutoff)
+                        .Select(l => new TaskHistoryItemDto
+                        {
+                            Id = l.Id,
+                            TaskId = l.TaskId,
+                            ActionType = l.ActionType,
+                            Outcome = l.Outcome,
+                            Summary = l.Summary,
+                            OccurredAt = l.OccurredAtUtc,
+                            ActorDisplayName = l.ActorName,
+                            ActorRole = l.ActorRole,
+                            Source = l.Source,
+                            DetailsJson = l.DetailsJson
+                        })
+                        .ToListAsync(cancellationToken);
+
+                    planLogs = planLogs
+                        .Concat(backlogLogs)
+                        .OrderByDescending(l => l.OccurredAt)
+                        .Take(clampedLimit)
+                        .ToList();
+                }
+                else
+                {
+                    planLogs = planLogs
+                        .OrderByDescending(l => l.OccurredAt)
+                        .Take(clampedLimit)
+                        .ToList();
+                }
+            }
+            else
+            {
+                planLogs = planLogs
+                    .OrderByDescending(l => l.OccurredAt)
+                    .Take(clampedLimit)
+                    .ToList();
+            }
+
+            return Ok(planLogs);
         }
 
         [HttpPost("recalculate-evaluations")]

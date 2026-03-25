@@ -125,5 +125,13 @@ namespace ServiceTaskPlanningSystem.Services.History
             TechnicianUpdateError.TaskNotFound => ("Techniko atnaujinimas nepavyko – užduotis nerasta.", "warning"),
             _ => (r.Message ?? "Techniko atnaujinimas nepavyko.", "failure")
         };
+
+        public static (string summary, string outcome) ForBacklog(string action, string title) => action switch
+        {
+            "backlog_create" => ($"Užduoties šablonas pridėtas: {title}.", "success"),
+            "backlog_update" => ($"Užduoties šablonas atnaujintas: {title}.", "success"),
+            "backlog_delete" => ($"Užduoties šablonas pašalintas: {title}.", "success"),
+            _ => ($"Eilės veiksmas: {title}.", "success")
+        };
     }
 }
