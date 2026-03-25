@@ -138,8 +138,12 @@
         result = await window.schedule?.selection?.submitCreateTask?.(createData);
 
         if (result?.success) {
-          const bsModal = window.bootstrap?.Offcanvas?.getInstance?.(modalEl);
-          bsModal?.hide?.();
+          // submitCreateTask already calls card.click() to re-open the panel with the new task.
+          // Only hide the panel if there's no new task id to navigate to.
+          if (!result.id) {
+            const bsModal = window.bootstrap?.Offcanvas?.getInstance?.(modalEl);
+            bsModal?.hide?.();
+          }
           showSuccess(result.message, "Uzduotis sukurta.");
           notifyActionCompleted();
         } else if (result?.validationErrors) {
@@ -186,7 +190,10 @@
             const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
             if (!query.has("view")) query.set("view", "day");
             await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
-            panel?.hide?.();
+            // Keep the panel open and refresh its content so the filter button doesn't flash.
+            // Fall back to hiding only if the panel is no longer showing this task.
+            const refreshed = await refreshOpenTask(taskId);
+            if (!refreshed) panel?.hide?.();
             showSuccess(result.message, "Uzduotis issaugota.");
             notifyActionCompleted();
           } else if (result?.validationErrors) {

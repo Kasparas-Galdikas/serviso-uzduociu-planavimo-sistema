@@ -328,6 +328,7 @@
   color: #0d6efd;
 }
 
+.backlog-card__edit,
 .backlog-card__delete {
   flex-shrink: 0;
   padding: 0.1rem 0.3rem;
@@ -342,8 +343,13 @@
   transition: opacity 0.15s ease, color 0.15s ease;
 }
 
+.backlog-card:hover .backlog-card__edit,
 .backlog-card:hover .backlog-card__delete {
   opacity: 1;
+}
+
+.backlog-card__edit:hover {
+  color: #0d6efd;
 }
 
 .backlog-card__delete:hover {

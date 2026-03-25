@@ -39,6 +39,9 @@
       priority: data.priority ?? "",
       skillLevel: data.skillLevel ?? "",
       instructions: data.instructions ?? "",
+      objectId: data.objectId ?? "",
+      objectName: data.objectName ?? "",
+      locationText: data.locationText ?? "",
       createdAt: new Date().toISOString(),
     };
     items.unshift(item);
@@ -48,6 +51,23 @@
 
   function removeItem(id) {
     saveItems(getItems().filter((i) => i.id !== id));
+  }
+
+  function updateItem(id, data) {
+    const items = getItems();
+    const idx = items.findIndex((i) => i.id === id);
+    if (idx === -1) return;
+    items[idx] = {
+      ...items[idx],
+      title: data.title || "",
+      priority: data.priority ?? "",
+      skillLevel: data.skillLevel ?? "",
+      instructions: data.instructions ?? "",
+      objectId: data.objectId ?? "",
+      objectName: data.objectName ?? "",
+      locationText: data.locationText ?? "",
+    };
+    saveItems(items);
   }
 
   function getItemById(id) {
@@ -72,12 +92,22 @@
     panel.querySelector("#taskFieldEnd")?.classList.add("d-none");
     panel.querySelector("#technicianSection")?.classList.add("d-none");
 
-    // Clear any leftover values from previous task session
+    // Cancel any pending edit and clear form
+    cancelEdit();
     const set = (id, val) => { const el = panel.querySelector(id); if (el) el.value = val; };
     set("#taskDetailTitle", "");
     set("#taskDetailPriority", "");
     set("#taskDetailSkill", "");
     set("#taskDetailInstructions", "");
+
+    // Reset object/address dropdowns to empty (same as prepareCreateMode does)
+    const modal = window.schedule?.tasks?.modal;
+    if (modal) {
+      Promise.all([
+        modal.populateObjectDropdown(panel, null, null, null),
+        modal.populateAddressDropdown(panel, null),
+      ]).then(() => modal.ensureObjectAddressBinding(panel));
+    }
 
     // Swap save buttons
     panel.querySelector("#taskDetailSave")?.classList.add("d-none");
@@ -200,6 +230,9 @@
           <div class="backlog-card__badges">${priorityBadge}${skillBadge}</div>
           <div class="backlog-card__date">${escapeHtml(new Date(item.createdAt).toLocaleDateString("lt-LT"))}</div>
           ${hasDetails ? `<button type="button" class="backlog-card__toggle" data-toggle-id="${escapeHtml(item.id)}" aria-label="Rodyti detales" aria-expanded="false"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>` : ""}
+          <button type="button" class="backlog-card__edit" data-edit-id="${escapeHtml(item.id)}" aria-label="Redaguoti">
+            <i class="bi bi-pencil" aria-hidden="true"></i>
+          </button>
           <button type="button" class="backlog-card__delete" data-delete-id="${escapeHtml(item.id)}" aria-label="Pašalinti iš eilės">
             <i class="bi bi-x-lg" aria-hidden="true"></i>
           </button>
@@ -211,6 +244,7 @@
 
       // Prevent drag from firing when interacting with action buttons
       card.querySelector(".backlog-card__toggle")?.addEventListener("mousedown", (e) => e.stopPropagation());
+      card.querySelector(".backlog-card__edit")?.addEventListener("mousedown", (e) => e.stopPropagation());
       card.querySelector(".backlog-card__delete")?.addEventListener("mousedown", (e) => e.stopPropagation());
 
       listEl.appendChild(card);
@@ -238,6 +272,7 @@
       if (btnCreate) { btnCreate.classList.add("active", "btn-primary"); btnCreate.classList.remove("btn-outline-secondary"); }
       if (btnList) { btnList.classList.remove("active", "btn-primary"); btnList.classList.add("btn-outline-secondary"); }
     } else {
+      cancelEdit();
       if (taskContent) taskContent.style.display = "none";
       if (listContent) listContent.style.display = "";
       if (footer) footer.classList.add("d-none");
@@ -261,20 +296,30 @@
       return;
     }
 
-    // Read object/address text labels from Select2 selected option
+    // Read object/address from Select2
     const objectEl = panel.querySelector("#taskDetailObject");
     const locationEl = panel.querySelector("#taskDetailLocation");
+    const objectId = objectEl?.value ?? "";
     const objectText = objectEl?.options?.[objectEl.selectedIndex]?.text ?? "";
-    const locationText = locationEl?.options?.[locationEl.selectedIndex]?.text ?? "";
+    const addressValue = locationEl?.value ?? "";
 
-    addItem({
+    const data = {
       title,
       priority: panel.querySelector("#taskDetailPriority")?.value ?? "",
       skillLevel: panel.querySelector("#taskDetailSkill")?.value ?? "",
       instructions: panel.querySelector("#taskDetailInstructions")?.value?.trim() ?? "",
+      objectId: objectId && objectId !== "" ? objectId : "",
       objectName: objectText && objectText !== "– Pasirinkite –" ? objectText : "",
-      locationText: locationText && locationText !== "– Pasirinkite –" ? locationText : "",
-    });
+      locationText: addressValue && addressValue !== "" ? addressValue : "",
+    };
+
+    if (editingBacklogId) {
+      updateItem(editingBacklogId, data);
+      window.schedule?.ui?.toast?.showSuccess?.("Pakeitimai išsaugoti.");
+    } else {
+      addItem(data);
+      window.schedule?.ui?.toast?.showSuccess?.("Užduotis įtraukta į eilę.");
+    }
 
     // Clear form fields
     const clear = (id) => { const el = panel.querySelector(id); if (el) el.value = ""; };
@@ -284,14 +329,48 @@
     clear("#taskDetailInstructions");
 
     updateBadge();
-    window.schedule?.ui?.toast?.showSuccess?.("Užduotis įtraukta į eilę.");
     switchTab("list");
   }
 
   // ── Drag from backlog to schedule ────────────────────────────────────────
 
   let draggingBacklogId = null;
-  let pendingPrefill = null;
+  let editingBacklogId = null;
+
+  async function startEdit(id) {
+    const item = getItemById(id);
+    if (!item) return;
+    editingBacklogId = id;
+
+    const panel = getPanelEl();
+    const set = (sel, val) => { const el = panel?.querySelector(sel); if (el) el.value = val ?? ""; };
+    set("#taskDetailTitle", item.title);
+    set("#taskDetailPriority", item.priority);
+    set("#taskDetailSkill", item.skillLevel);
+    set("#taskDetailInstructions", item.instructions);
+
+    // Prefill object/address dropdowns
+    const modal = window.schedule?.tasks?.modal;
+    if (modal) {
+      await modal.populateObjectDropdown(panel, item.objectId || null, item.objectName || null, item.locationText || null);
+      await modal.populateAddressDropdown(panel, item.locationText || null);
+      modal.ensureObjectAddressBinding(panel);
+      // Binding only fires on user interaction — manually sync object from the selected address
+      syncObjectFromAddress(panel);
+    }
+
+    const btn = document.getElementById("backlogSaveBtn");
+    if (btn) btn.innerHTML = '<i class="bi bi-check-lg me-1" aria-hidden="true"></i>Atnaujinti';
+
+    switchTab("create", false);
+  }
+
+  function cancelEdit() {
+    if (!editingBacklogId) return;
+    editingBacklogId = null;
+    const btn = document.getElementById("backlogSaveBtn");
+    if (btn) btn.innerHTML = '<i class="bi bi-inbox me-1" aria-hidden="true"></i>\u012etraukti \u012f eil\u0119';
+  }
 
   function setupCardDrag(cardEl, item) {
     cardEl.addEventListener("dragstart", (e) => {
@@ -353,20 +432,27 @@
     });
   }
 
-  function scheduleFromBacklog(item, { techId, date, startMinutes, endMinutes }) {
-    pendingPrefill = item;
-    const openPanel = window.schedule?.tasks?.openTaskPanel;
-    if (typeof openPanel === "function") {
-      openPanel({ technicianId: techId, targetDate: date, startMinutes, endMinutes });
-    } else {
-      pendingPrefill = null;
-      window.schedule?.ui?.toast?.showError?.("Nepavyko atidaryti planavimo lango.");
-    }
+  // If address is selected but object isn't, derive object from address's dataset.objectId.
+  // ensureObjectAddressBinding only wires future user interactions — call this after initial population.
+  function syncObjectFromAddress(panel) {
+    const objEl = panel.querySelector("#taskDetailObject");
+    const addrEl = panel.querySelector("#taskDetailLocation");
+    if (objEl?.value || !addrEl?.value) return;
+    const linkedId = addrEl.selectedOptions?.[0]?.dataset?.objectId;
+    if (linkedId) window.schedule?.ui?.select2?.setValue?.(objEl, linkedId);
   }
 
-  // Applied after the task panel fully opens (shown.bs.offcanvas fires post-animation,
-  // after prepareCreateMode has already cleared and set all fields)
-  function applyPrefill(item) {
+  async function scheduleFromBacklog(item, { techId, date, startMinutes, endMinutes }) {
+    const openPanel = window.schedule?.tasks?.openTaskPanel;
+    if (typeof openPanel !== "function") {
+      window.schedule?.ui?.toast?.showError?.("Nepavyko atidaryti planavimo lango.");
+      return;
+    }
+    await openPanel({ technicianId: techId, targetDate: date, startMinutes, endMinutes });
+    await applyPrefill(item);
+  }
+
+  async function applyPrefill(item) {
     const panel = getPanelEl();
     if (!panel) return;
     const set = (id, val) => { const el = panel.querySelector(id); if (el && val) el.value = val; };
@@ -375,6 +461,15 @@
     set("#taskDetailSkill", item.skillLevel);
     const instrEl = panel.querySelector("#taskDetailInstructions");
     if (instrEl && item.instructions) instrEl.value = item.instructions;
+
+    // Populate object/address if the backlog item had them saved
+    const modal = window.schedule?.tasks?.modal;
+    if (modal && (item.objectId || item.objectName || item.locationText)) {
+      await modal.populateObjectDropdown(panel, item.objectId || null, item.objectName || null, item.locationText || null);
+      await modal.populateAddressDropdown(panel, item.locationText || null);
+      modal.ensureObjectAddressBinding(panel);
+      syncObjectFromAddress(panel);
+    }
   }
 
   // ── Open backlog panel ───────────────────────────────────────────────────
@@ -412,6 +507,14 @@
         e.preventDefault();
         handleSave();
       }
+    });
+
+    // Edit buttons (delegated on list container)
+    document.getElementById("backlogItemsList")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-edit-id]");
+      if (!btn) return;
+      e.stopPropagation();
+      startEdit(btn.dataset.editId);
     });
 
     // Delete buttons (delegated on list container)
@@ -453,13 +556,6 @@
         }
       });
 
-      // Prefill task form after drag-from-backlog open
-      panel.addEventListener("shown.bs.offcanvas", () => {
-        if (!pendingPrefill) return;
-        const item = pendingPrefill;
-        pendingPrefill = null;
-        applyPrefill(item);
-      });
     }
 
     // Drag-to-schedule drop targets

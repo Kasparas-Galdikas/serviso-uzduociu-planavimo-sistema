@@ -1058,6 +1058,8 @@
     getField: (key) => modalFields[key],
     updatePanelTimes,
     collectCreatePlacement,
+    populateObjectDropdown,
+    populateAddressDropdown,
   };
 })();
 
