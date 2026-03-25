@@ -17,6 +17,8 @@ namespace ServiceTaskPlanningSystem.Data
         public DbSet<TaskEvaluationEntity> TaskEvaluations => Set<TaskEvaluationEntity>();
         public DbSet<AddressEntity> Addresses => Set<AddressEntity>();
         public DbSet<TravelRouteEntity> TravelRoutes => Set<TravelRouteEntity>();
+        public DbSet<TaskActionLogEntity> TaskActionLogs => Set<TaskActionLogEntity>();
+        public DbSet<BacklogItemEntity> BacklogItems => Set<BacklogItemEntity>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -28,6 +30,7 @@ namespace ServiceTaskPlanningSystem.Data
             modelBuilder.HasPostgresEnum<ScheduleTaskStatus>("task_status");
             modelBuilder.HasPostgresEnum<RiskLevel>();
             modelBuilder.HasPostgresEnum<LoadState>();
+            modelBuilder.HasPostgresEnum<BacklogItemType>();
             ConfigureAddresses(modelBuilder);
             ConfigureUsers(modelBuilder);
             ConfigureTechnicians(modelBuilder);
@@ -36,6 +39,8 @@ namespace ServiceTaskPlanningSystem.Data
             ConfigureTasks(modelBuilder);
             ConfigureTaskEvaluations(modelBuilder);
             ConfigureTravelRoutes(modelBuilder);
+            ConfigureTaskActionLogs(modelBuilder);
+            ConfigureBacklogItems(modelBuilder);
         }
 
         private static void ConfigureAddresses(ModelBuilder modelBuilder)
@@ -283,6 +288,78 @@ namespace ServiceTaskPlanningSystem.Data
 
             entity.HasIndex(e => new { e.FromAddressId, e.ToAddressId })
                 .IsUnique();
+        }
+
+        private static void ConfigureBacklogItems(ModelBuilder modelBuilder)
+        {
+            var entity = modelBuilder.Entity<BacklogItemEntity>();
+            entity.ToTable("backlog_items");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Title)
+                .IsRequired()
+                .HasMaxLength(20);
+            entity.Property(e => e.SkillLevel)
+                .HasMaxLength(100)
+                .HasDefaultValue(string.Empty);
+            entity.Property(e => e.ObjectName)
+                .HasMaxLength(500)
+                .HasDefaultValue(string.Empty);
+            entity.Property(e => e.ObjectAddress)
+                .HasMaxLength(500)
+                .HasDefaultValue(string.Empty);
+            entity.Property(e => e.Instructions)
+                .HasMaxLength(2000)
+                .HasDefaultValue(string.Empty);
+            entity.Property(e => e.Priority)
+                .HasColumnType("task_priority")
+                .HasDefaultValueSql("'medium'::task_priority")
+                .HasSentinel((TaskPriority)(-1))
+                .IsRequired();
+            entity.Property(e => e.ItemType)
+                .HasColumnName("item_type")
+                .HasDefaultValueSql("'temporary'::backlog_item_type")
+                .HasSentinel((BacklogItemType)(-1));
+            entity.Property(e => e.CreatedAt)
+                .HasColumnType("timestamptz")
+                .HasDefaultValueSql("NOW()");
+            entity.HasOne(e => e.CreatedBy)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.CreatedByUserId);
+        }
+
+        private static void ConfigureTaskActionLogs(ModelBuilder modelBuilder)
+        {
+            var entity = modelBuilder.Entity<TaskActionLogEntity>();
+            entity.ToTable("task_action_logs");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ActionType)
+                .IsRequired()
+                .HasMaxLength(50);
+            entity.Property(e => e.Outcome)
+                .IsRequired()
+                .HasMaxLength(10)
+                .HasDefaultValue("success");
+            entity.Property(e => e.ActorName)
+                .HasMaxLength(200)
+                .HasDefaultValue(string.Empty);
+            entity.Property(e => e.ActorRole)
+                .HasMaxLength(50)
+                .HasDefaultValue(string.Empty);
+            entity.Property(e => e.Summary)
+                .IsRequired()
+                .HasMaxLength(500);
+            entity.Property(e => e.DetailsJson)
+                .HasColumnType("jsonb");
+            entity.Property(e => e.Source)
+                .HasMaxLength(20)
+                .HasDefaultValue("user");
+            entity.Property(e => e.OccurredAtUtc)
+                .HasColumnType("timestamptz")
+                .IsRequired();
+            entity.HasIndex(e => new { e.PlanId, e.OccurredAtUtc });
+            entity.HasIndex(e => new { e.TaskId, e.OccurredAtUtc });
         }
     }
 }

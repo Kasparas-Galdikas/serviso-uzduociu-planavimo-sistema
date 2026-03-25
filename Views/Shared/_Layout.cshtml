@@ -1,3 +1,4 @@
+@using ServiceTaskPlanningSystem.Data
 <!DOCTYPE html>
 <html lang="lt">
 <head>
@@ -9,7 +10,6 @@
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/schedule/schedule.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/ServiceTaskPlanningSystem.styles.css" asp-append-version="true" />
-    <!-- Select2 for searchable dropdowns -->
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
     <link rel="stylesheet" href="~/css/select2-overrides.css" asp-append-version="true" />
@@ -19,6 +19,7 @@
         var isAuthPage = Context?.Request?.Path.StartsWithSegments("/Authentication") ?? false;
         var currentEmail = Context?.Request?.Cookies["stsps_email"] ?? string.Empty;
         var isLoggedIn = Context?.User?.Identity?.IsAuthenticated == true;
+        var isPlanner = isLoggedIn && (Context?.User?.IsInRole("manager") ?? false);
         var currentName = Context?.User?.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value?.Trim() ?? string.Empty;
         var displayName = !string.IsNullOrWhiteSpace(currentName)
             ? currentName
@@ -37,7 +38,6 @@
                 </button>
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
                     <ul class="navbar-nav flex-grow-1">
-
                         <li class="d-sm-none"><hr class="my-0" /></li>
 
                         @if (!isAuthPage && isLoggedIn)
@@ -61,6 +61,26 @@
 
                         @if (!isAuthPage && isLoggedIn)
                         {
+                            @if (isPlanner)
+                            {
+                                <li class="d-sm-none"><hr class="my-1" /></li>
+                                <li class="d-sm-none">
+                                    <button class="nav-link nav-history-trigger w-100 text-start" type="button" onclick="window.schedule?.history?.openHistoryPanel?.()">
+                                        <i class="bi bi-clock-history" aria-hidden="true"></i>
+                                        <span>Istorija</span>
+                                    </button>
+                                </li>
+                                <li class="d-sm-none nav-backlog-mobile-item"><hr class="my-1" /></li>
+                                <li class="d-sm-none nav-backlog-mobile-item">
+                                    <button class="nav-link nav-history-trigger w-100 text-start" type="button"
+                                            onclick="window.schedule?.backlog?.openBacklogPanel?.()">
+                                        <i class="bi bi-inbox" aria-hidden="true"></i>
+                                        <span>Darbų sąrašas</span>
+                                        <span class="badge bg-primary ms-1 d-none" id="navBacklogBadgeMobile">0</span>
+                                    </button>
+                                </li>
+                            }
+
                             <li class="d-sm-none"><hr class="my-1" /></li>
                             <li class="d-sm-none">
                                 <a class="nav-link nav-mobile-logout" asp-controller="Authentication" asp-action="Logout">
@@ -76,10 +96,25 @@
                             </li>
                         }
                     </ul>
-                    <!-- Avatar dropdown � sm+ only -->
+
                     <div class="d-none d-sm-flex align-items-center gap-2">
                         @if (!isAuthPage && isLoggedIn)
                         {
+                            @if (isPlanner)
+                            {
+                                <button class="btn nav-history-trigger nav-history-trigger-desktop" type="button" onclick="window.schedule?.history?.openHistoryPanel?.()">
+                                    <i class="bi bi-clock-history" aria-hidden="true"></i>
+                                    <span>Istorija</span>
+                                </button>
+                                <button class="btn nav-history-trigger nav-history-trigger-desktop" type="button"
+                                        id="navBacklogTriggerDesktop"
+                                        onclick="window.schedule?.backlog?.openBacklogPanel?.()">
+                                    <i class="bi bi-inbox" aria-hidden="true"></i>
+                                    <span>Darbų sąrašas</span>
+                                    <span class="badge bg-primary ms-1 d-none" id="navBacklogBadge">0</span>
+                                </button>
+                            }
+
                             <div class="dropdown">
                                 <button class="btn p-0 border-0 bg-transparent nav-avatar-btn dropdown-toggle d-flex align-items-center"
                                         type="button"
@@ -118,6 +153,7 @@
             </div>
         </nav>
     </header>
+
     <main role="main" class="pb-3">
         <div class="page-container">
             @RenderBody()
@@ -133,24 +169,25 @@
 
     <footer class="footer text-muted">
         <div class="container d-flex justify-content-center align-items-center">
-            <span>&copy; 2025 - Planavimo sistema</span>
+            <span>&copy; 2026 - Planavimo sistema</span>
         </div>
     </footer>
+
+    <script>
+      window.ScheduleEnums = {
+        BacklogItemType: {
+          Temporary: @((int)BacklogItemType.Temporary),
+          Permanent: @((int)BacklogItemType.Permanent)
+        }
+      };
+    </script>
     <script src="~/js/schedule/infra/timezone.js" asp-append-version="true"></script>
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/schedule/ui/schedule.toast.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/history/schedule.history.js" asp-append-version="true"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
-
-
-
-
-
-
-
-
-

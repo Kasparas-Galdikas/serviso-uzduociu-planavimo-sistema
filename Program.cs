@@ -13,11 +13,14 @@ using ServiceTaskPlanningSystem.Infrastructure.Logging;
 using ServiceTaskPlanningSystem.Services.ExternalServices.ExternalApis;
 using ServiceTaskPlanningSystem.Services.ExternalServices.Common;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
+using ServiceTaskPlanningSystem.Services.History;
+using ServiceTaskPlanningSystem.Services.Backlog;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -39,6 +42,7 @@ if (!string.IsNullOrWhiteSpace(csb.Host) &&
 }
 
 var connectionString = csb.ConnectionString;
+var isE2ETestMode = builder.Configuration.GetValue<bool>("E2E_TEST_MODE");
 // SAFE logging (no password)
 Console.WriteLine("=== DATABASE CONFIG CHECK ===");
 Console.WriteLine($"Host: {csb.Host}");
@@ -58,11 +62,11 @@ try
 {
     using var conn = new NpgsqlConnection(connectionString);
     await conn.OpenAsync();
-    Console.WriteLine("✅ Database connection test SUCCESS");
+    Console.WriteLine("✓ Database connection test SUCCESS");
 }
 catch (Exception ex)
 {
-    Console.WriteLine("❌ Database connection test FAILED");
+    Console.WriteLine("Database connection test FAILED");
     Console.WriteLine(ex.GetType().FullName);
     Console.WriteLine(ex.Message);
     throw; // keep failing fast
@@ -78,6 +82,7 @@ builder.Services.AddDbContext<ScheduleDbContext>(options =>
         npgsqlOptions.MapEnum<ScheduleTaskStatus>("task_status");
         npgsqlOptions.MapEnum<RiskLevel>();
         npgsqlOptions.MapEnum<LoadState>();
+        npgsqlOptions.MapEnum<BacklogItemType>();
     }).UseSnakeCaseNamingConvention());
 
 // Configure global authentication requirement - all endpoints require authentication by default
@@ -107,8 +112,19 @@ builder.Services.AddSingleton(new HeigitApiOptions());
 builder.Services.AddSingleton<IExternalCallPolicy, ExternalCallPolicy>();
 builder.Services.AddSingleton<IExternalCallKeyedLock, ExternalCallKeyedLock>();
 builder.Services.AddScoped<IRouteEvaluationService, RouteEvaluationService>();
-builder.Services.AddHttpClient<ILocationApiClient, LocationApiClient>();
-builder.Services.AddHttpClient<IDistanceApiClient, DistanceApiClient>();
+
+if (isE2ETestMode)
+{
+    builder.Services.RemoveAll<ILocationApiClient>();
+    builder.Services.RemoveAll<IDistanceApiClient>();
+    builder.Services.AddSingleton<ILocationApiClient, E2ETestLocationApiClient>();
+    builder.Services.AddSingleton<IDistanceApiClient, E2ETestDistanceApiClient>();
+}
+else
+{
+    builder.Services.AddHttpClient<ILocationApiClient, LocationApiClient>();
+    builder.Services.AddHttpClient<IDistanceApiClient, DistanceApiClient>();
+}
 
 // Register strategy pattern implementations for plan-status-specific edit policies
 builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.Authorization.Interfaces.IPlanStatusEditPolicy, ServiceTaskPlanningSystem.Services.Authorization.Policies.DraftPlanEditPolicy>();
@@ -118,6 +134,9 @@ builder.Services.AddTransient<DatabaseSeeder>();
 builder.Services.AddScoped<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 builder.Services.AddHostedService<EvaluationRepairService>();
 builder.Services.AddHostedService<TaskAutoExpirationService>();
+builder.Services.AddHostedService<TaskHistoryCleanupService>();
+builder.Services.AddScoped<ITaskHistoryWriter, TaskHistoryService>();
+builder.Services.AddScoped<IBacklogService, BacklogService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -199,7 +218,3 @@ if (migrateOnly)
 }
 
 await app.RunAsync();
-
-
-
-

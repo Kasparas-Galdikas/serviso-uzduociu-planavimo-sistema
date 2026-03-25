@@ -1,0 +1,20 @@
+{
+    "name":  "service-task-planning-system-e2e",
+    "private":  true,
+    "version":  "0.1.0",
+    "description":  "Playwright E2E coverage for the ASP.NET MVC application.",
+    "engines":  {
+                    "node":  "\u003e=22"
+                },
+    "scripts":  {
+                    "test:e2e":  "playwright test",
+                    "test:e2e:headed":  "playwright test --headed --project=chromium",
+                    "test:e2e:ui":  "playwright test --ui",
+                    "test:e2e:install":  "playwright install --with-deps chromium firefox webkit"
+                },
+    "devDependencies":  {
+                            "@playwright/test":  "^1.54.2",
+                            "typescript":  "^5.8.3",
+                            "@types/node":  "^22.15.30"
+                        }
+}

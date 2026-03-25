@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Authorization;
+using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
@@ -11,6 +12,7 @@ using ServiceTaskPlanningSystem.Services.Scheduling;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
+using ServiceTaskPlanningSystem.Services.History;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -64,7 +66,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             // System constraint: New tasks must always start with InProgress status
             if (dto.Status != ScheduleTaskStatus.InProgress)
             {
-                return UnprocessableEntity(new { message = "Naujos uÅ¾duotys turi prasidÄ—ti su 'Vykdoma' statusu. Sistema nustato statusÄ… automatiÅ¡kai." });
+                return UnprocessableEntity(new { message = "Naujos uÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¾duotys turi prasidÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Âti su 'Vykdoma' statusu. Sistema nustato statusÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ automatiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡kai." });
             }
 
             if (!TryParseDate(dto.TargetDate, out var targetDate))
@@ -107,11 +109,13 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.Task != null)
             {
+                var (message, _) = TaskHistoryMessages.ForCreate(result, result.Task.Title);
                 var response = new TaskCreatedOrUpdatedResponseDto
                 {
                     Id = result.Task.Id,
                     Version = result.CurrentVersion ?? 0,
-                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                    Message = message,
+                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken),
                 };
 
                 _logger.LogInformation("api.task.create id={Id} planId={PlanId}", result.Task.Id, result.Task.PlanId);
@@ -194,11 +198,13 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.Task != null)
             {
+                var (message, _) = TaskHistoryMessages.ForDelete(result, result.Task.Title);
                 var response = new TaskDeletedResponseDto
                 {
                     DeletedTaskId = result.Task.Id,
                     Version = result.CurrentVersion ?? dto.Version,
-                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                    Message = message,
+                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken),
                 };
                 _logger.LogInformation("api.task.delete.succeeded id={Id}", id);
                 return Ok(response);
@@ -245,6 +251,12 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.Task != null)
             {
+                var oldStart = result.OldStartAt;
+                var oldEnd = result.OldEndAt;
+                var newStart = result.Task.StartAt;
+                var newEnd = result.Task.EndAt;
+                
+                var (message, _) = TaskHistoryMessages.ForReschedule(result, result.Task.Title, oldStart, oldEnd, newStart, newEnd, dto.TimezoneOffsetMinutes);
                 var localStart = _timeService.ConvertUtcToLocal(result.Task.StartAt, dto.TimezoneOffsetMinutes);
                 var localEnd = _timeService.ConvertUtcToLocal(result.Task.EndAt, dto.TimezoneOffsetMinutes);
                 var response = new TaskMovedResponseDto
@@ -254,7 +266,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     TechnicianId = result.Task.TechnicianId,
                     StartAt = localStart,
                     EndAt = localEnd,
-                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                    Message = message,
+                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken),
                 };
                 _logger.LogInformation("api.task.time.succeeded id={Id}", id);
                 return Ok(response);
@@ -336,7 +349,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (dto.EndMinutes <= dto.StartMinutes)
             {
-                return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlesnis už pradžią." });
+                return UnprocessableEntity(new { message = "Pabaigos laikas turi bÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â«ti vÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âlesnis uÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¾ pradÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¾iÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦." });
             }
 
             var normalizedAddress = dto.ObjectAddress.Trim();
@@ -563,7 +576,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (dto.EndAt <= dto.StartAt)
             {
-                return UnprocessableEntity(new { message = "Pabaigos laikas turi būti vėlenis už pradžia." });
+                return UnprocessableEntity(new { message = "Pabaigos laikas turi bÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â«ti vÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âlenis uÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¾ pradÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¾ia." });
             }
 
             if (string.IsNullOrWhiteSpace(dto.SkillLevel) ||
@@ -661,6 +674,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (!updateResult.Ok)
             {
+
                 return updateResult.Error switch
                 {
                     TaskUpdateError.NotFound => NotFound(new { message = updateResult.Message }),
@@ -675,11 +689,13 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var updated = updateResult.Task!;
             var version = await _planService.GetTaskVersionAsync(id, cancellationToken);
 
+            var (message, _) = TaskHistoryMessages.ForUpdate(updateResult, updated.Title);
             var response = new TaskCreatedOrUpdatedResponseDto
             {
                 Id = updated.Id,
                 Version = version,
-                Load = await _planService.GetWorkloadSnapshotAsync(updated.TechnicianId, updated.StartAt.Date, cancellationToken)
+                Message = message,
+                Load = await _planService.GetWorkloadSnapshotAsync(updated.TechnicianId, updated.StartAt.Date, cancellationToken),
             };
 
             _logger.LogInformation("api.task.update id={Id} planId={PlanId} version={Version}", id, updated.PlanId, version);
@@ -717,7 +733,11 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.Task != null)
             {
-                // Convert UTC times to local for response
+                var oldStart = result.OldStartAt;
+                var newStart = result.Task.StartAt;
+                var techChanged = result.OldTechnicianId.HasValue && result.OldTechnicianId.Value != result.Task.TechnicianId;
+                
+                var (message, _) = TaskHistoryMessages.ForMove(result, result.Task.Title, oldStart, newStart, dto.TimezoneOffsetMinutes, techChanged, result.NewTechnicianName);
                 var timezoneOffset = dto.TimezoneOffsetMinutes;
                 var localStartAt = _timeService.ConvertUtcToLocal(result.Task.StartAt, timezoneOffset);
                 var localEndAt = _timeService.ConvertUtcToLocal(result.Task.EndAt, timezoneOffset);
@@ -729,7 +749,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     TechnicianId = result.Task.TechnicianId,
                     StartAt = localStartAt,
                     EndAt = localEndAt,
-                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken)
+                    Message = message,
+                    Load = await _planService.GetWorkloadSnapshotAsync(result.Task.TechnicianId, result.Task.StartAt.Date, cancellationToken),
                 };
 
                 _logger.LogInformation("api.task.move id={Id} techId={TechId} version={Version}", id, dto.TargetTechnicianId, result.CurrentVersion);
@@ -777,6 +798,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.SourceTask != null && result.TargetTask != null)
             {
+                var (message, _) = TaskHistoryMessages.ForSwap(result, result.SourceTask.Title, result.TargetTask.Title);
                 var sourceLocalStart = _timeService.ConvertUtcToLocal(result.SourceTask.StartAt, dto.TimezoneOffsetMinutes);
                 var sourceLocalEnd = _timeService.ConvertUtcToLocal(result.SourceTask.EndAt, dto.TimezoneOffsetMinutes);
                 var targetLocalStart = _timeService.ConvertUtcToLocal(result.TargetTask.StartAt, dto.TimezoneOffsetMinutes);
@@ -793,10 +815,11 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     TargetStartAt = targetLocalStart,
                     TargetEndAt = targetLocalEnd,
                     TechnicianId = result.SourceTask.TechnicianId,
+                    Message = message,
                     Load = await _planService.GetWorkloadSnapshotAsync(
                         result.SourceTask.TechnicianId,
                         result.SourceTask.StartAt.Date,
-                        cancellationToken)
+                        cancellationToken),
                 });
             }
 
@@ -816,7 +839,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 {
                     message = result.Message,
                     sourceVersion = result.CurrentSourceVersion,
-                    targetVersion = result.CurrentTargetVersion
+                    targetVersion = result.CurrentTargetVersion,
                 }),
                 TaskSwapError.InvalidSwap => UnprocessableEntity(new { message = result.Message }),
                 TaskSwapError.Overlap => Conflict(new { message = result.Message }),
@@ -853,6 +876,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             if (result.Ok && result.SourceTask != null && result.TargetTask != null)
             {
+                var (message, _) = TaskHistoryMessages.ForSwap(result, result.SourceTask.Title, result.TargetTask.Title);
                 var sourceLocalStart = _timeService.ConvertUtcToLocal(result.SourceTask.StartAt, dto.TimezoneOffsetMinutes);
                 var sourceLocalEnd = _timeService.ConvertUtcToLocal(result.SourceTask.EndAt, dto.TimezoneOffsetMinutes);
                 var targetLocalStart = _timeService.ConvertUtcToLocal(result.TargetTask.StartAt, dto.TimezoneOffsetMinutes);
@@ -869,10 +893,11 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     TargetStartAt = targetLocalStart,
                     TargetEndAt = targetLocalEnd,
                     TechnicianId = result.SourceTask.TechnicianId,
+                    Message = message,
                     Load = await _planService.GetWorkloadSnapshotAsync(
                         result.SourceTask.TechnicianId,
                         result.SourceTask.StartAt.Date,
-                        cancellationToken)
+                        cancellationToken),
                 });
             }
 
@@ -892,7 +917,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 {
                     message = result.Message,
                     sourceVersion = result.CurrentSourceVersion,
-                    targetVersion = result.CurrentTargetVersion
+                    targetVersion = result.CurrentTargetVersion,
                 }),
                 TaskSwapError.InvalidSwap => UnprocessableEntity(new { message = result.Message }),
                 TaskSwapError.Overlap => Conflict(new { message = result.Message }),
@@ -957,7 +982,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return Ok(new TaskCreatedOrUpdatedResponseDto
                 {
                     Id = id,
-                    Version = result.CurrentVersion ?? 0
+                    Version = result.CurrentVersion ?? 0,
                 });
             }
 
@@ -991,6 +1016,5 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
     }
 }
-
 
 

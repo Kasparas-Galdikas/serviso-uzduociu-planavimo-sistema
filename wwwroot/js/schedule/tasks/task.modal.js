@@ -631,7 +631,8 @@
 
     const setVal = (selector, value) => {
       const el = modalEl.querySelector(selector);
-      if (el) el.value = value ?? "";
+      if (!el) return;
+      el.value = value ?? "";
     };
 
     setVal("#taskDetailTitle", data.title);
@@ -687,7 +688,8 @@
 
     const setVal = (selector, value) => {
       const el = modalEl.querySelector(selector);
-      if (el) el.value = value ?? "";
+      if (!el) return;
+      el.value = value ?? "";
     };
 
     setVal("#taskDetailTitle", "");
@@ -947,7 +949,7 @@
     };
   };
 
-  const validateFormData = (modalEl, formData, isManager) => {
+  const validateFormData = (modalEl, formData, isManager, { skipScheduling = false } = {}) => {
     clearFieldErrors(modalEl);
     const hasSuspiciousInput = (val) => /<|>|script/i.test(val || "");
 
@@ -963,7 +965,7 @@
       setFieldError(modalEl, "#taskDetailInstructions", "Netinkami simboliai.");
     }
     if (isManager) {
-      if (!formData.technicianId || Number.isNaN(formData.technicianId)) {
+      if (!skipScheduling && (!formData.technicianId || Number.isNaN(formData.technicianId))) {
         setFieldError(modalEl, "#taskDetailAssignee", "Priskirtas darbuotojas yra privalomas.");
       }
       if (!formData.skillLevel || !String(formData.skillLevel).trim()) {
@@ -1056,6 +1058,8 @@
     getField: (key) => modalFields[key],
     updatePanelTimes,
     collectCreatePlacement,
+    populateObjectDropdown,
+    populateAddressDropdown,
   };
 })();
 

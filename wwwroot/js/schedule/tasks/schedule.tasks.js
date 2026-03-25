@@ -30,6 +30,9 @@
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
+  const notifyActionCompleted = () => {
+    document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+  };
   const showError = (message, fallback = "Ivyko klaida.") =>
     toast?.showError?.(message || fallback) || alert(message || fallback);
   const showWarning = (message, fallback = "Patikrinkite veiksma.") =>
@@ -135,14 +138,22 @@
         result = await window.schedule?.selection?.submitCreateTask?.(createData);
 
         if (result?.success) {
-          const bsModal = window.bootstrap?.Offcanvas?.getInstance?.(modalEl);
-          bsModal?.hide?.();
-          showSuccess("Uzduotis sukurta.");
+          // submitCreateTask already calls card.click() to re-open the panel with the new task.
+          // Only hide the panel if there's no new task id to navigate to.
+          if (!result.id) {
+            const bsModal = window.bootstrap?.Offcanvas?.getInstance?.(modalEl);
+            bsModal?.hide?.();
+          }
+          showSuccess(result.message, "Uzduotis sukurta.");
+          document.dispatchEvent(new CustomEvent("schedule:task:created", { detail: { id: result.id } }));
+          notifyActionCompleted();
         } else if (result?.validationErrors) {
           const fieldMapping = modal?.CREATE_FIELD_MAPPING || {};
           modal?.displayValidationErrors?.(modalEl, result.validationErrors, fieldMapping);
+          notifyActionCompleted();
         } else if (result?.error) {
           showWarning(result.error, "Nepavyko sukurti uzduoties.");
+          notifyActionCompleted();
         }
 
       } else {
@@ -180,13 +191,19 @@
             const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
             if (!query.has("view")) query.set("view", "day");
             await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
-            panel?.hide?.();
-            showSuccess("Uzduotis issaugota.");
+            // Keep the panel open and refresh its content so the filter button doesn't flash.
+            // Fall back to hiding only if the panel is no longer showing this task.
+            const refreshed = await refreshOpenTask(taskId);
+            if (!refreshed) panel?.hide?.();
+            showSuccess(result.message, "Uzduotis issaugota.");
+            notifyActionCompleted();
           } else if (result?.validationErrors) {
             const fieldMapping = modal?.UPDATE_FIELD_MAPPING || {};
             modal?.displayValidationErrors?.(modalEl, result.validationErrors, fieldMapping);
+            notifyActionCompleted();
           } else if (result?.error) {
             showWarning(result.error, "Nepavyko issaugoti uzduoties.");
+            notifyActionCompleted();
           }
         }
 
@@ -195,6 +212,7 @@
     } catch (err) {
       logEvent("ui.task.save.error", { taskId, error: err?.message }, "error");
       showError("Nepavyko issaugoti uzduoties.");
+      notifyActionCompleted();
     } finally {
       setBusy(false);
     }
@@ -225,6 +243,7 @@
         }
         setActiveCardByTaskId(taskId);
         logEvent("ui.task.panel.open", { mode: "edit", taskId });
+        panel?.showContent?.("task");
         panel?.show?.();
       } catch (err) {
         logEvent("ui.task.fetch.error", { taskId, error: err?.message }, "error");
@@ -241,6 +260,7 @@
           onSave: () => saveTask(detailPanel)
         });
       }
+      panel?.showContent?.("task");
       panel?.show?.();
       logEvent("ui.task.panel.open", {
         mode: "create",
@@ -368,4 +388,7 @@
     fetchTask,
   });
 })();
+
+
+
 

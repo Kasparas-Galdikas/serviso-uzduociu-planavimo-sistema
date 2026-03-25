@@ -134,6 +134,7 @@
           updateTaskVersion(taskId, result.newVersion);
         }
         (result.errorType === "conflict" || result.errorType === "forbidden" || result.errorType === "not_found" ? showWarning : showError)(result.error, "Nepavyko istrinti uzduoties.");
+        document.dispatchEvent(new CustomEvent("schedule:action-completed"));
         return false;
       }
 
@@ -142,7 +143,8 @@
       await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
       panel?.hide?.();
       clearActiveCards();
-      showSuccess("Uzduotis istrinta.");
+      showSuccess(result.message || "Uzduotis istrinta.");
+      document.dispatchEvent(new CustomEvent("schedule:action-completed"));
       return true;
     }
 
@@ -165,35 +167,40 @@
       const body = await resp.json().catch(() => ({}));
       updateTaskVersion(taskId, body?.version);
       showWarning(body.message, "Uzduotis pasikeite. Atnaujinkite lentele.");
+      document.dispatchEvent(new CustomEvent("schedule:action-completed"));
       return false;
     }
 
     if (resp.status === 403) {
       const body = await resp.json().catch(() => ({}));
       showWarning(body.message, "Neturite teisiu istrinti sios uzduoties.");
+      document.dispatchEvent(new CustomEvent("schedule:action-completed"));
       return false;
     }
 
     if (resp.status === 404) {
       const body = await resp.json().catch(() => ({}));
       showWarning(body.message, "Uzduotis nerasta.");
+      document.dispatchEvent(new CustomEvent("schedule:action-completed"));
       return false;
     }
 
     if (!resp.ok) {
       const body = await resp.json().catch(() => ({}));
       showError(body.message, "Nepavyko istrinti uzduoties.");
+      document.dispatchEvent(new CustomEvent("schedule:action-completed"));
       return false;
     }
 
-    await resp.json().catch(() => null);
+    const body = await resp.json().catch(() => ({}));
 
     const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
     if (!query.has("view")) query.set("view", "day");
     await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
     panel?.hide?.();
     clearActiveCards();
-    return true;
+    showSuccess(body.message || "Uzduotis istrinta.");
+    document.dispatchEvent(new CustomEvent("schedule:action-completed"));
   };
 
   // ========== Event Wiring ==========
@@ -228,8 +235,10 @@
           logEvent("ui.task.delete.rejected", { taskId });
         }
       } catch (err) {
-        logEvent("ui.task.delete.error", { taskId, error: err?.message }, "error");
-        showError("Nepavyko istrinti uzduoties.");
+        const errorMsg = err?.message || "Nepavyko istrinti uzduoties.";
+        logEvent("ui.task.delete.error", { taskId, error: errorMsg }, "error");
+        showError(errorMsg, "Nepavyko istrinti uzduoties.");
+        document.dispatchEvent(new CustomEvent("schedule:action-completed"));
       } finally {
         confirmBtn.disabled = false;
         confirmBtn.removeAttribute("aria-busy");

@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const tables = document.getElementById("scheduleTables");
   if (!tables) return;
 
@@ -17,8 +17,6 @@
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
 
   const isDayView = () => (state?.getView?.() || "day") === "day";
-
-  const formatRange = (start, end) => grid.formatRange(start, end);
 
   // Use shared DOM utilities (with fallbacks for load order)
   const isEmptySlotCell = (td) => dom?.isEmptySlotCell?.(td) ??
@@ -466,7 +464,7 @@
         if (errorData.errors && typeof errorData.errors === "object") {
           return { success: false, validationErrors: errorData.errors, errorType: "validation" };
         }
-        const msg = errorData.message || "Patikrinkite Ä¯vestus duomenis.";
+        const msg = errorData.message || "Patikrinkite įvestus duomenis.";
         return { success: false, error: msg, errorType: "validation" };
       }
 
@@ -481,7 +479,7 @@
       }
 
       if (!resp.ok) {
-        return { success: false, error: "Ä®vyko klaida kuriant uÅ¾duotÄ¯.", errorType: "unknown" };
+        return { success: false, error: "Įvyko klaida kuriant užduotį.", errorType: "unknown" };
       }
 
       const responseData = await resp.json().catch(() => null);
@@ -498,10 +496,15 @@
         card?.click?.();
       }
 
-      return { success: true, id };
+      return {
+        success: true,
+        id,
+        version: responseData?.version,
+        message: responseData?.message,
+      };
     } catch (err) {
       logEvent("ui.task.create.error", { error: err?.message }, "error");
-      return { success: false, error: err?.message || "Ä®vyko nenumatyta klaida.", errorType: "exception" };
+      return { success: false, error: err?.message || "Įvyko nenumatyta klaida.", errorType: "exception" };
     }
   };
 
@@ -524,8 +527,8 @@
         <button type="button" class="btn btn-sm btn-primary" data-slot-action="create" ${
           createDisabled ? "disabled" : ""
         }>+ Kurti uzduoti</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-slot-action="assign" disabled>â‡„ Priskirti esama</button>
-        <button type="button" class="btn btn-sm btn-outline-danger" data-slot-action="cancel">âœ• Atsaukti</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-slot-action="assign" disabled>⇄ Priskirti esama</button>
+        <button type="button" class="btn btn-sm btn-outline-danger" data-slot-action="cancel">✕ Atsaukti</button>
       </div>
     `;
 
@@ -617,12 +620,12 @@
   const hit = evt.target?.closest?.("[data-slot-hit]");
   if (hit && selection.active) {
     const modal = document.getElementById("taskDetailModal");
-    // Panel already open in create mode â€” sync times without resetting the form
+    // Panel already open in create mode — sync times without resetting the form
     if (modal?.classList?.contains("show") && modal.dataset.mode === "create") {
       syncSelectionToPanel();
       return;
     }
-    // Panel not open yet â€” open fresh create mode
+    // Panel not open yet — open fresh create mode
     schedule.tasks?.openTaskPanel?.({
       technicianId: selection.techId,
       targetDate: selection.date,
@@ -714,5 +717,6 @@
     syncCreateRangeFromPanel,
   };
 })();
+
 
 

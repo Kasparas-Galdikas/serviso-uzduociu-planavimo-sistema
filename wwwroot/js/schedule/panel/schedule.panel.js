@@ -47,6 +47,49 @@
     forceClearPushLayout();
   };
 
+  const showContent = (type) => {
+    const panelEl = getPanelEl();
+    if (!panelEl) return;
+
+    const taskContent = panelEl.querySelector("#taskPanelContent");
+    const historyContent = panelEl.querySelector("#historyPanelContent");
+    const backlogContent = panelEl.querySelector("#backlogPanelContent");
+    const headerTitle = panelEl.querySelector("#taskDetailLabel");
+    const headerSubtitle = panelEl.querySelector("#taskDetailCode");
+    const historySubtitle = panelEl.querySelector("#taskDetailHistorySubtitle");
+    const footer = panelEl.querySelector("#taskDetailFooter");
+
+    if (type === "history") {
+      if (taskContent) taskContent.style.display = "none";
+      if (historyContent) historyContent.style.display = "";
+      if (backlogContent) backlogContent.style.display = "none";
+      if (headerTitle) headerTitle.textContent = headerTitle.dataset.historyTitle || "Veiksmų istorija";
+      if (headerSubtitle) headerSubtitle.classList.add("d-none");
+      if (historySubtitle) historySubtitle.classList.remove("d-none");
+      if (footer) footer.classList.add("d-none");
+      panelEl.dispatchEvent(new CustomEvent("schedule:panel:mode", { detail: { type: "history" } }));
+    } else if (type === "task") {
+      if (taskContent) taskContent.style.display = "";
+      if (historyContent) historyContent.style.display = "none";
+      if (backlogContent) backlogContent.style.display = "none";
+      if (headerTitle) headerTitle.textContent = headerTitle.dataset.taskTitle || "Užduoties informacija";
+      if (headerSubtitle) headerSubtitle.classList.remove("d-none");
+      if (historySubtitle) historySubtitle.classList.add("d-none");
+      if (footer) footer.classList.remove("d-none");
+      panelEl.dispatchEvent(new CustomEvent("schedule:panel:mode", { detail: { type: "task" } }));
+    } else if (type === "backlog") {
+      // Reuse the existing task form — backlog.js applies field restrictions via the event below
+      if (taskContent) taskContent.style.display = "";
+      if (historyContent) historyContent.style.display = "none";
+      if (backlogContent) backlogContent.style.display = "none";
+      if (headerTitle) headerTitle.textContent = "Laukiantys darbai";
+      if (headerSubtitle) headerSubtitle.classList.add("d-none");
+      if (historySubtitle) historySubtitle.classList.add("d-none");
+      if (footer) footer.classList.remove("d-none");
+      panelEl.dispatchEvent(new CustomEvent("schedule:panel:mode", { detail: { type: "backlog" } }));
+    }
+  };
+
   const initOnce = () => {
     if (document.documentElement.dataset.schedulePanelInit === "1") return;
     document.documentElement.dataset.schedulePanelInit = "1";
@@ -245,5 +288,6 @@
     show,
     hide,
     closeForNonDailyContext,
+    showContent,
   };
 })();

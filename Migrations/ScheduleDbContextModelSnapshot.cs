@@ -26,6 +26,7 @@ namespace ServiceTaskPlanningSystem.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_priority", new[] { "low", "medium", "high" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", new[] { "canceled", "completed", "conflict", "in_progress" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", "schedule_task_status", new[] { "in_progress", "completed", "conflict", "canceled" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "backlog_item_type", new[] { "temporary", "permanent" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_role", new[] { "manager", "technician", "anonymous" });
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -79,6 +80,84 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDatabaseName("ix_addresses_city_street");
 
                     b.ToTable("addresses", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.BacklogItemEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<long>("CreatedByUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("Instructions")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasDefaultValue("")
+                        .HasColumnName("instructions");
+
+                    b.Property<BacklogItemType>("ItemType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("backlog_item_type")
+                        .HasColumnName("item_type")
+                        .HasDefaultValueSql("'temporary'::backlog_item_type");
+
+                    b.Property<string>("ObjectAddress")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasDefaultValue("")
+                        .HasColumnName("object_address");
+
+                    b.Property<string>("ObjectName")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasDefaultValue("")
+                        .HasColumnName("object_name");
+
+                    b.Property<TaskPriority>("Priority")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("task_priority")
+                        .HasColumnName("priority")
+                        .HasDefaultValueSql("'medium'::task_priority");
+
+                    b.Property<string>("SkillLevel")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasDefaultValue("")
+                        .HasColumnName("skill_level");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id")
+                        .HasName("pk_backlog_items");
+
+                    b.HasIndex("CreatedByUserId")
+                        .HasDatabaseName("ix_backlog_items_created_by_user_id");
+
+                    b.ToTable("backlog_items", (string)null);
                 });
 
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.PlanEntity", b =>
@@ -184,6 +263,95 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDatabaseName("ix_service_objects_name_address_id");
 
                     b.ToTable("service_objects", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.TaskActionLogEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ActionType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("action_type");
+
+                    b.Property<string>("ActorName")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasDefaultValue("")
+                        .HasColumnName("actor_name");
+
+                    b.Property<string>("ActorRole")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("")
+                        .HasColumnName("actor_role");
+
+                    b.Property<long?>("ActorUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("actor_user_id");
+
+                    b.Property<string>("CorrelationId")
+                        .HasColumnType("text")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<string>("DetailsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("details_json");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasDefaultValue("success")
+                        .HasColumnName("outcome");
+
+                    b.Property<long?>("PlanId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("plan_id");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("user")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("summary");
+
+                    b.Property<long?>("TaskId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("task_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_task_action_logs");
+
+                    b.HasIndex("PlanId", "OccurredAtUtc")
+                        .HasDatabaseName("ix_task_action_logs_plan_id_occurred_at_utc");
+
+                    b.HasIndex("TaskId", "OccurredAtUtc")
+                        .HasDatabaseName("ix_task_action_logs_task_id_occurred_at_utc");
+
+                    b.ToTable("task_action_logs", (string)null);
                 });
 
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.TaskEntity", b =>
@@ -445,6 +613,18 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDatabaseName("ix_users_email");
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.BacklogItemEntity", b =>
+                {
+                    b.HasOne("ServiceTaskPlanningSystem.Data.UserEntity", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_backlog_items_users_created_by_user_id");
+
+                    b.Navigation("CreatedBy");
                 });
 
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.PlanEntity", b =>

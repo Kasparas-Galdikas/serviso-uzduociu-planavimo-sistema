@@ -1399,6 +1399,7 @@
               }
               showWarning(result.error, "Nepavyko sukeisti uzduociu.");
               await refreshAfterFailedSwap();
+              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
             } else {
               logEvent("ui.drag.drop.swap.status", {
                 "swap.status": "ok",
@@ -1418,7 +1419,8 @@
               });
 
               await tasks?.refreshOpenTask?.(taskId);
-              showSuccess("Pakeitimai issaugoti.");
+              showSuccess(result.message, "Pakeitimai issaugoti.");
+              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
             }
           } else {
             const timezoneOffset = -new Date().getTimezoneOffset();
@@ -1464,16 +1466,20 @@
               }
               showWarning(msg);
               await refreshAfterFailedSwap();
+              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
             } else if (!resp.ok) {
               smartSwapFailed = true;
+              const errorMsg = (await resp.json().catch(() => null))?.message || "Nepavyko sukeisti uzduociu.";
               logEvent("ui.drag.drop.swap.failed", {
                 "swap.status": "failed",
                 "swap.errorType": "unknown",
                 "smartSwap.attempted": true,
                 "smartSwap.failed": true,
-                reason: "Nepavyko sukeisti uzduociu.",
+                reason: errorMsg,
               }, "warn");
-              throw new Error("Nepavyko sukeisti uzduociu.");
+              showError(errorMsg, "Nepavyko sukeisti uzduociu.");
+              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+              throw new Error(errorMsg);
             } else {
               logEvent("ui.drag.drop.swap.status", {
                 "swap.status": "ok",
@@ -1492,25 +1498,27 @@
               });
 
               await tasks?.refreshOpenTask?.(taskId);
-              showSuccess("Pakeitimai issaugoti.");
+              showSuccess(result.message, "Pakeitimai issaugoti.");
+              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
             }
           }
         } catch (err) {
+          const errorMsg = err?.message || "Nepavyko sukeisti uzduociu.";
           logEvent("ui.drag.drop.swap.failed", {
             "swap.status": "failed",
             "swap.errorType": "exception",
             "swap.staleRetryAttempted": staleRetryAttempted,
             "smartSwap.attempted": smartSwapAttempted,
             "smartSwap.failed": smartSwapFailed,
-            reason: err?.message || "Nepavyko sukeisti uzduociu.",
+            reason: errorMsg,
           }, "warn");
-          logEvent("ui.drag.drop.swap.error", { taskId, error: err?.message }, "error");
+          logEvent("ui.drag.drop.swap.error", { taskId, error: errorMsg }, "error");
           if (swapSnapshot) {
             refresh?.rollbackSnapshot?.(swapSnapshot);
             await new Promise(r => setTimeout(r, 350));
             swapSnapshot = null;
           }
-          showError("Nepavyko sukeisti uzduociu.");
+          showError(errorMsg, "Nepavyko sukeisti uzduociu.");
           const query =
             state?.getQuery?.() ||
             new URLSearchParams(window.location.search || "");
@@ -1519,6 +1527,7 @@
             updateUrl: false,
             preserveScroll: true,
           });
+          document.dispatchEvent(new CustomEvent("schedule:action-completed"));
         } finally {
           clearDragState();
         }
@@ -1562,7 +1571,8 @@
           { taskId: dragState.taskId },
           "warn"
         );
-        showWarning("Uzduotis netelpa i laisva laiko tarpa.");
+        const message = dragState.previewRejectMessage || (dragState.previewRejectCode === "InvalidWindow" ? "Nepavyko perkelti � neteisingas laiko langas." : "Negalima planuoti pasirinktame laike.");
+        showWarning(message, "Negalima planuoti pasirinktame laike.");
         clearDragState();
         return;
       }
@@ -1719,6 +1729,7 @@
             }
             showWarning(result.error, "Nepavyko perkelti uzduoties.");
             await refreshAfterFailedMove();
+            document.dispatchEvent(new CustomEvent("schedule:action-completed"));
           } else {
             const query =
               state?.getQuery?.() ||
@@ -1735,7 +1746,8 @@
             });
 
             await tasks?.refreshOpenTask?.(taskId);
-            showSuccess("Pakeitimai išsaugoti.");
+            showSuccess(result.message, "Pakeitimai išsaugoti.");
+            document.dispatchEvent(new CustomEvent("schedule:action-completed"));
           }
         } else {
           // Fallback: direct fetch
@@ -1778,6 +1790,7 @@
             }
             showWarning(msg);
             await refreshAfterFailedMove();
+            document.dispatchEvent(new CustomEvent("schedule:action-completed"));
           } else if (!resp.ok) {
             throw new Error("Nepavyko perkelti užduoties.");
           } else {
@@ -1792,20 +1805,22 @@
             });
 
             await tasks?.refreshOpenTask?.(taskId);
-            showSuccess("Pakeitimai išsaugoti.");
+            showSuccess(result.message, "Pakeitimai išsaugoti.");
+            document.dispatchEvent(new CustomEvent("schedule:action-completed"));
           }
         }
       } catch (err) {
+        const errorMsg = err?.message || "Nepavyko perkelti uzduoties.";
         logEvent(
           "ui.drag.drop.error",
-          { taskId, error: err?.message },
+          { taskId, error: errorMsg },
           "error"
         );
         if (optimistic?.success) {
           optimistic.rollback();
           await new Promise(r => setTimeout(r, 350));
         }
-        showError("Nepavyko perkelti uzduoties.");
+        showError(errorMsg, "Nepavyko perkelti uzduoties.");
 
         const query =
           state?.getQuery?.() ||
@@ -1816,6 +1831,7 @@
           updateUrl: false,
           preserveScroll: true,
         });
+        document.dispatchEvent(new CustomEvent("schedule:action-completed"));
       } finally {
         clearDragState();
       }
@@ -1832,3 +1848,8 @@
   schedule.dragdrop = schedule.dragdrop || {};
   schedule.dragdrop.initOnce = initOnce;
 })();
+
+
+
+
+

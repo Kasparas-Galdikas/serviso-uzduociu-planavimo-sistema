@@ -17,6 +17,7 @@
   const grid = window.schedule.grid;
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
+  const readJsonSafe = async (resp) => await resp.json().catch(() => ({}));
 
   // Cached promises for dropdown data
   let techniciansPromise = null;
@@ -37,7 +38,7 @@
 
     if (!resp.ok) {
       logEvent("api.task.fetch.error", { taskId, status: resp.status }, "error");
-      throw new Error("Nepavyko gauti užduoties duomenų");
+      throw new Error("Nepavyko gauti uzduoties duomenu");
     }
 
     const data = await resp.json();
@@ -79,38 +80,44 @@
           }));
 
       if (resp.status === 409) {
-        const msg = (await resp.json().catch(() => null))?.message || "Laiko langas užimtas.";
-        return { success: false, error: msg, errorType: "conflict" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Laiko langas uzimtas.", errorType: "conflict"};
       }
 
       if (resp.status === 400) {
-        const errorData = await resp.json().catch(() => ({}));
+        const errorData = await readJsonSafe(resp);
         if (errorData.errors && typeof errorData.errors === "object") {
-          return { success: false, validationErrors: errorData.errors, errorType: "validation" };
+          return { success: false, validationErrors: errorData.errors, errorType: "validation"};
         }
-        return { success: false, error: errorData.message || "Patikrinkite įvestus duomenis.", errorType: "validation" };
+        return { success: false, error: errorData.message || "Patikrinkite ivestus duomenis.", errorType: "validation"};
       }
 
       if (resp.status === 422) {
-        const msg = (await resp.json().catch(() => null))?.message || "Netinkamas laiko langas.";
-        return { success: false, error: msg, errorType: "unprocessable" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Netinkamas laiko langas.", errorType: "unprocessable"};
       }
 
       if (resp.status === 403) {
-        const msg = (await resp.json().catch(() => null))?.message || "Neturite teisių kurti užduoties.";
-        return { success: false, error: msg, errorType: "forbidden" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Neturite teisiu.", errorType: "forbidden"};
       }
 
       if (!resp.ok) {
-        return { success: false, error: "Įvyko klaida kuriant užduotį.", errorType: "unknown" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Ivyko klaida kuriant uzduoti.", errorType: "unknown"};
       }
 
-      const responseData = await resp.json().catch(() => null);
+      const responseData = await readJsonSafe(resp);
       logEvent("api.task.create.ok", { id: responseData?.id });
-      return { success: true, id: responseData?.id, version: responseData?.version };
+      return {
+        success: true,
+        id: responseData?.id,
+        version: responseData?.version,
+        message: responseData?.message,
+      };
     } catch (err) {
       logEvent("api.task.create.error", { error: err?.message }, "error");
-      return { success: false, error: err?.message || "Įvyko nenumatyta klaida.", errorType: "exception" };
+      return { success: false, error: err?.message || "Ivyko nenumatyta klaida.", errorType: "exception" };
     }
   };
 
@@ -153,7 +160,7 @@
       return await handleUpdateResponse(resp, taskId);
     } catch (err) {
       logEvent("api.task.update.error", { taskId, error: err?.message }, "error");
-      return { success: false, error: err?.message || "Nepavyko išsaugoti užduoties.", errorType: "exception" };
+      return { success: false, error: err?.message || "Nepavyko issaugoti uzduoties.", errorType: "exception" };
     }
   };
 
@@ -188,7 +195,7 @@
       return await handleUpdateResponse(resp, taskId);
     } catch (err) {
       logEvent("api.task.update.error", { taskId, error: err?.message }, "error");
-      return { success: false, error: err?.message || "Nepavyko išsaugoti užduoties.", errorType: "exception" };
+      return { success: false, error: err?.message || "Nepavyko issaugoti uzduoties.", errorType: "exception" };
     }
   };
 
@@ -221,18 +228,24 @@
           }));
 
       if (resp.status === 409 || resp.status === 403) {
-        const data = await resp.json().catch(() => ({}));
-        return { success: false, error: data.message, version: data.version, errorType: resp.status === 409 ? "conflict" : "forbidden" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message, version: data.version, errorType: resp.status === 409 ? "conflict" : "forbidden"};
       }
 
       if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        return { success: false, error: data.message || "Nepavyko pakeisti laiko.", errorType: "unknown" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Nepavyko pakeisti laiko.", errorType: "unknown"};
       }
 
-      const data = await resp.json().catch(() => null);
+      const data = await readJsonSafe(resp);
       logEvent("api.task.time.ok", { taskId, newVersion: data?.version });
-      return { success: true, version: data?.version, startAt: data?.startAt, endAt: data?.endAt };
+      return {
+        success: true,
+        version: data?.version,
+        startAt: data?.startAt,
+        endAt: data?.endAt,
+        message: data?.message,
+      };
     } catch (err) {
       logEvent("api.task.time.error", { taskId, error: err?.message }, "error");
       return { success: false, error: err?.message || "Nepavyko pakeisti laiko.", errorType: "exception" };
@@ -265,30 +278,31 @@
           }));
 
       if (resp.status === 409) {
-        const data = await resp.json().catch(() => ({}));
-        return { success: false, error: data.message || "Užduotis pasikeitė.", newVersion: data.version, errorType: "conflict" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Uzduotis pasikete.", newVersion: data.version, errorType: "conflict"};
       }
 
       if (resp.status === 403) {
-        const data = await resp.json().catch(() => ({}));
-        return { success: false, error: data.message || "Neturite teisių ištrinti.", errorType: "forbidden" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Neturite teisiu.", errorType: "forbidden"};
       }
 
       if (resp.status === 404) {
-        const data = await resp.json().catch(() => ({}));
-        return { success: false, error: data.message || "Užduotis nerasta.", errorType: "not_found" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Uzduotis nerasta.", errorType: "not_found"};
       }
 
       if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        return { success: false, error: data.message || "Nepavyko ištrinti užduoties.", errorType: "unknown" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Nepavyko istrinti uzduoties.", errorType: "unknown"};
       }
 
+      const data = await readJsonSafe(resp);
       logEvent("api.task.delete.ok", { taskId });
-      return { success: true };
+      return { success: true, message: data?.message };
     } catch (err) {
       logEvent("api.task.delete.error", { taskId, error: err?.message }, "error");
-      return { success: false, error: err?.message || "Nepavyko ištrinti užduoties.", errorType: "exception" };
+      return { success: false, error: err?.message || "Nepavyko istrinti uzduoties.", errorType: "exception" };
     }
   };
 
@@ -385,21 +399,25 @@
           }));
 
       if (resp.status === 409 || resp.status === 422 || resp.status === 403) {
-        const data = await resp.json().catch(() => ({}));
-        return { success: false, error: data.message || "Nepavyko perkelti užduoties.", errorType: resp.status === 409 ? "conflict" : resp.status === 403 ? "forbidden" : "unprocessable" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Nepavyko perkelti uzduoties.", errorType: resp.status === 409 ? "conflict" : resp.status === 403 ? "forbidden" : "unprocessable"};
       }
 
       if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        return { success: false, error: data.message || "Nepavyko perkelti užduoties.", errorType: "unknown" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Nepavyko perkelti uzduoties.", errorType: "unknown"};
       }
 
-      const data = await resp.json().catch(() => null);
+      const data = await readJsonSafe(resp);
       logEvent("api.task.move.ok", { taskId, newVersion: data?.version });
-      return { success: true, version: data?.version };
+      return {
+        success: true,
+        version: data?.version,
+        message: data?.message,
+      };
     } catch (err) {
       logEvent("api.task.move.error", { taskId, error: err?.message }, "error");
-      return { success: false, error: err?.message || "Nepavyko perkelti užduoties.", errorType: "exception" };
+      return { success: false, error: err?.message || "Nepavyko perkelti uzduoties.", errorType: "exception" };
     }
   };
 
@@ -430,27 +448,29 @@
           }));
 
       if (resp.status === 409 || resp.status === 422 || resp.status === 403 || resp.status === 404) {
-        const data = await resp.json().catch(() => ({}));
+        const data = await readJsonSafe(resp);
         return {
           success: false,
           error: data.message || "Nepavyko sukeisti uzduociu.",
           sourceVersion: data.sourceVersion,
           targetVersion: data.targetVersion,
-          errorType: resp.status === 409 ? "conflict" : resp.status === 403 ? "forbidden" : resp.status === 404 ? "not_found" : "unprocessable"
+          errorType: resp.status === 409 ? "conflict" : resp.status === 403 ? "forbidden" : resp.status === 404 ? "not_found" : "unprocessable",
+          
         };
       }
 
       if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        return { success: false, error: data.message || "Nepavyko sukeisti uzduociu.", errorType: "unknown" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Nepavyko sukeisti uzduociu.", errorType: "unknown"};
       }
 
-      const data = await resp.json().catch(() => null);
+      const data = await readJsonSafe(resp);
       logEvent("api.task.swap.ok", { sourceTaskId, targetTaskId });
       return {
         success: true,
         sourceVersion: data?.sourceVersion,
-        targetVersion: data?.targetVersion
+        targetVersion: data?.targetVersion,
+        message: data?.message,
       };
     } catch (err) {
       logEvent("api.task.swap.error", { sourceTaskId, targetTaskId, error: err?.message }, "error");
@@ -485,27 +505,29 @@
           }));
 
       if (resp.status === 409 || resp.status === 422 || resp.status === 403 || resp.status === 404) {
-        const data = await resp.json().catch(() => ({}));
+        const data = await readJsonSafe(resp);
         return {
           success: false,
           error: data.message || "Nepavyko atlikti ismanaus sukeitimo.",
           sourceVersion: data.sourceVersion,
           targetVersion: data.targetVersion,
-          errorType: resp.status === 409 ? "conflict" : resp.status === 403 ? "forbidden" : resp.status === 404 ? "not_found" : "unprocessable"
+          errorType: resp.status === 409 ? "conflict" : resp.status === 403 ? "forbidden" : resp.status === 404 ? "not_found" : "unprocessable",
+          
         };
       }
 
       if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        return { success: false, error: data.message || "Nepavyko atlikti ismanaus sukeitimo.", errorType: "unknown" };
+        const data = await readJsonSafe(resp);
+        return { success: false, error: data.message || "Nepavyko atlikti ismanaus sukeitimo.", errorType: "unknown"};
       }
 
-      const data = await resp.json().catch(() => null);
+      const data = await readJsonSafe(resp);
       logEvent("api.task.swap.smart.ok", { sourceTaskId, targetTaskId });
       return {
         success: true,
         sourceVersion: data?.sourceVersion,
-        targetVersion: data?.targetVersion
+        targetVersion: data?.targetVersion,
+        message: data?.message,
       };
     } catch (err) {
       logEvent("api.task.swap.smart.error", { sourceTaskId, targetTaskId, error: err?.message }, "error");
@@ -590,29 +612,35 @@
   // Private helper to handle update responses
   const handleUpdateResponse = async (resp, taskId) => {
     if (resp.status === 409 || resp.status === 403) {
-      const data = await resp.json().catch(() => ({}));
+      const data = await readJsonSafe(resp);
       return {
         success: false,
-        error: data.message || (resp.status === 409 ? "Duomenys pasikeitė." : "Neturite teisių."),
-        errorType: resp.status === 409 ? "conflict" : "forbidden"
+        error: data.message || (resp.status === 409 ? "Duomenys pasikete." : "Neturite teisiu."),
+        errorType: resp.status === 409 ? "conflict" : "forbidden",
+        
       };
     }
 
     if (resp.status === 400 || resp.status === 422) {
-      const errorData = await resp.json().catch(() => ({}));
+      const errorData = await readJsonSafe(resp);
       if (errorData.errors && typeof errorData.errors === "object") {
-        return { success: false, validationErrors: errorData.errors, errorType: "validation" };
+        return { success: false, validationErrors: errorData.errors, errorType: "validation"};
       }
-      return { success: false, error: errorData.message || "Patikrinkite įvestus duomenis.", errorType: "validation" };
+      return { success: false, error: errorData.message || "Patikrinkite ivestus duomenis.", errorType: "validation"};
     }
 
     if (!resp.ok) {
-      return { success: false, error: "Įvyko klaida išsaugant užduotį.", errorType: "unknown" };
+      const errorData = await readJsonSafe(resp);
+      return { success: false, error: errorData.message || "Ivyko klaida issaugant uzduoti.", errorType: "unknown"};
     }
 
-    const responseData = await resp.json().catch(() => null);
+    const responseData = await readJsonSafe(resp);
     logEvent("api.task.update.ok", { taskId, newVersion: responseData?.version });
-    return { success: true, version: responseData?.version };
+    return {
+      success: true,
+      version: responseData?.version,
+      message: responseData?.message,
+    };
   };
 
   /**
@@ -672,5 +700,3 @@
     clearCache,
   };
 })();
-
-
