@@ -28,7 +28,10 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
             return _db.BacklogItems
                 .AsNoTracking()
                 .Where(b => b.CreatedByUserId == userId)
-                .OrderByDescending(b => b.CreatedAt)
+                .OrderByDescending(b => b.Priority)
+                .ThenBy(b => b.DueDate == null ? 1 : 0)
+                .ThenBy(b => b.DueDate)
+                .ThenByDescending(b => b.CreatedAt)
                 .ToListAsync(ct);
         }
 
@@ -44,6 +47,7 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
                 ObjectName = dto.ObjectName?.Trim() ?? string.Empty,
                 ObjectAddress = dto.ObjectAddress?.Trim() ?? string.Empty,
                 Instructions = dto.Instructions?.Trim() ?? string.Empty,
+                DueDate = dto.DueDate,
                 CreatedAt = DateTime.UtcNow,
             };
 
@@ -76,6 +80,7 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
             item.ObjectName = dto.ObjectName?.Trim() ?? string.Empty;
             item.ObjectAddress = dto.ObjectAddress?.Trim() ?? string.Empty;
             item.Instructions = dto.Instructions?.Trim() ?? string.Empty;
+            item.DueDate = dto.DueDate;
 
             await _db.SaveChangesAsync(ct);
 

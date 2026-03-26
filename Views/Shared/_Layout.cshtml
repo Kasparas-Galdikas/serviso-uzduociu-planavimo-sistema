@@ -178,6 +178,17 @@
         BacklogItemType: {
           Temporary: @((int)BacklogItemType.Temporary),
           Permanent: @((int)BacklogItemType.Permanent)
+        },
+        TaskPriority: {
+          Low: @((int)TaskPriority.Low),
+          Medium: @((int)TaskPriority.Medium),
+          High: @((int)TaskPriority.High)
+        },
+        TaskStatus: {
+          InProgress: @((int)ScheduleTaskStatus.InProgress),
+          Completed: @((int)ScheduleTaskStatus.Completed),
+          Conflict: @((int)ScheduleTaskStatus.Conflict),
+          Canceled: @((int)ScheduleTaskStatus.Canceled)
         }
       };
     </script>

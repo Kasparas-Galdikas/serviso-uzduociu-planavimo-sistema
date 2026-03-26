@@ -37,4 +37,6 @@ public class CreateTaskRequestDto : BacklogItemDto
     /// </summary>
     [Range(-1440, 1440, ErrorMessage = "Laiko juostos poslinkis netinkamas.")]
     public int TimezoneOffsetMinutes { get; set; }
+
+    public long? SourceBacklogItemId { get; set; }
 }

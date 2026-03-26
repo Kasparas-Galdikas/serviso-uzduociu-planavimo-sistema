@@ -13,6 +13,7 @@ namespace ServiceTaskPlanningSystem.Data
         public string ObjectName { get; set; } = string.Empty;
         public string ObjectAddress { get; set; } = string.Empty;
         public string Instructions { get; set; } = string.Empty;
+        public DateTime? DueDate { get; set; }
         public DateTime CreatedAt { get; set; }
 
         public UserEntity CreatedBy { get; set; } = default!;

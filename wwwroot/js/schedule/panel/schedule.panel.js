@@ -82,7 +82,7 @@
       if (taskContent) taskContent.style.display = "";
       if (historyContent) historyContent.style.display = "none";
       if (backlogContent) backlogContent.style.display = "none";
-      if (headerTitle) headerTitle.textContent = "Laukiantys darbai";
+      if (headerTitle) headerTitle.textContent = "Darbų sąrašas";
       if (headerSubtitle) headerSubtitle.classList.add("d-none");
       if (historySubtitle) historySubtitle.classList.add("d-none");
       if (footer) footer.classList.remove("d-none");

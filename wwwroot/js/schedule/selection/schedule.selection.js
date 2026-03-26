@@ -404,6 +404,7 @@
         objectName: formData.objectName,
         objectAddress: formData.objectAddress,
         instructions: formData.instructions,
+        sourceBacklogItemId: formData.sourceBacklogItemId ?? null,
       });
 
       if (result.success) {

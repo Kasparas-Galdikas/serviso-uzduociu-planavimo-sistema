@@ -1,4 +1,5 @@
-﻿<div class="offcanvas offcanvas-end task-detail-panel" tabindex="-1" id="taskDetailModal"
+﻿@using ServiceTaskPlanningSystem.Data
+<div class="offcanvas offcanvas-end task-detail-panel" tabindex="-1" id="taskDetailModal"
      aria-labelledby="taskDetailLabel" data-bs-scroll="true" data-bs-backdrop="false">
 
     <div class="task-detail-resize-handle" data-panel-resize aria-label="Keisti skydelio plotį"></div>
@@ -20,14 +21,14 @@
     <div class="offcanvas-body">
 
         <!-- Backlog tab bar — visible only in backlog mode -->
-        <div id="backlogTabBar" class="d-none mb-3">
+        <div id="backlogTabBar" class="d-none mb-2">
+            <p class="backlog-section-label mb-1">Veiksmas</p>
             <div class="btn-group w-100" role="group" aria-label="Laukiančių darbų valdymas">
                 <button type="button" class="btn btn-primary active backlog-tab-btn" id="backlogTabCreate" data-backlog-tab="create">
                     <i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Sukurti
                 </button>
                 <button type="button" class="btn btn-outline-secondary backlog-tab-btn" id="backlogTabList" data-backlog-tab="list">
                     <i class="bi bi-list-ul me-1" aria-hidden="true"></i>Sąrašas
-                    <span class="badge bg-secondary ms-1" id="backlogCountBadge">0</span>
                 </button>
             </div>
         </div>
@@ -68,9 +69,14 @@
                         <label class="form-label small">Šablono tipas</label>
                         <select class="form-select" id="backlogItemType">
                             <option value="" disabled selected>– Pasirinkite tipą –</option>
-                            <option value="0">Laikinas</option>
-                            <option value="1">Nuolatinis</option>
+                            <option value="@((int)BacklogItemType.Temporary)">Laikinas</option>
+                            <option value="@((int)BacklogItemType.Permanent)">Nuolatinis</option>
                         </select>
+                    </div>
+
+                    <div class="col-md-6 d-none" id="backlogDueDateField">
+                        <label class="form-label small">Terminas <span class="text-muted">(nebūtinas)</span></label>
+                        <input type="date" class="form-control" id="backlogDueDate">
                     </div>
 
                     <div class="col-md-6" id="taskFieldAssignee">
@@ -131,9 +137,9 @@
                         <label class="form-label small">Prioritetas</label>
                         <select class="form-select" id="taskDetailPriority">
                             <option value="">– Pasirinkite prioritetą –</option>
-                            <option value="0">Žemas</option>
-                            <option value="1">Vidutinis</option>
-                            <option value="2">Aukštas</option>
+                            <option value="@((int)TaskPriority.Low)">Žemas</option>
+                            <option value="@((int)TaskPriority.Medium)">Vidutinis</option>
+                            <option value="@((int)TaskPriority.High)">Aukštas</option>
                         </select>
                     </div>
                 </div>
@@ -231,8 +237,8 @@
                     <div class="col-md-6" id="taskDetailStatusContainer">
                         <label class="form-label small">Statusas</label>
                         <select class="form-select" id="taskDetailStatus">
-                            <option value="1">Atlikta</option>
-                            <option value="2">Problema</option>
+                            <option value="@((int)ScheduleTaskStatus.Completed)">Atlikta</option>
+                            <option value="@((int)ScheduleTaskStatus.Conflict)">Problema</option>
                         </select>
                         <div id="taskDetailStatusReadonly"
                              class="form-select d-none"
@@ -259,15 +265,19 @@
 
         <!-- Backlog List Container — shown when list tab is active -->
         <div id="backlogPanelContent" style="display: none;">
+            <hr class="backlog-section-divider">
+            <div id="backlogTypeTabBar">
+                <p class="backlog-section-label">Sąrašo tipas</p>
+                <div class="btn-group btn-group-sm w-100" role="group">
+                    <button id="backlogTypeTabTemp" type="button" class="btn btn-outline-secondary">Laikini <span class="badge ms-1 backlog-type-badge" id="backlogCountTemp">0</span></button>
+                    <button id="backlogTypeTabPerm" type="button" class="btn btn-outline-secondary active">Nuolatiniai <span class="badge ms-1 backlog-type-badge" id="backlogCountPerm">0</span></button>
+                </div>
+            </div>
+            <hr class="backlog-section-divider">
+            <p class="backlog-section-label">Sąrašas</p>
             <div class="backlog-drag-hint">
                 <i class="bi bi-arrows-move me-1" aria-hidden="true"></i>
                 Nutempkite užduoties kortelę į grafiką ir paleiskite norimoje vietoje
-            </div>
-            <div id="backlogTypeTabBar" class="mb-2 px-1">
-                <div class="btn-group btn-group-sm w-100" role="group">
-                    <button id="backlogTypeTabTemp" type="button" class="btn btn-outline-secondary">Laikini</button>
-                    <button id="backlogTypeTabPerm" type="button" class="btn btn-outline-secondary active">Nuolatiniai</button>
-                </div>
             </div>
             <div id="backlogListEmpty" class="text-center text-muted py-4 d-none">
                 <i class="bi bi-inbox fs-3 d-block mb-2" aria-hidden="true"></i>

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using ServiceTaskPlanningSystem.Models.Validation;
 
 namespace ServiceTaskPlanningSystem.Models.DTOs.Requests;
 
@@ -27,4 +28,7 @@ public class BacklogItemDto
 
     [StringLength(2000, ErrorMessage = "Instrukcijos negali virsyti 2000 simboliu.")]
     public string? Instructions { get; set; }
+
+    [NotInPast]
+    public DateTime? DueDate { get; set; }
 }

@@ -45,6 +45,7 @@
       instructions: raw.instructions ?? "",
       objectName: raw.objectName ?? "",
       locationText: raw.objectAddress ?? "",
+      dueDate: raw.dueDate ? raw.dueDate.substring(0, 10) : null,
       createdAt: raw.createdAt || new Date().toISOString(),
     };
   }
@@ -122,8 +123,9 @@
     panel.querySelector("#taskFieldEnd")?.classList.add("d-none");
     panel.querySelector("#technicianSection")?.classList.add("d-none");
 
-    // Show backlog-only type field
+    // Show backlog-only fields
     panel.querySelector("#backlogTypeField")?.classList.remove("d-none");
+    panel.querySelector("#backlogDueDateField")?.classList.remove("d-none");
 
     // Reset active type tab to Permanent on each open
     _activeTypeTab = ITEM_TYPE.Permanent;
@@ -138,6 +140,7 @@
     set("#backlogItemType", "");
     set("#taskDetailSkill", "");
     set("#taskDetailInstructions", "");
+    set("#backlogDueDate", "");
 
     // Reset object/address dropdowns to empty (same as prepareCreateMode does)
     const modal = window.schedule?.tasks?.modal;
@@ -169,11 +172,15 @@
     panel.querySelector("#taskFieldEnd")?.classList.remove("d-none");
     // technicianSection and taskSectionAsset are managed by task.modal.js — do not touch
 
-    // Hide backlog-only type field and reset it
+    // Hide backlog-only fields and reset them
     const typeField = panel.querySelector("#backlogTypeField");
     if (typeField) typeField.classList.add("d-none");
     const typeSelect = panel.querySelector("#backlogItemType");
     if (typeSelect) typeSelect.value = "";
+    const dueDateField = panel.querySelector("#backlogDueDateField");
+    if (dueDateField) dueDateField.classList.add("d-none");
+    const dueDateInput = panel.querySelector("#backlogDueDate");
+    if (dueDateInput) dueDateInput.value = "";
 
     // Restore save buttons
     panel.querySelector("#taskDetailSave")?.classList.remove("d-none");
@@ -190,18 +197,22 @@
   // ── Badge ────────────────────────────────────────────────────────────────
 
   function updateBadge() {
-    const count = getItems().filter((i) => i.itemType === ITEM_TYPE.Temporary).length;
+    const items = getItems();
+    const tempCount = items.filter((i) => i.itemType === ITEM_TYPE.Temporary).length;
+    const permCount = items.filter((i) => i.itemType === ITEM_TYPE.Permanent).length;
+
     const badgeDesktop = document.getElementById("navBacklogBadge");
     const badgeMobile = document.getElementById("navBacklogBadgeMobile");
-    const panelBadge = document.getElementById("backlogCountBadge");
-
     [badgeDesktop, badgeMobile].forEach((el) => {
       if (!el) return;
-      el.textContent = count;
-      el.classList.toggle("d-none", count === 0);
+      el.textContent = tempCount;
+      el.classList.toggle("d-none", tempCount === 0);
     });
 
-    if (panelBadge) panelBadge.textContent = count;
+    const tempBadge = document.getElementById("backlogCountTemp");
+    const permBadge = document.getElementById("backlogCountPerm");
+    if (tempBadge) tempBadge.textContent = tempCount;
+    if (permBadge) permBadge.textContent = permCount;
   }
 
   // ── Trigger button visibility (daily view only) ──────────────────────────
@@ -222,9 +233,35 @@
 
   // ── List rendering ───────────────────────────────────────────────────────
 
-  const PRIORITY_LABELS = { "0": "Žemas", "1": "Vidutinis", "2": "Aukštas" };
-  const PRIORITY_CLASSES = { "0": "bg-secondary", "1": "bg-warning text-dark", "2": "bg-danger" };
+  const PRIORITY = window.ScheduleEnums?.TaskPriority ?? { Low: 0, Medium: 1, High: 2 };
+  const PRIORITY_LABELS = {
+    [PRIORITY.Low]: "Žemas",
+    [PRIORITY.Medium]: "Vidutinis",
+    [PRIORITY.High]: "Aukštas",
+  };
+  const PRIORITY_CLASSES = {
+    [PRIORITY.Low]: "bg-secondary",
+    [PRIORITY.Medium]: "bg-warning text-dark",
+    [PRIORITY.High]: "bg-danger",
+  };
   const SKILL_LABELS = { Basic: "Bazinis", Advanced: "Pažengęs", Certified: "Sertifikuotas" };
+
+  function buildDueDateBadge(dueDate) {
+    if (!dueDate) return "";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(dueDate + "T00:00:00");
+    due.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((due - today) / 86400000);
+    const label = due.toLocaleDateString("lt-LT");
+    if (diffDays < 0) {
+      return `<span class="badge bg-danger text-white">Vėluoja ${Math.abs(diffDays)}d.</span>`;
+    }
+    if (diffDays <= 3) {
+      return `<span class="badge bg-warning text-dark">Iki ${escapeHtml(label)}</span>`;
+    }
+    return `<span class="badge bg-light text-muted border">Iki ${escapeHtml(label)}</span>`;
+  }
 
   function escapeHtml(str) {
     if (!str) return "";
@@ -258,23 +295,26 @@
       const priorityBadge = item.priority !== ""
         ? `<span class="badge ${PRIORITY_CLASSES[item.priority] || "bg-secondary"}">${escapeHtml(PRIORITY_LABELS[item.priority] || item.priority)}</span>`
         : "";
-      const skillBadge = item.skillLevel
-        ? `<span class="badge bg-light text-dark border">${escapeHtml(SKILL_LABELS[item.skillLevel] || item.skillLevel)}</span>`
-        : "";
 
-      const hasDetails = !!(item.instructions || item.objectName);
+      const hasDetails = !!(item.instructions || item.objectName || item.skillLevel);
       const detailsHtml = hasDetails ? `
         <div class="backlog-card__details" id="backlog-details-${escapeHtml(item.id)}" hidden>
-          ${item.objectName ? `<div class="backlog-card__location"><i class="bi bi-geo-alt me-1" aria-hidden="true"></i>${escapeHtml(item.objectName)}${item.locationText ? ` · ${escapeHtml(item.locationText)}` : ""}</div>` : ""}
-          ${item.instructions ? `<div class="backlog-card__instructions">${escapeHtml(item.instructions)}</div>` : ""}
+          ${item.skillLevel ? `<div class="backlog-card__detail-block"><span class="backlog-card__detail-label">Kvalifikacija</span><div class="backlog-card__skill"><i class="bi bi-person-check me-1" aria-hidden="true"></i>${escapeHtml(SKILL_LABELS[item.skillLevel] || item.skillLevel)}</div></div>` : ""}
+          ${item.objectName ? `<div class="backlog-card__detail-block"><span class="backlog-card__detail-label">Objektas</span><div class="backlog-card__location"><i class="bi bi-geo-alt me-1" aria-hidden="true"></i>${escapeHtml(item.objectName)}${item.locationText ? ` · ${escapeHtml(item.locationText)}` : ""}</div></div>` : ""}
+          ${item.instructions ? `<div class="backlog-card__detail-block"><span class="backlog-card__detail-label">Instrukcijos</span><div class="backlog-card__instructions">${escapeHtml(item.instructions)}</div></div>` : ""}
         </div>` : "";
+
+      const createdLabel = new Date(item.createdAt).toLocaleDateString("lt-LT");
 
       card.innerHTML = `
         <div class="backlog-card__row">
           <div class="backlog-card__title">${escapeHtml(item.title) || "<em class='text-muted'>Be pavadinimo</em>"}</div>
-          <div class="backlog-card__badges">${priorityBadge}${skillBadge}</div>
-          <div class="backlog-card__date">${escapeHtml(new Date(item.createdAt).toLocaleDateString("lt-LT"))}</div>
+          <div class="backlog-card__badges">${priorityBadge}${buildDueDateBadge(item.dueDate)}</div>
+          <span class="backlog-card__date">${escapeHtml(createdLabel)}</span>
           ${hasDetails ? `<button type="button" class="backlog-card__toggle" data-toggle-id="${escapeHtml(item.id)}" aria-label="Rodyti detales" aria-expanded="false"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>` : ""}
+          <button type="button" class="backlog-card__schedule" data-schedule-id="${escapeHtml(item.id)}" aria-label="Planuoti užduotį" title="Planuoti užduotį">
+            <i class="bi bi-calendar-plus" aria-hidden="true"></i>
+          </button>
           <button type="button" class="backlog-card__edit" data-edit-id="${escapeHtml(item.id)}" aria-label="Redaguoti">
             <i class="bi bi-pencil" aria-hidden="true"></i>
           </button>
@@ -283,12 +323,14 @@
           </button>
         </div>
         ${detailsHtml}
+        ${hasDetails ? `<div class="backlog-card__footer">${escapeHtml(createdLabel)}</div>` : ""}
       `;
 
       setupCardDrag(card, item);
 
       // Prevent drag from firing when interacting with action buttons
       card.querySelector(".backlog-card__toggle")?.addEventListener("mousedown", (e) => e.stopPropagation());
+      card.querySelector(".backlog-card__schedule")?.addEventListener("mousedown", (e) => e.stopPropagation());
       card.querySelector(".backlog-card__edit")?.addEventListener("mousedown", (e) => e.stopPropagation());
       card.querySelector(".backlog-card__delete")?.addEventListener("mousedown", (e) => e.stopPropagation());
 
@@ -356,6 +398,8 @@
     const title = panel.querySelector("#taskDetailTitle")?.value?.trim() ?? "";
     const priorityRaw = panel.querySelector("#taskDetailPriority")?.value ?? "";
 
+    const dueDateRaw = panel.querySelector("#backlogDueDate")?.value ?? "";
+
     const dto = {
       title,
       priority: priorityRaw !== "" ? Number(priorityRaw) : null,
@@ -365,6 +409,7 @@
       objectId: objectId && objectId !== "" ? objectId : "",
       objectName: objectText && objectText !== "– Pasirinkite –" ? objectText : "",
       objectAddress: addressValue && addressValue !== "" ? addressValue : "",
+      dueDate: dueDateRaw !== "" ? dueDateRaw : null,
     };
 
     const FIELD_MAP = {
@@ -388,8 +433,17 @@
     }
 
     if (!result.ok) {
-      if (result.validationErrors && modal?.displayValidationErrors) {
-        modal.displayValidationErrors(panel, result.validationErrors, FIELD_MAP);
+      if (result.validationErrors) {
+        // DueDate errors are business-rule rejections — show as toast, not inline field error
+        const dueDateErr = result.validationErrors.DueDate;
+        if (dueDateErr) {
+          const msg = Array.isArray(dueDateErr) ? dueDateErr[0] : dueDateErr;
+          window.schedule?.ui?.toast?.showError?.(msg);
+          return;
+        }
+        if (modal?.displayValidationErrors) {
+          modal.displayValidationErrors(panel, result.validationErrors, FIELD_MAP);
+        }
       } else {
         window.schedule?.ui?.toast?.showError?.(result.error ?? "Nepavyko išsaugoti.");
       }
@@ -434,6 +488,7 @@
     set("#backlogItemType", item.itemType);
     set("#taskDetailSkill", item.skillLevel);
     set("#taskDetailInstructions", item.instructions);
+    set("#backlogDueDate", item.dueDate ?? "");
 
     // Prefill object/address dropdowns
     const modal = window.schedule?.tasks?.modal;
@@ -541,6 +596,20 @@
     await applyPrefill(item);
   }
 
+  // Opens the task creation panel pre-filled with content fields only (no slot).
+  // User manually picks technician, date, and time before saving.
+  async function scheduleFromBacklogUnscheduled(item) {
+    const openPanel = window.schedule?.tasks?.openTaskPanel;
+    if (typeof openPanel !== "function") {
+      window.schedule?.ui?.toast?.showError?.("Nepavyko atidaryti planavimo lango.");
+      return;
+    }
+    _schedulingFromBacklogId = item.id;
+    _schedulingFromBacklogItemType = item.itemType;
+    await openPanel({});
+    await applyPrefill(item);
+  }
+
   async function applyPrefill(item) {
     const panel = getPanelEl();
     if (!panel) return;
@@ -612,6 +681,15 @@
       }
     });
 
+    // Schedule buttons — open task creation panel pre-filled with content, no slot (delegated)
+    document.getElementById("backlogItemsList")?.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-schedule-id]");
+      if (!btn) return;
+      e.stopPropagation();
+      const item = getItemById(btn.dataset.scheduleId);
+      if (item) await scheduleFromBacklogUnscheduled(item);
+    });
+
     // Edit buttons (delegated on list container)
     document.getElementById("backlogItemsList")?.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-edit-id]");
@@ -644,6 +722,7 @@
       const expanded = btn.getAttribute("aria-expanded") === "true";
       details.hidden = expanded;
       btn.setAttribute("aria-expanded", String(!expanded));
+      btn.closest(".backlog-card")?.classList.toggle("is-expanded", !expanded);
       const icon = btn.querySelector("i");
       if (icon) {
         icon.classList.toggle("bi-chevron-right", expanded);
@@ -708,5 +787,8 @@
   }
 
   window.schedule = window.schedule || {};
-  window.schedule.backlog = { openBacklogPanel };
+  window.schedule.backlog = {
+    openBacklogPanel,
+    getSchedulingBacklogId: () => _schedulingFromBacklogId,
+  };
 })();

@@ -132,7 +132,8 @@
           skillLevel: formData.skillLevel,
           objectName: formData.objectName,
           objectAddress: formData.objectAddress,
-          instructions: formData.instructions
+          instructions: formData.instructions,
+          sourceBacklogItemId: window.schedule?.backlog?.getSchedulingBacklogId?.() ?? null,
         };
 
         result = await window.schedule?.selection?.submitCreateTask?.(createData);

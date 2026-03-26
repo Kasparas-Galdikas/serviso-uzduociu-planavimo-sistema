@@ -93,7 +93,7 @@ public sealed class PlanServiceScheduleRepairTests
             string.Empty,
             new UserContext { Role = UserRole.Manager, UserId = 1 },
             0,
-            CancellationToken.None);
+            cancellationToken: CancellationToken.None);
 
         result.Ok.Should().BeTrue();
         await _repairService.DidNotReceive().BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>());
@@ -141,7 +141,7 @@ public sealed class PlanServiceScheduleRepairTests
             string.Empty,
             new UserContext { Role = UserRole.Manager, UserId = 1 },
             0,
-            CancellationToken.None);
+            cancellationToken: CancellationToken.None);
 
         result.Ok.Should().BeTrue();
         result.Message.Should().Contain("travel fail");
