@@ -1,3 +1,9 @@
+/* Type tab badges — light accent blue, readable on both active (dark) and inactive (light) buttons */
+.backlog-type-badge {
+  background-color: var(--accent-300);
+  color: var(--accent-800);
+}
+
 /* Panel position — sits below the navbar with a gap; rounded like other containers */
 #taskDetailModal {
   top: 68px;
@@ -24,6 +30,8 @@
 .task-detail-panel .task-section-header h6,
 .task-detail-panel #taskDetailFooter .btn,
 .backlog-tab-btn,
+#backlogTypeTabTemp,
+#backlogTypeTabPerm,
 .schedule-history-group__title,
 .schedule-history-group__trigger small,
 .schedule-history-subsection__title,
@@ -245,10 +253,132 @@
   border: 1px dashed #ced4da;
   border-radius: 0.375rem;
   padding: 0.4rem 0.625rem;
-  margin-bottom: 0.75rem;
+  margin-top: 0.25rem;
+  margin-bottom: 0.5rem;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.backlog-section-divider {
+  margin: 0.75rem 0;
+  border-color: #e9ecef;
+  opacity: 1;
+}
+
+/* ── Bulk selection ── */
+.backlog-list-header {
+  margin-bottom: 0.4rem;
+}
+
+.backlog-lh-normal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.backlog-lh-normal .backlog-section-label {
+  margin-bottom: 0;
+}
+
+.backlog-lh-selecting {
+  display: none;
+  align-items: center;
+  width: 100%;
+}
+
+.backlog-lh-selecting .backlog-section-label {
+  margin-bottom: 0;
+}
+
+.is-selecting .backlog-lh-normal {
+  display: none;
+}
+
+.is-selecting .backlog-lh-selecting {
+  display: flex;
+}
+
+.backlog-select-toggle-btn {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.5rem;
+  line-height: 1.5;
+}
+
+.backlog-bulk-bar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.5rem;
+  margin-top: 0.375rem;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+}
+
+.is-selecting .backlog-bulk-bar {
+  display: flex;
+}
+
+.backlog-bulk-selectall-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  margin: 0;
+}
+
+.backlog-bulk-selectall {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: #0d6efd;
+}
+
+.backlog-bulk-count {
+  font-size: 0.8rem;
+  color: #495057;
+  white-space: nowrap;
+}
+
+.is-selecting .backlog-card {
+  cursor: pointer;
+  user-select: none;
+}
+
+.is-selecting .backlog-card__schedule,
+.is-selecting .backlog-card__edit,
+.is-selecting .backlog-card__delete,
+.is-selecting .backlog-card__toggle {
+  display: none !important;
+}
+
+.backlog-card.is-selected {
+  border-left-color: #dc3545;
+  background: #fff5f5;
+}
+
+.backlog-card__checkbox {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.25rem;
+  accent-color: #dc3545;
+  cursor: pointer;
+  pointer-events: none;
+}
+
+.backlog-section-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #adb5bd;
+  margin-bottom: 0.4rem;
+  white-space: nowrap;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 
@@ -306,9 +436,13 @@
 
 .backlog-card__date {
   flex-shrink: 0;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: #adb5bd;
   white-space: nowrap;
+}
+
+.backlog-card.is-expanded .backlog-card__date {
+  display: none;
 }
 
 .backlog-card__toggle {
@@ -328,6 +462,7 @@
   color: #0d6efd;
 }
 
+.backlog-card__schedule,
 .backlog-card__edit,
 .backlog-card__delete {
   flex-shrink: 0;
@@ -339,14 +474,10 @@
   border: none;
   border-radius: 0.25rem;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s ease, color 0.15s ease;
+  transition: color 0.15s ease;
 }
 
-.backlog-card:hover .backlog-card__edit,
-.backlog-card:hover .backlog-card__delete {
-  opacity: 1;
-}
+.backlog-card__schedule:hover { color: #198754; }
 
 .backlog-card__edit:hover {
   color: #0d6efd;
@@ -363,10 +494,57 @@
   border-top: 1px solid #f0f0f0;
 }
 
+.backlog-card__detail-block {
+  margin-bottom: 0.3rem;
+}
+
+.backlog-card__detail-block:last-child {
+  margin-bottom: 0;
+}
+
+.backlog-card__detail-label {
+  display: block;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #adb5bd;
+  margin-bottom: 0.1rem;
+}
+
+.backlog-card__footer {
+  display: none;
+  text-align: right;
+  font-size: 0.65rem;
+  color: #adb5bd;
+  margin-top: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.backlog-card.is-expanded .backlog-card__footer {
+  display: block;
+}
+
+.backlog-card__skill {
+  font-size: 0.75rem;
+  color: #495057;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.backlog-card__skill i {
+  color: #6c757d;
+}
+
 .backlog-card__location {
   font-size: 0.75rem;
   color: #495057;
-  margin-bottom: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .backlog-card__location i {
@@ -376,7 +554,9 @@
 .backlog-card__instructions {
   font-size: 0.75rem;
   color: #6c757d;
-  margin-top: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .backlog-card .badge {

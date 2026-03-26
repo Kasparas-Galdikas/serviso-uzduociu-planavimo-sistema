@@ -951,7 +951,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _logger.LogInformation("svc.plan.span.adjust planId={PlanId} start={Start} end={End} weeks={Weeks}", plan.Id, plan.PeriodStart, plan.PeriodEnd, plan.Weeks);
         }
 
-        public async Task<TaskCreateResult> CreateTaskAsync(long technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default)
+        public async Task<TaskCreateResult> CreateTaskAsync(long technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, long? sourceBacklogItemId = null, CancellationToken cancellationToken = default)
         {
             var taskDate = targetDate.Date;
 
@@ -1041,6 +1041,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 EndAt = placementValidation.EndAtUtc,
                 Priority = priority,
                 Status = status,
+                SourceBacklogItemId = sourceBacklogItemId,
                 CreatedAt = DateTime.UtcNow
             };
 

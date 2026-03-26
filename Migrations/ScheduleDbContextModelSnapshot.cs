@@ -20,13 +20,13 @@ namespace ServiceTaskPlanningSystem.Migrations
                 .HasAnnotation("ProductVersion", "9.0.1")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "backlog_item_type", new[] { "temporary", "permanent" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "load_state", new[] { "normal", "load", "conflict" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "plan_status", new[] { "draft", "active", "superseded" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "risk_level", new[] { "low", "medium", "high" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_priority", new[] { "low", "medium", "high" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", new[] { "canceled", "completed", "conflict", "in_progress" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_status", "schedule_task_status", new[] { "in_progress", "completed", "conflict", "canceled" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "backlog_item_type", new[] { "temporary", "permanent" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_role", new[] { "manager", "technician", "anonymous" });
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -100,6 +100,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.Property<long>("CreatedByUserId")
                         .HasColumnType("bigint")
                         .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTime?>("DueDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("due_date");
 
                     b.Property<string>("Instructions")
                         .IsRequired()
@@ -402,6 +406,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("character varying(100)")
                         .HasDefaultValue("")
                         .HasColumnName("skill_level");
+
+                    b.Property<long?>("SourceBacklogItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_backlog_item_id");
 
                     b.Property<DateTime>("StartAt")
                         .HasColumnType("timestamptz")

@@ -68,6 +68,7 @@
       objectName: taskData.objectName,
       objectAddress: taskData.objectAddress,
       instructions: taskData.instructions,
+      sourceBacklogItemId: taskData.sourceBacklogItemId ?? null,
     };
 
     try {

@@ -12,5 +12,6 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
         Task<(BacklogItemEntity item, string summary)> CreateItemAsync(long userId, SaveBacklogItemRequestDto dto, CancellationToken ct = default);
         Task<(BacklogItemEntity? item, string summary)> UpdateItemAsync(long userId, long id, SaveBacklogItemRequestDto dto, CancellationToken ct = default);
         Task<(bool deleted, string summary)> DeleteItemAsync(long userId, long id, CancellationToken ct = default);
+        Task<int> BulkDeleteItemsAsync(long userId, long[] ids, CancellationToken ct = default);
     }
 }

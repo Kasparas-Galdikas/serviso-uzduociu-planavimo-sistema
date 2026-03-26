@@ -28,7 +28,10 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
             return _db.BacklogItems
                 .AsNoTracking()
                 .Where(b => b.CreatedByUserId == userId)
-                .OrderByDescending(b => b.CreatedAt)
+                .OrderByDescending(b => b.Priority)
+                .ThenBy(b => b.DueDate == null ? 1 : 0)
+                .ThenBy(b => b.DueDate)
+                .ThenByDescending(b => b.CreatedAt)
                 .ToListAsync(ct);
         }
 
@@ -44,6 +47,7 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
                 ObjectName = dto.ObjectName?.Trim() ?? string.Empty,
                 ObjectAddress = dto.ObjectAddress?.Trim() ?? string.Empty,
                 Instructions = dto.Instructions?.Trim() ?? string.Empty,
+                DueDate = dto.DueDate,
                 CreatedAt = DateTime.UtcNow,
             };
 
@@ -76,6 +80,7 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
             item.ObjectName = dto.ObjectName?.Trim() ?? string.Empty;
             item.ObjectAddress = dto.ObjectAddress?.Trim() ?? string.Empty;
             item.Instructions = dto.Instructions?.Trim() ?? string.Empty;
+            item.DueDate = dto.DueDate;
 
             await _db.SaveChangesAsync(ct);
 
@@ -108,6 +113,25 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
             await _historyWriter.RecordAsync(null, null, "backlog_delete", outcome, summary, userId, "manager", cancellationToken: ct);
 
             return (true, summary);
+        }
+
+        public async Task<int> BulkDeleteItemsAsync(long userId, long[] ids, CancellationToken ct = default)
+        {
+            var items = await _db.BacklogItems
+                .Where(b => ids.Contains(b.Id) && b.CreatedByUserId == userId)
+                .ToListAsync(ct);
+
+            if (items.Count == 0) return 0;
+
+            _db.BacklogItems.RemoveRange(items);
+            await _db.SaveChangesAsync(ct);
+
+            _logger.LogInformation("svc.backlog.bulk-delete count={Count} userId={UserId}", items.Count, userId);
+
+            var (summary, outcome) = TaskHistoryMessages.ForBacklog("backlog_delete", $"{items.Count} įrašai");
+            await _historyWriter.RecordAsync(null, null, "backlog_delete", outcome, summary, userId, "manager", cancellationToken: ct);
+
+            return items.Count;
         }
     }
 }

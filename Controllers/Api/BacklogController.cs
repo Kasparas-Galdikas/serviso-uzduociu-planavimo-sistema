@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Backlog;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -16,11 +17,13 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
     {
         private readonly IBacklogService _backlogService;
         private readonly IUserContextResolver _userContextResolver;
+        private readonly IScheduleTimeService _timeService;
 
-        public BacklogController(IBacklogService backlogService, IUserContextResolver userContextResolver)
+        public BacklogController(IBacklogService backlogService, IUserContextResolver userContextResolver, IScheduleTimeService timeService)
         {
             _backlogService = backlogService;
             _userContextResolver = userContextResolver;
+            _timeService = timeService;
         }
 
         [HttpGet]
@@ -29,8 +32,9 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var userId = _userContextResolver.GetCurrentUser().UserId;
             if (userId == null) return Unauthorized();
 
+            var tzOffset = _timeService.GetBrowserTimezoneOffset(Request);
             var items = await _backlogService.GetItemsAsync(userId.Value, cancellationToken);
-            return Ok(items.Select(MapItem));
+            return Ok(items.Select(i => MapItem(i, tzOffset)));
         }
 
         [HttpPost]
@@ -41,10 +45,11 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var userId = _userContextResolver.GetCurrentUser().UserId;
             if (userId == null) return Unauthorized();
 
+            var tzOffset = _timeService.GetBrowserTimezoneOffset(Request);
             var (item, summary) = await _backlogService.CreateItemAsync(userId.Value, dto, cancellationToken);
             return Ok(new
             {
-                item = MapItem(item),
+                item = MapItem(item, tzOffset),
                 message = summary,
             });
         }
@@ -57,12 +62,13 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var userId = _userContextResolver.GetCurrentUser().UserId;
             if (userId == null) return Unauthorized();
 
+            var tzOffset = _timeService.GetBrowserTimezoneOffset(Request);
             var (item, summary) = await _backlogService.UpdateItemAsync(userId.Value, id, dto, cancellationToken);
             if (item == null) return NotFound();
 
             return Ok(new
             {
-                item = MapItem(item),
+                item = MapItem(item, tzOffset),
                 message = summary,
             });
         }
@@ -79,7 +85,19 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             return Ok(new { message = summary });
         }
 
-        private static object MapItem(Data.BacklogItemEntity item) => new
+        [HttpPost("bulk-delete")]
+        public async Task<IActionResult> BulkDeleteItems([FromBody] long[] ids, CancellationToken cancellationToken)
+        {
+            if (ids == null || ids.Length == 0) return BadRequest(new { message = "No ids provided." });
+
+            var userId = _userContextResolver.GetCurrentUser().UserId;
+            if (userId == null) return Unauthorized();
+
+            var deleted = await _backlogService.BulkDeleteItemsAsync(userId.Value, ids, cancellationToken);
+            return Ok(new { deleted });
+        }
+
+        private object MapItem(Data.BacklogItemEntity item, int tzOffset) => new
         {
             id = item.Id,
             title = item.Title,
@@ -89,6 +107,9 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             objectName = item.ObjectName,
             objectAddress = item.ObjectAddress,
             instructions = item.Instructions,
+            dueDate = item.DueDate.HasValue
+                ? _timeService.ConvertUtcToLocal(item.DueDate.Value, tzOffset).ToString("yyyy-MM-dd")
+                : (string?)null,
             createdAt = item.CreatedAt,
         };
     }

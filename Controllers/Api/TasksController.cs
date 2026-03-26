@@ -105,6 +105,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 dto.Instructions ?? string.Empty,
                 user,
                 dto.TimezoneOffsetMinutes,
+                sourceBacklogItemId: dto.SourceBacklogItemId,
                 cancellationToken);
 
             if (result.Ok && result.Task != null)
