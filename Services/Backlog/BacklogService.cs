@@ -114,5 +114,24 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
 
             return (true, summary);
         }
+
+        public async Task<int> BulkDeleteItemsAsync(long userId, long[] ids, CancellationToken ct = default)
+        {
+            var items = await _db.BacklogItems
+                .Where(b => ids.Contains(b.Id) && b.CreatedByUserId == userId)
+                .ToListAsync(ct);
+
+            if (items.Count == 0) return 0;
+
+            _db.BacklogItems.RemoveRange(items);
+            await _db.SaveChangesAsync(ct);
+
+            _logger.LogInformation("svc.backlog.bulk-delete count={Count} userId={UserId}", items.Count, userId);
+
+            var (summary, outcome) = TaskHistoryMessages.ForBacklog("backlog_delete", $"{items.Count} įrašai");
+            await _historyWriter.RecordAsync(null, null, "backlog_delete", outcome, summary, userId, "manager", cancellationToken: ct);
+
+            return items.Count;
+        }
     }
 }

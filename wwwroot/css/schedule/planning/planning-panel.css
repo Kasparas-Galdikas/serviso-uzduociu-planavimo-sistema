@@ -267,6 +267,109 @@
   opacity: 1;
 }
 
+/* ── Bulk selection ── */
+.backlog-list-header {
+  margin-bottom: 0.4rem;
+}
+
+.backlog-lh-normal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.backlog-lh-normal .backlog-section-label {
+  margin-bottom: 0;
+}
+
+.backlog-lh-selecting {
+  display: none;
+  align-items: center;
+  width: 100%;
+}
+
+.backlog-lh-selecting .backlog-section-label {
+  margin-bottom: 0;
+}
+
+.is-selecting .backlog-lh-normal {
+  display: none;
+}
+
+.is-selecting .backlog-lh-selecting {
+  display: flex;
+}
+
+.backlog-select-toggle-btn {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.5rem;
+  line-height: 1.5;
+}
+
+.backlog-bulk-bar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.5rem;
+  margin-top: 0.375rem;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+}
+
+.is-selecting .backlog-bulk-bar {
+  display: flex;
+}
+
+.backlog-bulk-selectall-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  margin: 0;
+}
+
+.backlog-bulk-selectall {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: #0d6efd;
+}
+
+.backlog-bulk-count {
+  font-size: 0.8rem;
+  color: #495057;
+  white-space: nowrap;
+}
+
+.is-selecting .backlog-card {
+  cursor: pointer;
+  user-select: none;
+}
+
+.is-selecting .backlog-card__schedule,
+.is-selecting .backlog-card__edit,
+.is-selecting .backlog-card__delete,
+.is-selecting .backlog-card__toggle {
+  display: none !important;
+}
+
+.backlog-card.is-selected {
+  border-left-color: #dc3545;
+  background: #fff5f5;
+}
+
+.backlog-card__checkbox {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.25rem;
+  accent-color: #dc3545;
+  cursor: pointer;
+  pointer-events: none;
+}
+
 .backlog-section-label {
   font-size: 0.65rem;
   font-weight: 600;

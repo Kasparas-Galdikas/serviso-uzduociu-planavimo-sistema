@@ -85,6 +85,18 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             return Ok(new { message = summary });
         }
 
+        [HttpPost("bulk-delete")]
+        public async Task<IActionResult> BulkDeleteItems([FromBody] long[] ids, CancellationToken cancellationToken)
+        {
+            if (ids == null || ids.Length == 0) return BadRequest(new { message = "No ids provided." });
+
+            var userId = _userContextResolver.GetCurrentUser().UserId;
+            if (userId == null) return Unauthorized();
+
+            var deleted = await _backlogService.BulkDeleteItemsAsync(userId.Value, ids, cancellationToken);
+            return Ok(new { deleted });
+        }
+
         private object MapItem(Data.BacklogItemEntity item, int tzOffset) => new
         {
             id = item.Id,

@@ -21,6 +21,8 @@
 
   let _items = [];
   let _activeTypeTab = ITEM_TYPE.Permanent;
+  let _selectionMode = false;
+  let _selectedIds = new Set();
 
   function getItems() { return _items; }
 
@@ -272,6 +274,37 @@
       .replace(/"/g, "&quot;");
   }
 
+  function exitSelectionMode() {
+    if (!_selectionMode) return;
+    _selectionMode = false;
+    _selectedIds.clear();
+    document.getElementById("backlogPanelContent")?.classList.remove("is-selecting");
+  }
+
+  function enterSelectionMode() {
+    _selectionMode = true;
+    _selectedIds.clear();
+    document.getElementById("backlogPanelContent")?.classList.add("is-selecting");
+    updateBulkBar();
+  }
+
+  function updateBulkBar() {
+    const countEl = document.getElementById("backlogBulkCount");
+    const deleteBtn = document.getElementById("backlogBulkDelete");
+    const scheduleBtn = document.getElementById("backlogBulkSchedule");
+    const selectAllCb = document.getElementById("backlogSelectAll");
+    const n = _selectedIds.size;
+    const total = getItems().filter(i => i.itemType === _activeTypeTab).length;
+    if (countEl) countEl.textContent = n === 0 ? "Nepasirinkta" : `${n} / ${total} pasirinkta`;
+    if (deleteBtn) deleteBtn.disabled = n === 0;
+    if (scheduleBtn) scheduleBtn.disabled = n === 0;
+    if (selectAllCb) {
+      if (n === 0) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
+      else if (n >= total) { selectAllCb.checked = true; selectAllCb.indeterminate = false; }
+      else { selectAllCb.checked = false; selectAllCb.indeterminate = true; }
+    }
+  }
+
   function renderList() {
     const listEl = document.getElementById("backlogItemsList");
     const emptyEl = document.getElementById("backlogListEmpty");
@@ -289,7 +322,8 @@
     items.forEach((item) => {
       const card = document.createElement("div");
       card.className = "backlog-card";
-      card.setAttribute("draggable", "true");
+      if (_selectionMode && _selectedIds.has(String(item.id))) card.classList.add("is-selected");
+      card.setAttribute("draggable", _selectionMode ? "false" : "true");
       card.dataset.backlogId = item.id;
 
       const priorityBadge = item.priority !== ""
@@ -308,6 +342,7 @@
 
       card.innerHTML = `
         <div class="backlog-card__row">
+          ${_selectionMode ? `<input type="checkbox" class="backlog-card__checkbox" aria-label="Pasirinkti" tabindex="-1" ${_selectedIds.has(String(item.id)) ? "checked" : ""}>` : ""}
           <div class="backlog-card__title">${escapeHtml(item.title) || "<em class='text-muted'>Be pavadinimo</em>"}</div>
           <div class="backlog-card__badges">${priorityBadge}${buildDueDateBadge(item.dueDate)}</div>
           <span class="backlog-card__date">${escapeHtml(createdLabel)}</span>
@@ -515,6 +550,7 @@
 
   function setupCardDrag(cardEl, item) {
     cardEl.addEventListener("dragstart", (e) => {
+      if (_selectionMode) { e.preventDefault(); return; }
       draggingBacklogId = item.id;
       e.dataTransfer.effectAllowed = "copy";
       e.dataTransfer.setData("application/x-backlog-id", item.id);
@@ -661,12 +697,14 @@
       _activeTypeTab = ITEM_TYPE.Temporary;
       document.getElementById("backlogTypeTabTemp")?.classList.add("active");
       document.getElementById("backlogTypeTabPerm")?.classList.remove("active");
+      exitSelectionMode();
       renderList();
     });
     document.getElementById("backlogTypeTabPerm")?.addEventListener("click", () => {
       _activeTypeTab = ITEM_TYPE.Permanent;
       document.getElementById("backlogTypeTabPerm")?.classList.add("active");
       document.getElementById("backlogTypeTabTemp")?.classList.remove("active");
+      exitSelectionMode();
       renderList();
     });
 
@@ -708,6 +746,71 @@
       } catch {
         window.schedule?.ui?.toast?.showError?.("Nepavyko pašalinti.");
       }
+      updateBadge();
+      renderList();
+    });
+
+    // Card click selection in bulk mode (delegated on list container)
+    document.getElementById("backlogItemsList")?.addEventListener("click", (e) => {
+      if (!_selectionMode) return;
+      if (e.target.closest("button")) return;
+      const card = e.target.closest(".backlog-card");
+      if (!card) return;
+      const id = card.dataset.backlogId;
+      if (_selectedIds.has(id)) {
+        _selectedIds.delete(id);
+        card.classList.remove("is-selected");
+        const cb = card.querySelector(".backlog-card__checkbox");
+        if (cb) cb.checked = false;
+      } else {
+        _selectedIds.add(id);
+        card.classList.add("is-selected");
+        const cb = card.querySelector(".backlog-card__checkbox");
+        if (cb) cb.checked = true;
+      }
+      updateBulkBar();
+    });
+
+    // Enter selection mode
+    document.getElementById("backlogSelectToggle")?.addEventListener("click", () => {
+      enterSelectionMode();
+      renderList();
+    });
+
+    // Exit selection mode
+    document.getElementById("backlogSelectCancel")?.addEventListener("click", () => {
+      exitSelectionMode();
+      renderList();
+    });
+
+    // Select all checkbox
+    document.getElementById("backlogSelectAll")?.addEventListener("change", (e) => {
+      const items = getItems().filter(i => i.itemType === _activeTypeTab);
+      if (e.target.checked) { items.forEach(i => _selectedIds.add(String(i.id))); }
+      else { _selectedIds.clear(); }
+      renderList();
+      updateBulkBar();
+    });
+
+    // Bulk delete
+    document.getElementById("backlogBulkDelete")?.addEventListener("click", async () => {
+      if (_selectedIds.size === 0) return;
+      const ids = [..._selectedIds].map(Number);
+      try {
+        const resp = await fetch("/api/backlog/bulk-delete", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(ids),
+        });
+        if (!resp.ok) throw new Error();
+        const { deleted } = await resp.json();
+        _items = _items.filter(i => !ids.includes(Number(i.id)));
+        window.schedule?.ui?.toast?.showSuccess?.(`${deleted} įrašas(-ai) pašalinta.`);
+      } catch {
+        window.schedule?.ui?.toast?.showError?.("Nepavyko pašalinti.");
+      }
+      exitSelectionMode();
       updateBadge();
       renderList();
     });
