@@ -1,5 +1,6 @@
 .schedule-toast-host {
   z-index: 1090;
+  top: 48px !important;
   width: min(24rem, calc(100vw - 1rem));
   pointer-events: none;
 }
