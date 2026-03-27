@@ -36,6 +36,12 @@
         <!-- Task Content Container -->
         <div id="taskPanelContent">
 
+        <!-- Bulk scheduling progress indicator — visible only during bulk queue -->
+        <div id="taskBulkProgress" class="task-bulk-progress d-none">
+            <span id="taskBulkProgressStep" class="task-bulk-progress__step"></span>
+            <span id="taskBulkProgressTitle" class="task-bulk-progress__title text-muted"></span>
+        </div>
+
         <!-- PLANAVIMAS -->
         <section class="mb-4 task-section">
             <div class="task-section-header" role="button" tabindex="0"
@@ -65,6 +71,12 @@
                         <input type="text" class="form-control" id="taskDetailTitle">
                     </div>
 
+                    <div class="col-md-6" id="taskFieldAssignee">
+                        <label class="form-label small">Priskirtas darbuotojas</label>
+                        <select class="form-select" id="taskDetailAssignee"
+                                data-select2-dropdown="technician"></select>
+                    </div>
+
                     <div class="col-md-6 d-none" id="backlogTypeField">
                         <label class="form-label small">Šablono tipas</label>
                         <select class="form-select" id="backlogItemType">
@@ -79,12 +91,6 @@
                         <input type="date" class="form-control" id="backlogDueDate">
                     </div>
 
-                    <div class="col-md-6" id="taskFieldAssignee">
-                        <label class="form-label small">Priskirtas darbuotojas</label>
-                        <select class="form-select" id="taskDetailAssignee"
-                                data-select2-dropdown="technician"></select>
-                    </div>
-
                     <div class="col-md-6" id="taskFieldStart">
                         <label class="form-label small">Pradžia</label>
                         <input type="datetime-local" class="form-control" id="taskDetailStart">
@@ -93,6 +99,17 @@
                     <div class="col-md-6" id="taskFieldEnd">
                         <label class="form-label small">Pabaiga</label>
                         <input type="datetime-local" class="form-control" id="taskDetailEnd">
+                    </div>
+
+                    <div class="col-12 d-none" id="planModeField">
+                        <label class="form-label small">Planavimo režimas</label>
+                        <div class="btn-group w-100" role="group" aria-label="Planavimo režimas">
+                            <input type="radio" class="btn-check" name="taskPlanModeRadio" id="taskPlanModeRankinis" value="rankinis" autocomplete="off">
+                            <label class="btn btn-outline-primary" for="taskPlanModeRankinis">Rankinis</label>
+                            <input type="radio" class="btn-check" name="taskPlanModeRadio" id="taskPlanModeAutomatinis" value="automatinis" autocomplete="off">
+                            <label class="btn btn-outline-primary" for="taskPlanModeAutomatinis">Automatinis</label>
+                        </div>
+                        <input type="hidden" id="taskPlanMode" value="">
                     </div>
 
                 </div>
@@ -313,10 +330,19 @@
             </div>
         </div>
 
+        <!-- Bulk confirm view — shown instead of form sections during confirm phase -->
+        <div id="taskBulkConfirmView" class="d-none px-1 py-2">
+            <div class="fw-semibold mb-3">Plano santrauka</div>
+            <div id="taskBulkConfirmList"></div>
+        </div>
+
         <!-- FOOTER -->
         <div id="taskDetailFooter" class="d-flex justify-content-between gap-2 border-top pt-3 mt-4">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="offcanvas">
+            <button type="button" class="btn btn-secondary" id="taskFooterClose" data-bs-dismiss="offcanvas">
                 Uždaryti
+            </button>
+            <button type="button" class="btn btn-outline-secondary d-none" id="taskBulkBack">
+                <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Atgal
             </button>
             <div class="d-flex gap-2">
                 <button type="button" class="btn btn-primary" id="taskDetailSave">
@@ -324,6 +350,9 @@
                 </button>
                 <button type="button" class="btn btn-primary d-none" id="backlogSaveBtn">
                     <i class="bi bi-inbox me-1" aria-hidden="true"></i>Įtraukti į eilę
+                </button>
+                <button type="button" class="btn btn-primary d-none" id="taskBulkNext">
+                    Kitas <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
                 </button>
             </div>
         </div>

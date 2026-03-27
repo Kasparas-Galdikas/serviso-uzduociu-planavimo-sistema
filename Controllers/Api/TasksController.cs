@@ -1002,6 +1002,45 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             };
         }
 
+        [HttpPost("bulk")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> BulkCreateTasks([FromBody] BulkCreateTaskRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return ValidationProblem(ModelState);
+
+            if (dto.Items == null || dto.Items.Count == 0)
+                return UnprocessableEntity(new { message = "Nenurodyti elementai." });
+
+            foreach (var (item, idx) in dto.Items.Select((x, i) => (x, i)))
+            {
+                if (item.Status != ScheduleTaskStatus.InProgress)
+                    return UnprocessableEntity(new { message = $"Elementas {idx + 1}: statusas turi būti 'Vykdoma'." });
+
+                if (item.TechnicianId <= 0)
+                    return UnprocessableEntity(new { message = $"Elementas {idx + 1}: priskirtas darbuotojas yra privalomas." });
+
+                if (!TryParseDate(item.TargetDate, out _))
+                    return UnprocessableEntity(new { message = $"Elementas {idx + 1}: netinkamas datos formatas." });
+
+                if (string.IsNullOrWhiteSpace(item.SkillLevel) ||
+                    string.IsNullOrWhiteSpace(item.ObjectName) ||
+                    string.IsNullOrWhiteSpace(item.ObjectAddress))
+                    return UnprocessableEntity(new { message = $"Elementas {idx + 1}: privalomi laukai turi būti užpildyti." });
+            }
+
+            var user = _userContextResolver.GetCurrentUser();
+            var result = await _planService.BulkCreateTasksAsync(dto.Items, user, cancellationToken);
+
+            if (result.AllSucceeded)
+            {
+                _logger.LogInformation("api.task.bulk.create count={Count}", result.TaskIds.Count);
+                return Ok(result);
+            }
+
+            return UnprocessableEntity(result);
+        }
+
         private static bool TryParseDate(string value, out DateTime parsed)
         {
             if (!string.IsNullOrWhiteSpace(value) &&

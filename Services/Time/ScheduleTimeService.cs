@@ -67,7 +67,7 @@ namespace ServiceTaskPlanningSystem.Services.Time
                 return dayStartMinutes;
             }
 
-            var nowMinutes = (int)Math.Ceiling(userLocalNow.TimeOfDay.TotalMinutes);
+            var nowMinutes = (int)userLocalNow.TimeOfDay.TotalMinutes;
             var roundedNow = CeilingToSlot(nowMinutes, slotSizeMinutes);
             return Math.Max(dayStartMinutes, roundedNow);
         }

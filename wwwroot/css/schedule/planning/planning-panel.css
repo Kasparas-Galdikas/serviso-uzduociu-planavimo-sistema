@@ -267,6 +267,31 @@
   opacity: 1;
 }
 
+/* ── Bulk scheduling progress ── */
+.task-bulk-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.75rem;
+  background: var(--accent-50, #f0f4ff);
+  border-left: 3px solid var(--accent-500, #4361ee);
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.task-bulk-progress__step {
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--accent-700, #3451d1);
+}
+
+.task-bulk-progress__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Bulk selection ── */
 .backlog-list-header {
   margin-bottom: 0.4rem;
@@ -510,6 +535,14 @@
   letter-spacing: 0.04em;
   color: #adb5bd;
   margin-bottom: 0.1rem;
+}
+
+.backlog-card__detail-block > div,
+.backlog-card__detail-block > span {
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .backlog-card__footer {

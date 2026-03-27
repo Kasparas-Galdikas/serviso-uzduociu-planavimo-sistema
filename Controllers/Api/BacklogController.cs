@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Backlog;
+using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
@@ -34,7 +35,15 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             var tzOffset = _timeService.GetBrowserTimezoneOffset(Request);
             var items = await _backlogService.GetItemsAsync(userId.Value, cancellationToken);
-            return Ok(items.Select(i => MapItem(i, tzOffset)));
+            var localNow = _timeService.ConvertUtcToLocal(_timeService.GetCurrentUtcTime(), tzOffset);
+            var snappedMinutes = _timeService.GetEarliestCreatableStartMinutes(
+                localNow.Date, tzOffset, ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes);
+            var localNowSnapped = localNow.Date.AddMinutes(snappedMinutes);
+            return Ok(new
+            {
+                items = items.Select(i => MapItem(i, tzOffset)),
+                localNow = localNowSnapped.ToString("yyyy-MM-ddTHH:mm"),
+            });
         }
 
         [HttpPost]

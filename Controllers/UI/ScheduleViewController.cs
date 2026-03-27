@@ -47,6 +47,9 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, status, info, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
             vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
+            vm.EarliestStartMinutes = _timeService.GetEarliestCreatableStartMinutes(
+                _timeService.ConvertUtcToLocal(_timeService.GetCurrentUtcTime(), timezoneOffset).Date,
+                timezoneOffset, ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes);
             if (!vm.IsManager && vm.Tasks != null)
             {
                 foreach (var t in vm.Tasks)
@@ -88,6 +91,9 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, status, info, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
             vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
+            vm.EarliestStartMinutes = _timeService.GetEarliestCreatableStartMinutes(
+                _timeService.ConvertUtcToLocal(_timeService.GetCurrentUtcTime(), timezoneOffset).Date,
+                timezoneOffset, ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes);
             if (!vm.IsManager && vm.Tasks != null)
             {
                 foreach (var t in vm.Tasks)

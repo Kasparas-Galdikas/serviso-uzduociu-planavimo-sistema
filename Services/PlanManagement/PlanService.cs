@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data.Seed;
@@ -1108,6 +1110,341 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             await _historyWriter.RecordAsync(task.Id, task.PlanId, "create", _outOk, _msgOk, user.UserId, user.Role.ToString().ToLower(),
                 new { technicianId = task.TechnicianId, startAt = task.StartAt, endAt = task.EndAt }, cancellationToken: cancellationToken);
             return _rOk;
+        }
+
+        /// <summary>
+        /// Read-only lookup of a service object's address ID by object name and address string.
+        /// Returns null if no matching address/object exists — no DB writes.
+        /// Used by BulkCreateTasksAsync for Phase 1 travel feasibility pre-check.
+        /// </summary>
+        private async Task<long?> TryLookupServiceAddressIdAsync(string? objectName, string? objectAddress, CancellationToken cancellationToken)
+        {
+            var normalizedAddress = objectAddress?.Trim();
+            var normalizedName = objectName?.Trim();
+            if (string.IsNullOrEmpty(normalizedAddress)) return null;
+
+            var existingAddress = await _db.Addresses.AsNoTracking()
+                .FirstOrDefaultAsync(a => a.FullAddress == normalizedAddress, cancellationToken);
+            if (existingAddress == null) return null;
+
+            if (string.IsNullOrEmpty(normalizedName)) return existingAddress.Id;
+
+            var objectExists = await _db.ServiceObjects.AsNoTracking()
+                .AnyAsync(o => o.Name == normalizedName && o.AddressId == existingAddress.Id, cancellationToken);
+
+            return objectExists ? existingAddress.Id : null;
+        }
+
+        private sealed class BulkCreateContext
+        {
+            public required PlanEntity? DraftPlan { get; init; }
+            public required PlanEntity? ActivePlan { get; set; }
+            public required List<PlanEntity> SupersededPlans { get; init; }
+            public required DateTime[] ParsedDates { get; init; }
+            public required PlanEntity?[] TargetPlans { get; init; }
+            public required PlacementValidationResult[] Placements { get; init; }
+            public required long?[] KnownAddressIds { get; init; }
+        }
+
+        private sealed class BulkTaskBuildResult
+        {
+            public required List<TaskEntity> Tasks { get; init; }
+            public BulkCreateTaskResponseDto? FailureResponse { get; init; }
+        }
+
+        private readonly record struct BulkServiceObjectResolution(long ServiceObjectId, long AddressId);
+
+        private async Task<BulkCreateContext> LoadBulkCreateContextAsync(int itemCount, CancellationToken cancellationToken)
+        {
+            return new BulkCreateContext
+            {
+                DraftPlan = await _db.Plans.AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken),
+                ActivePlan = await _db.Plans.AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Status == PlanStatus.Active, cancellationToken),
+                SupersededPlans = await _db.Plans.AsNoTracking()
+                    .Where(p => p.Status == PlanStatus.Superseded)
+                    .OrderByDescending(p => p.CreatedAt)
+                    .ToListAsync(cancellationToken),
+                ParsedDates = new DateTime[itemCount],
+                TargetPlans = new PlanEntity?[itemCount],
+                Placements = new PlacementValidationResult[itemCount],
+                KnownAddressIds = new long?[itemCount]
+            };
+        }
+
+        private async Task<List<BulkCreateItemErrorDto>> ValidateBulkCreateRequestsAsync(
+            IReadOnlyList<CreateTaskRequestDto> items,
+            UserContext user,
+            BulkCreateContext context,
+            CancellationToken cancellationToken)
+        {
+            var errors = new List<BulkCreateItemErrorDto>();
+            var reservedSlots = new List<(long TechId, DateTime StartUtc, DateTime EndUtc)>();
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                var dto = items[i];
+
+                if (!DateTime.TryParseExact(dto.TargetDate, "yyyy-MM-dd",
+                        CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsedDate))
+                {
+                    errors.Add(new BulkCreateItemErrorDto { Index = i, Message = "Netinkamas datos formatas." });
+                    continue;
+                }
+
+                var targetDate = parsedDate.Date;
+                context.ParsedDates[i] = targetDate;
+
+                PlanEntity? targetPlan = null;
+                if (context.DraftPlan != null && targetDate >= context.DraftPlan.PeriodStart.Date && targetDate <= context.DraftPlan.PeriodEnd.Date)
+                    targetPlan = context.DraftPlan;
+                else if (context.ActivePlan != null && targetDate >= context.ActivePlan.PeriodStart.Date && targetDate <= context.ActivePlan.PeriodEnd.Date)
+                    targetPlan = context.ActivePlan;
+                else
+                    targetPlan = context.SupersededPlans.FirstOrDefault(p => targetDate >= p.PeriodStart.Date && targetDate <= p.PeriodEnd.Date);
+                context.TargetPlans[i] = targetPlan;
+
+                var placement = await ValidatePlacementForActionAsync(
+                    ignoreTaskIds: null,
+                    targetTechnicianId: dto.TechnicianId,
+                    targetDate: targetDate,
+                    startMinutes: dto.StartMinutes,
+                    endMinutes: dto.EndMinutes,
+                    plan: targetPlan,
+                    status: ScheduleTaskStatus.InProgress,
+                    user: user,
+                    timezoneOffsetMinutes: dto.TimezoneOffsetMinutes,
+                    requireEndAligned: true,
+                    cancellationToken: cancellationToken);
+
+                if (!placement.IsValid)
+                {
+                    errors.Add(new BulkCreateItemErrorDto { Index = i, Message = placement.Message ?? "Netinkamas laiko langas." });
+                    continue;
+                }
+
+                var hasOverlap = reservedSlots.Any(r =>
+                    r.TechId == dto.TechnicianId &&
+                    r.StartUtc < placement.EndAtUtc &&
+                    r.EndUtc > placement.StartAtUtc);
+
+                if (hasOverlap)
+                {
+                    errors.Add(new BulkCreateItemErrorDto { Index = i, Message = "Laiko langas persidengė su kita šio paketo užduotimi." });
+                    continue;
+                }
+
+                reservedSlots.Add((dto.TechnicianId, placement.StartAtUtc, placement.EndAtUtc));
+                context.Placements[i] = placement;
+
+                var addressId = await TryLookupServiceAddressIdAsync(dto.ObjectName, dto.ObjectAddress, cancellationToken);
+                context.KnownAddressIds[i] = addressId;
+
+                if (!addressId.HasValue)
+                {
+                    continue;
+                }
+
+                var travelCheck = await CheckTimingAndTravelAsync(
+                    taskDateLocal: targetDate,
+                    startMinutesLocal: dto.StartMinutes,
+                    timezoneOffsetMinutes: dto.TimezoneOffsetMinutes,
+                    technicianId: dto.TechnicianId,
+                    startAtUtc: placement.StartAtUtc,
+                    endAtUtc: placement.EndAtUtc,
+                    serviceAddressId: addressId.Value,
+                    excludeTaskId: null,
+                    cancellationToken: cancellationToken);
+
+                if (!travelCheck.IsValid)
+                {
+                    errors.Add(new BulkCreateItemErrorDto { Index = i, Message = travelCheck.Message ?? "Nepakanka laiko kelionei." });
+                }
+            }
+
+            return errors;
+        }
+
+        private async Task<BulkTaskBuildResult> BuildTaskEntitiesAsync(
+            IReadOnlyList<CreateTaskRequestDto> items,
+            BulkCreateContext context,
+            CancellationToken cancellationToken)
+        {
+            var createdTasks = new List<TaskEntity>(items.Count);
+            var userLocalToday = _timeService.GetUserLocalToday(items[0].TimezoneOffsetMinutes);
+            var serviceObjectCache = new Dictionary<(string ObjectName, string ObjectAddress), BulkServiceObjectResolution>();
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                var dto = items[i];
+                var placement = context.Placements[i];
+                var targetDate = context.ParsedDates[i];
+
+                var targetPlan = context.TargetPlans[i];
+                if (targetPlan == null)
+                {
+                    context.ActivePlan = await GetOrExtendActivePlanAsync(context.ActivePlan, targetDate, userLocalToday, cancellationToken);
+                    targetPlan = context.ActivePlan;
+                }
+
+                var serviceObject = await ResolveBulkServiceObjectAsync(dto, placement.City, serviceObjectCache, cancellationToken);
+
+                if (!context.KnownAddressIds[i].HasValue)
+                {
+                    var travelCheck = await CheckTimingAndTravelAsync(
+                        taskDateLocal: targetDate,
+                        startMinutesLocal: dto.StartMinutes,
+                        timezoneOffsetMinutes: dto.TimezoneOffsetMinutes,
+                        technicianId: dto.TechnicianId,
+                        startAtUtc: placement.StartAtUtc,
+                        endAtUtc: placement.EndAtUtc,
+                        serviceAddressId: serviceObject.AddressId,
+                        excludeTaskId: null,
+                        cancellationToken: cancellationToken);
+
+                    if (!travelCheck.IsValid)
+                    {
+                        return new BulkTaskBuildResult
+                        {
+                            Tasks = createdTasks,
+                            FailureResponse = new BulkCreateTaskResponseDto
+                            {
+                                AllSucceeded = false,
+                                Errors = [new BulkCreateItemErrorDto { Index = i, Message = travelCheck.Message ?? "Nepakanka laiko kelionei." }]
+                            }
+                        };
+                    }
+                }
+
+                createdTasks.Add(new TaskEntity
+                {
+                    PlanId = targetPlan.Id,
+                    TechnicianId = dto.TechnicianId,
+                    ServiceObjectId = serviceObject.ServiceObjectId,
+                    Title = string.IsNullOrWhiteSpace(dto.Title) ? "Nauja uzduotis" : dto.Title.Trim(),
+                    SkillLevel = dto.SkillLevel?.Trim() ?? string.Empty,
+                    Instructions = dto.Instructions?.Trim() ?? string.Empty,
+                    StartAt = placement.StartAtUtc,
+                    EndAt = placement.EndAtUtc,
+                    Priority = dto.Priority,
+                    Status = ScheduleTaskStatus.InProgress,
+                    SourceBacklogItemId = dto.SourceBacklogItemId,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            return new BulkTaskBuildResult { Tasks = createdTasks };
+        }
+
+        private async Task<BulkServiceObjectResolution> ResolveBulkServiceObjectAsync(
+            CreateTaskRequestDto dto,
+            string city,
+            Dictionary<(string ObjectName, string ObjectAddress), BulkServiceObjectResolution> cache,
+            CancellationToken cancellationToken)
+        {
+            var objectName = dto.ObjectName?.Trim() ?? string.Empty;
+            var objectAddress = dto.ObjectAddress?.Trim() ?? string.Empty;
+            var cacheKey = (objectName, objectAddress);
+
+            if (cache.TryGetValue(cacheKey, out var cached))
+            {
+                return cached;
+            }
+
+            var serviceObjectId = await FindOrCreateServiceObjectAsync(objectName, objectAddress, city, cancellationToken);
+            var addressId = await _db.ServiceObjects
+                .Where(o => o.Id == serviceObjectId)
+                .Select(o => o.AddressId)
+                .FirstAsync(cancellationToken);
+
+            var resolved = new BulkServiceObjectResolution(serviceObjectId, addressId);
+            cache[cacheKey] = resolved;
+            return resolved;
+        }
+
+        private async Task SaveBulkTasksAsync(List<TaskEntity> tasks, CancellationToken cancellationToken)
+        {
+            if (tasks.Count == 0)
+            {
+                return;
+            }
+
+            _db.Tasks.AddRange(tasks);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        public async Task<BulkCreateTaskResponseDto> BulkCreateTasksAsync(
+            IReadOnlyList<CreateTaskRequestDto> items,
+            UserContext user,
+            CancellationToken cancellationToken = default)
+        {
+            {
+                var context = await LoadBulkCreateContextAsync(items.Count, cancellationToken);
+                var validationErrors = await ValidateBulkCreateRequestsAsync(items, user, context, cancellationToken);
+                if (validationErrors.Count > 0)
+                {
+                    return new BulkCreateTaskResponseDto { AllSucceeded = false, Errors = validationErrors };
+                }
+
+                await using var bulkTx = await BeginTransactionIfSupportedAsync(cancellationToken);
+
+                try
+                {
+                    var buildResult = await BuildTaskEntitiesAsync(items, context, cancellationToken);
+                    if (buildResult.FailureResponse != null)
+                    {
+                        if (bulkTx != null)
+                        {
+                            await bulkTx.RollbackAsync(cancellationToken);
+                        }
+
+                        return buildResult.FailureResponse;
+                    }
+
+                    var builtTasks = buildResult.Tasks;
+                    await SaveBulkTasksAsync(builtTasks, cancellationToken);
+
+                    if (bulkTx != null)
+                    {
+                        await bulkTx.CommitAsync(cancellationToken);
+                    }
+
+                    var bulkAffectedTechDates = builtTasks
+                        .Select(t => (t.TechnicianId, t.StartAt.Date))
+                        .Distinct();
+                    foreach (var (techId, date) in bulkAffectedTechDates)
+                        await TriggerRouteEvaluationSafelyAsync(techId, date, "create-bulk", cancellationToken);
+
+                    foreach (var planId in builtTasks.Select(t => t.PlanId).Where(id => id.HasValue).Select(id => id!.Value).Distinct())
+                        await _evaluationEngine.RecalculatePlanAsync(planId, cancellationToken);
+
+                    foreach (var task in builtTasks)
+                    {
+                        var version = _db.Entry(task).Property<uint>("xmin").CurrentValue;
+                        var resultForHistory = new TaskCreateResult(TaskCreateError.None, Task: task, CurrentVersion: version);
+                        var (msg, outcome) = TaskHistoryMessages.ForCreate(resultForHistory, task.Title);
+                        await _historyWriter.RecordAsync(task.Id, task.PlanId, "create", outcome, msg,
+                            user.UserId, user.Role.ToString().ToLower(),
+                            new { technicianId = task.TechnicianId, startAt = task.StartAt, endAt = task.EndAt },
+                            cancellationToken: cancellationToken);
+                    }
+
+                    return new BulkCreateTaskResponseDto
+                    {
+                        AllSucceeded = true,
+                        TaskIds = builtTasks.Select(t => t.Id).ToList()
+                    };
+                }
+                catch
+                {
+                    if (bulkTx != null)
+                    {
+                        try { await bulkTx.RollbackAsync(cancellationToken); } catch { }
+                    }
+                    throw;
+                }
+            }
         }
 
         public async Task<TaskUpdateResult> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, long technicianId, UserContext user, int timezoneOffsetMinutes, string? objectName, string? objectAddress, CancellationToken cancellationToken = default)

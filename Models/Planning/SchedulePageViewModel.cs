@@ -30,5 +30,6 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public DateTime PlannedPeriodEnd { get; set; }
         public int PlannedWeeks { get; set; } = 1;
         public DateTime FirstFreeDate { get; set; }
+        public int EarliestStartMinutes { get; set; }
     }
 }

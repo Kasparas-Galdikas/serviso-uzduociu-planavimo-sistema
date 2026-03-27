@@ -20,6 +20,17 @@
   // ── Storage (in-memory cache backed by /api/backlog) ─────────────────────
 
   let _items = [];
+  let _localNow = null;
+
+  function localNowEnd() {
+    if (!_localNow) return "";
+    const slotSize = window.schedule?.grid?.getConfig?.().slotSizeMinutes ?? 30;
+    const d = new Date(_localNow);
+    if (isNaN(d)) return "";
+    d.setMinutes(d.getMinutes() + slotSize);
+    const pad = n => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
   let _activeTypeTab = ITEM_TYPE.Permanent;
   let _selectionMode = false;
   let _selectedIds = new Set();
@@ -31,7 +42,8 @@
       const resp = await fetch("/api/backlog", { credentials: "same-origin" });
       if (!resp.ok) return;
       const data = await resp.json();
-      _items = data.map(normalizeServerItem);
+      _items = data.items.map(normalizeServerItem);
+      _localNow = data.localNow ?? null;
     } catch {
       // keep existing cache on network error
     }
@@ -174,7 +186,14 @@
     panel.querySelector("#taskFieldEnd")?.classList.remove("d-none");
     // technicianSection and taskSectionAsset are managed by task.modal.js — do not touch
 
-    // Hide backlog-only fields and reset them
+    // Hide backlog-only and bulk-only fields and reset them
+    const planModeField = panel.querySelector("#planModeField");
+    if (planModeField) planModeField.classList.add("d-none");
+    const planModeEl = panel.querySelector("#taskPlanMode");
+    if (planModeEl) planModeEl.value = "";
+    panel.querySelectorAll("input[name='taskPlanModeRadio']").forEach(r => r.checked = false);
+    document.getElementById("taskBulkProgress")?.classList.add("d-none");
+
     const typeField = panel.querySelector("#backlogTypeField");
     if (typeField) typeField.classList.add("d-none");
     const typeSelect = panel.querySelector("#backlogItemType");
@@ -184,9 +203,13 @@
     const dueDateInput = panel.querySelector("#backlogDueDate");
     if (dueDateInput) dueDateInput.value = "";
 
-    // Restore save buttons
+    // Restore save buttons, hide bulk nav
     panel.querySelector("#taskDetailSave")?.classList.remove("d-none");
     panel.querySelector("#backlogSaveBtn")?.classList.add("d-none");
+    document.getElementById("taskFooterClose")?.classList.remove("d-none");
+    document.getElementById("taskBulkBack")?.classList.add("d-none");
+    document.getElementById("taskBulkNext")?.classList.add("d-none");
+    document.getElementById("taskBulkConfirmView")?.classList.add("d-none");
 
     // Hide the tab bar
     panel.querySelector("#backlogTabBar")?.classList.add("d-none");
@@ -506,9 +529,42 @@
   let _schedulingFromBacklogId = null;
   let _schedulingFromBacklogItemType = null;
 
+  // ── Bulk scheduling queue state ───────────────────────────────────────────
+  let _bulkQueue         = [];
+  let _bulkQueueIdx      = 0;
+  let _isBulkMode        = false;
+  let _bulkScheduledData = [];   // form snapshots per queue item
+  let _bulkConfirmPhase  = false; // true while confirm view is shown
+
   function clearSchedulingContext() {
     _schedulingFromBacklogId = null;
     _schedulingFromBacklogItemType = null;
+  }
+
+  function resetBulkState() {
+    _bulkQueue         = [];
+    _bulkQueueIdx      = 0;
+    _isBulkMode        = false;
+    _bulkScheduledData = [];
+    _bulkConfirmPhase  = false;
+    const panel = getPanelEl();
+    if (!panel) return;
+    delete panel.dataset.bulkMode;
+    panel.querySelector("#planModeField")?.classList.add("d-none");
+    const planModeEl = panel.querySelector("#taskPlanMode");
+    if (planModeEl) planModeEl.value = "";
+    panel.querySelectorAll("input[name='taskPlanModeRadio']").forEach(r => r.checked = false);
+    document.getElementById("taskBulkProgress")?.classList.add("d-none");
+    // Restore normal footer buttons
+    document.getElementById("taskFooterClose")?.classList.remove("d-none");
+    document.getElementById("taskDetailSave")?.classList.remove("d-none");
+    document.getElementById("taskBulkBack")?.classList.add("d-none");
+    document.getElementById("taskBulkNext")?.classList.add("d-none");
+    document.getElementById("taskBulkBack")?.removeAttribute("disabled");
+    document.getElementById("taskBulkNext")?.removeAttribute("disabled");
+    // Hide confirm view if open
+    document.getElementById("taskBulkConfirmView")?.classList.add("d-none");
+    document.querySelectorAll("#taskPanelContent .task-section").forEach(s => s.classList.remove("d-none"));
   }
 
   async function startEdit(id) {
@@ -632,6 +688,393 @@
     await applyPrefill(item);
   }
 
+  // ── Bulk scheduling ───────────────────────────────────────────────────────
+
+  async function handleBulkSchedule() {
+    const ids = [..._selectedIds];
+    if (ids.length === 0) return;
+
+    _bulkQueue = ids.map(id => _items.find(i => String(i.id) === id)).filter(Boolean);
+    if (_bulkQueue.length === 0) return;
+
+    _bulkQueueIdx = 0;
+    _isBulkMode   = true;
+
+    const openPanel = window.schedule?.tasks?.openTaskPanel;
+    if (typeof openPanel !== "function") {
+      window.schedule?.ui?.toast?.showError?.("Nepavyko atidaryti planavimo lango.");
+      return;
+    }
+
+    await openPanel({});
+
+    const panel = getPanelEl();
+    if (!panel) return;
+
+    panel.dataset.bulkMode = "true";
+
+    // Show plan mode toggle, default to rankinis
+    panel.querySelector("#planModeField")?.classList.remove("d-none");
+    const rankinisRadio = panel.querySelector("#taskPlanModeRankinis");
+    if (rankinisRadio) rankinisRadio.checked = true;
+    const hidden = panel.querySelector("#taskPlanMode");
+    if (hidden) hidden.value = "rankinis";
+
+    // Show scheduling fields and prefill times immediately
+    panel.querySelector("#taskFieldAssignee")?.classList.remove("d-none");
+    panel.querySelector("#taskFieldStart")?.classList.remove("d-none");
+    panel.querySelector("#taskFieldEnd")?.classList.remove("d-none");
+    const startEl = panel.querySelector("#taskDetailStart");
+    if (startEl) startEl.value = _localNow ?? "";
+    const endEl = panel.querySelector("#taskDetailEnd");
+    if (endEl) endEl.value = localNowEnd();
+
+    // Show progress indicator
+    document.getElementById("taskBulkProgress")?.classList.remove("d-none");
+
+    // Swap footer to bulk navigation
+    document.getElementById("taskFooterClose")?.classList.add("d-none");
+    document.getElementById("taskDetailSave")?.classList.add("d-none");
+    document.getElementById("backlogSaveBtn")?.classList.add("d-none");
+    document.getElementById("taskBulkBack")?.classList.remove("d-none");
+    document.getElementById("taskBulkNext")?.classList.remove("d-none");
+
+    await startBulkQueueItem(0);
+    updateBulkNavButtons();
+  }
+
+  function onPlanModeChange(_value) {
+    // Both modes use the same fields and prefill — switching only signals intent
+    // (automatinis is a UI-only placeholder for now; no field changes needed)
+  }
+
+  async function startBulkQueueItem(idx) {
+    const item = _bulkQueue[idx];
+    if (!item) return;
+
+    _schedulingFromBacklogId       = item.id;
+    _schedulingFromBacklogItemType = item.itemType;
+
+    const panel = getPanelEl();
+    if (!panel) return;
+
+    // Clear content fields before prefilling next item
+    const set = (id, val) => { const el = panel.querySelector(id); if (el) el.value = val ?? ""; };
+    set("#taskDetailTitle", "");
+    set("#taskDetailPriority", "");
+    set("#taskDetailSkill", "");
+    set("#taskDetailInstructions", "");
+    set("#taskDetailStart", _localNow ?? "");
+    set("#taskDetailEnd", localNowEnd());
+    // Clear assignee and placement dataset so travel preview can't fall back to previous tech
+    panel.dataset.technicianId = "";
+    panel.dataset.targetDate = "";
+    panel.dataset.startMinutes = "";
+    panel.dataset.endMinutes = "";
+    if (window.jQuery) {
+      const assigneeEl = panel.querySelector("#taskDetailAssignee");
+      if (assigneeEl) window.jQuery(assigneeEl).val("").trigger("change");
+    }
+
+    const modal = window.schedule?.tasks?.modal;
+    if (modal) {
+      await Promise.all([
+        modal.populateObjectDropdown(panel, null, null, null),
+        modal.populateAddressDropdown(panel, null),
+      ]);
+      modal.ensureObjectAddressBinding(panel);
+    }
+
+    await applyPrefill(item);
+
+    // Update progress indicator
+    const stepEl  = document.getElementById("taskBulkProgressStep");
+    const titleEl = document.getElementById("taskBulkProgressTitle");
+    if (stepEl) stepEl.textContent = `${idx + 1} / ${_bulkQueue.length}`;
+    if (titleEl) titleEl.textContent = item.title || "Be pavadinimo";
+  }
+
+  function finishBulkSchedule() {
+    const total = _bulkQueue.length;
+    const suffix = total === 1 ? "is suplanuota" : "ys suplanuotos";
+    window.schedule?.ui?.toast?.showSuccess?.(`Visos ${total} užduot${suffix}.`);
+    resetBulkState();
+    exitSelectionMode();
+    renderList();
+  }
+
+  function updateBulkNavButtons() {
+    const backBtn = document.getElementById("taskBulkBack");
+    const nextBtn = document.getElementById("taskBulkNext");
+    if (!backBtn || !nextBtn) return;
+
+    if (_bulkConfirmPhase) {
+      backBtn.disabled = false;
+      nextBtn.disabled = false;
+      nextBtn.innerHTML = "Patvirtinti";
+      return;
+    }
+
+    backBtn.disabled = _bulkQueueIdx === 0;
+    nextBtn.disabled = false;
+    nextBtn.innerHTML = 'Kitas <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>';
+  }
+
+  async function onBulkNext() {
+    if (_bulkConfirmPhase) {
+      await confirmAndCreateAll();
+      return;
+    }
+
+    const panel = getPanelEl();
+    const modal = window.schedule?.tasks?.modal;
+    if (panel && modal) {
+      _bulkScheduledData[_bulkQueueIdx] = modal.collectFormData(panel);
+    }
+
+    if (_bulkQueueIdx < _bulkQueue.length - 1) {
+      _bulkQueueIdx++;
+      await startBulkQueueItem(_bulkQueueIdx);
+      restoreSchedulingSnapshot(_bulkQueueIdx);
+      updateBulkNavButtons();
+    } else {
+      showBulkConfirmView();
+    }
+  }
+
+  async function onBulkBack() {
+    if (_bulkConfirmPhase) {
+      hideBulkConfirmView();
+      _bulkConfirmPhase = false;
+      _bulkQueueIdx = _bulkQueue.length - 1;
+      await startBulkQueueItem(_bulkQueueIdx);
+      restoreSchedulingSnapshot(_bulkQueueIdx);
+      updateBulkNavButtons();
+      return;
+    }
+    if (_bulkQueueIdx > 0) {
+      _bulkQueueIdx--;
+      await startBulkQueueItem(_bulkQueueIdx);
+      restoreSchedulingSnapshot(_bulkQueueIdx);
+      updateBulkNavButtons();
+    }
+  }
+
+  function restoreSchedulingSnapshot(idx) {
+    const snap = _bulkScheduledData[idx];
+    if (!snap) return;
+    const panel = getPanelEl();
+    if (!panel) return;
+
+    if (snap.startAt) panel.querySelector("#taskDetailStart").value = snap.startAt;
+    if (snap.endAt) panel.querySelector("#taskDetailEnd").value = snap.endAt;
+
+    const techId = snap.technicianId;
+    if (techId && window.jQuery) {
+      const assigneeEl = panel.querySelector("#taskDetailAssignee");
+      if (assigneeEl) window.jQuery(assigneeEl).val(String(techId)).trigger("change");
+    }
+  }
+
+  function showBulkConfirmView() {
+    _bulkConfirmPhase = true;
+
+    // Hide form sections
+    document.querySelectorAll("#taskPanelContent .task-section").forEach(s => s.classList.add("d-none"));
+    document.getElementById("taskBulkProgress")?.classList.add("d-none");
+
+    // Render and show confirm list
+    renderBulkConfirmCards();
+    document.getElementById("taskBulkConfirmView")?.classList.remove("d-none");
+
+    updateBulkNavButtons();
+  }
+
+  function hideBulkConfirmView() {
+    document.getElementById("taskBulkConfirmView")?.classList.add("d-none");
+    document.getElementById("taskBulkConfirmList").innerHTML = "";
+    document.querySelectorAll("#taskPanelContent .task-section").forEach(s => s.classList.remove("d-none"));
+    document.getElementById("taskBulkProgress")?.classList.remove("d-none");
+  }
+
+  function renderBulkConfirmCards(errorsByIndex = {}) {
+    const list = document.getElementById("taskBulkConfirmList");
+    if (!list) return;
+    list.innerHTML = "";
+
+    const panel = getPanelEl();
+
+    _bulkQueue.forEach((item, idx) => {
+      const snap = _bulkScheduledData[idx];
+      const priorityClass = PRIORITY_CLASSES[item.priority] ?? "bg-secondary";
+      const priorityLabel = PRIORITY_LABELS[item.priority] ?? "";
+
+      // Resolve assignee name from current dropdown options
+      let assigneeName = "—";
+      if (snap?.technicianId && panel) {
+        const opt = panel.querySelector(`#taskDetailAssignee option[value="${snap.technicianId}"]`);
+        if (opt) assigneeName = escapeHtml(opt.dataset.baseLabel || opt.textContent.trim());
+      }
+
+      const formatDt = (val) => {
+        if (!val) return "—";
+        const d = new Date(val);
+        if (isNaN(d)) return val;
+        const pad = n => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      };
+
+      const errorMsg = errorsByIndex[idx];
+      const card = document.createElement("div");
+      card.className = "backlog-card";
+      if (errorMsg) card.style.borderLeftColor = "#dc3545";
+      card.innerHTML = `
+        <div class="backlog-card__row">
+          <span class="backlog-card__title">${escapeHtml(item.title || "Be pavadinimo")}</span>
+          <div class="backlog-card__badges">
+            <span class="badge ${priorityClass}">${escapeHtml(priorityLabel)}</span>
+          </div>
+          <button type="button" class="backlog-card__toggle" data-confirm-toggle="${idx}" aria-expanded="false">
+            <i class="bi bi-chevron-right"></i>
+          </button>
+        </div>
+        ${errorMsg ? `<div class="text-danger small mt-1">${escapeHtml(errorMsg)}</div>` : ""}
+        <div class="backlog-card__details" id="bulk-confirm-details-${idx}" hidden>
+          <div class="backlog-card__detail-block">
+            <span class="backlog-card__detail-label">Priskirtas</span>
+            <div>${assigneeName}</div>
+          </div>
+          <div class="backlog-card__detail-block">
+            <span class="backlog-card__detail-label">Pradžia</span>
+            <div>${formatDt(snap?.startAt)}</div>
+          </div>
+          <div class="backlog-card__detail-block">
+            <span class="backlog-card__detail-label">Pabaiga</span>
+            <div>${formatDt(snap?.endAt)}</div>
+          </div>
+          ${item.objectName ? `<div class="backlog-card__detail-block">
+            <span class="backlog-card__detail-label">Objektas</span>
+            <div class="backlog-card__location"><i class="bi bi-geo-alt me-1"></i>${escapeHtml(item.objectName)}${item.locationText ? ` · ${escapeHtml(item.locationText)}` : ""}</div>
+          </div>` : ""}
+        </div>`;
+      list.appendChild(card);
+    });
+
+    // Chevron toggle for confirm cards
+    list.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-confirm-toggle]");
+      if (!btn) return;
+      const idx = btn.dataset.confirmToggle;
+      const details = document.getElementById(`bulk-confirm-details-${idx}`);
+      if (!details) return;
+      const expanded = btn.getAttribute("aria-expanded") === "true";
+      details.hidden = expanded;
+      btn.setAttribute("aria-expanded", String(!expanded));
+      const icon = btn.querySelector("i");
+      if (icon) {
+        icon.classList.toggle("bi-chevron-right", expanded);
+        icon.classList.toggle("bi-chevron-down", !expanded);
+      }
+    });
+  }
+
+  function parseDatetimeComponents(val) {
+    if (!val || !val.includes("T")) return null;
+    const [datePart, timePart] = val.split("T");
+    const [h, m] = timePart.split(":").map(Number);
+    if (isNaN(h) || isNaN(m)) return null;
+    return { date: datePart, minutes: h * 60 + m };
+  }
+
+  async function confirmAndCreateAll() {
+    const nextBtn = document.getElementById("taskBulkNext");
+    const backBtn = document.getElementById("taskBulkBack");
+    if (nextBtn) nextBtn.disabled = true;
+    if (backBtn) backBtn.disabled = true;
+
+    const tzOffset = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+
+    const items = _bulkQueue.map((item, idx) => {
+      const snap = _bulkScheduledData[idx] || {};
+      const start = parseDatetimeComponents(snap.startAt);
+      const end   = parseDatetimeComponents(snap.endAt);
+      return {
+        technicianId:         snap.technicianId || 0,
+        targetDate:           start?.date || "",
+        startMinutes:         start?.minutes ?? 0,
+        endMinutes:           end?.minutes ?? 0,
+        title:                item.title || "",
+        priority:             item.priority ?? 0,
+        status:               0,
+        skillLevel:           snap.skillLevel || item.skillLevel || "",
+        objectName:           snap.objectName || item.objectName || "",
+        objectAddress:        snap.objectAddress || item.locationText || "",
+        instructions:         snap.instructions || item.instructions || "",
+        timezoneOffsetMinutes: tzOffset,
+        sourceBacklogItemId:  item.id ? parseInt(item.id, 10) : null,
+      };
+    });
+
+    let data, ok;
+    try {
+      const resp = await fetch("/api/tasks/bulk", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      data = await resp.json().catch(() => ({}));
+      ok = resp.ok && data.allSucceeded;
+    } catch {
+      data = {};
+      ok = false;
+    }
+
+    if (!ok) {
+      const errorsByIndex = {};
+      (data.errors || []).forEach(e => { errorsByIndex[e.index] = e.message; });
+      renderBulkConfirmCards(errorsByIndex);
+      if (data.errors?.length) {
+        window.schedule?.ui?.toast?.showError?.("Kai kurios užduotys turi klaidų.");
+      } else {
+        window.schedule?.ui?.toast?.showError?.(data.message || "Nepavyko sukurti užduočių.");
+      }
+      if (nextBtn) nextBtn.disabled = false;
+      if (backBtn) backBtn.disabled = false;
+      return;
+    }
+
+    // Delete temporary backlog items that were successfully scheduled
+    for (const item of _bulkQueue) {
+      if (item.itemType === ITEM_TYPE.Temporary) {
+        try { await apiRemoveItem(item.id); } catch { /* best-effort */ }
+      }
+    }
+
+    const scheduleState = window.schedule?.state;
+    const scheduleTable = window.schedule?.table;
+    let refreshOk = false;
+
+    if (scheduleState?.getQuery && scheduleTable?.fetchAndRender) {
+      const query = scheduleState.getQuery();
+      if (!query.has("view")) query.set("view", "day");
+      refreshOk = await scheduleTable.fetchAndRender(query, { updateUrl: false, preserveScroll: true });
+    }
+
+    updateBadge();
+    finishBulkSchedule();
+
+    const schedulePanel = window.schedule?.panel;
+    const panelEl = getPanelEl();
+    schedulePanel?.hide?.();
+    window.bootstrap?.Offcanvas?.getInstance?.(panelEl)?.hide?.();
+
+    if (!refreshOk) {
+      window.schedule?.ui?.toast?.showWarning?.("Užduotys sukurtos, bet nepavyko atnaujinti tvarkaraščio.");
+      document.dispatchEvent(new CustomEvent("schedule:table:updated"));
+    }
+  }
+
   // Opens the task creation panel pre-filled with content fields only (no slot).
   // User manually picks technician, date, and time before saving.
   async function scheduleFromBacklogUnscheduled(item) {
@@ -663,6 +1106,8 @@
       await modal.populateAddressDropdown(panel, item.locationText || null);
       modal.ensureObjectAddressBinding(panel);
       syncObjectFromAddress(panel);
+      const locationEl = panel.querySelector("#taskDetailLocation");
+      if (locationEl) locationEl.dispatchEvent(new Event("change", { bubbles: true }));
     }
   }
 
@@ -868,7 +1313,29 @@
 
     // Abandonment: panel closed without creating a task
     document.getElementById("taskDetailModal")
-      ?.addEventListener("hide.bs.offcanvas", clearSchedulingContext);
+      ?.addEventListener("hide.bs.offcanvas", () => {
+        clearSchedulingContext();
+        if (_isBulkMode) resetBulkState();
+      });
+
+    // Bulk schedule button
+    document.getElementById("backlogBulkSchedule")
+      ?.addEventListener("click", () => handleBulkSchedule());
+
+    // Bulk nav buttons
+    document.getElementById("taskBulkNext")
+      ?.addEventListener("click", () => onBulkNext());
+    document.getElementById("taskBulkBack")
+      ?.addEventListener("click", () => onBulkBack());
+
+    // Plan mode radio toggle (delegated on panel element)
+    getPanelEl()?.addEventListener("change", (e) => {
+      if (e.target.name === "taskPlanModeRadio") {
+        const hidden = getPanelEl()?.querySelector("#taskPlanMode");
+        if (hidden) hidden.value = e.target.value;
+        onPlanModeChange(e.target.value);
+      }
+    });
 
     // Hide trigger button when switching to weekly view
     document.addEventListener("schedule:view:changed", (e) => {

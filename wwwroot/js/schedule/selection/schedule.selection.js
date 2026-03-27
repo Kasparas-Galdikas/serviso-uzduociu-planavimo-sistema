@@ -73,6 +73,7 @@
 
   // Sync current selection start/end to the panel form if it is already open in create mode.
   // Called after every resize/extend so the panel stays in step without resetting other fields.
+  // Lightweight — only sets values, no events, so drag is never interrupted.
   const syncSelectionToPanel = () => {
     const modal = document.getElementById("taskDetailModal");
     if (!modal?.classList?.contains("show")) return;
@@ -90,6 +91,24 @@
     const endInput = modal.querySelector("#taskDetailEnd");
     if (startInput) startInput.value = `${date}T${startTime}`;
     if (endInput) endInput.value = `${date}T${endTime}`;
+  };
+
+  // Called once when user finalizes a selection (click on hit area with panel already open).
+  // Updates assignee from drawn slot and triggers route evaluation.
+  const finalizeSelectionToPanel = () => {
+    const modal = document.getElementById("taskDetailModal");
+    if (!modal?.classList?.contains("show")) return;
+    if (modal.dataset.mode !== "create") return;
+
+    if (selection.techId) {
+      const assigneeEl = modal.querySelector("#taskDetailAssignee");
+      if (assigneeEl && window.jQuery) {
+        window.jQuery(assigneeEl).val(String(selection.techId)).trigger("change");
+      }
+    }
+
+    const startInput = modal.querySelector("#taskDetailStart");
+    if (startInput) startInput.dispatchEvent(new Event("input", { bubbles: true }));
   };
 
   const applySelectionRange = (startTd, durationSlots) => {
@@ -624,6 +643,7 @@
     // Panel already open in create mode — sync times without resetting the form
     if (modal?.classList?.contains("show") && modal.dataset.mode === "create") {
       syncSelectionToPanel();
+      finalizeSelectionToPanel();
       return;
     }
     // Panel not open yet — open fresh create mode

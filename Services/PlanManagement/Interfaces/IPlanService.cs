@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
@@ -45,6 +47,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         Task<PlanEntity?> GetDraftPlanAsync(CancellationToken cancellationToken = default);
         Task<PlanEntity> CreateDraftFromActiveAsync(DateTime? requestedStart = null, DateTime? requestedEnd = null, int? requestedWeeks = null, CancellationToken cancellationToken = default);
         Task<TaskCreateResult> CreateTaskAsync(long technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, long? sourceBacklogItemId = null, CancellationToken cancellationToken = default);
+        Task<BulkCreateTaskResponseDto> BulkCreateTasksAsync(IReadOnlyList<CreateTaskRequestDto> items, UserContext user, CancellationToken cancellationToken = default);
         Task<TaskUpdateResult> UpdateTaskAsync(long taskId, Action<TaskEntity> applyChanges, long technicianId, UserContext user, int timezoneOffsetMinutes, string? objectName, string? objectAddress, CancellationToken cancellationToken = default);
         Task<TaskMoveResult> MoveTaskAsync(long taskId, long targetTechnicianId, DateTime targetDate, int targetSlotStartMinutes, uint expectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default);
         Task<TaskSwapResult> SwapTasksAsync(long sourceTaskId, long targetTaskId, uint sourceExpectedVersion, uint targetExpectedVersion, UserContext user, int timezoneOffsetMinutes, CancellationToken cancellationToken = default, bool recordHistory = true);
