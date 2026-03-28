@@ -83,6 +83,12 @@ namespace ServiceTaskPlanningSystem.Services.Travel.RouteChains
                 });
             }
 
+            if (request.SimulatedStops != null)
+            {
+                foreach (var s in request.SimulatedStops)
+                    stops.Add(new RouteStop { StartAt = s.StartAt, EndAt = s.EndAt, AddressId = s.AddressId, IsProposed = true });
+            }
+
             stops = stops
                 .OrderBy(s => s.StartAt)
                 .ThenBy(s => s.IsProposed ? 1 : 0)

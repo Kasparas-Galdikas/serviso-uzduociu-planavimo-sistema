@@ -941,6 +941,7 @@
       status,
       technicianId,
       skillLevel,
+      objectId: hasSelectedObject ? selectedObjectValue : null,
       objectName,
       objectAddress,
       instructions,

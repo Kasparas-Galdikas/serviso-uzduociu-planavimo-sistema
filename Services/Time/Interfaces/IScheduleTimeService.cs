@@ -59,6 +59,13 @@ namespace ServiceTaskPlanningSystem.Services.Time
         int GetEarliestCreatableStartMinutes(DateTime targetDate, int timezoneOffsetMinutes, int slotSizeMinutes, int dayStartMinutes);
 
         /// <summary>
+        /// Returns the next creatable start minute, optionally chained after a previous task's end.
+        /// Computes max(GetEarliestCreatableStartMinutes, afterEndMinutes ?? 0), slot-aligned.
+        /// Used for bulk scheduling prefill to chain items sequentially.
+        /// </summary>
+        int GetNextCreatableStartMinutes(DateTime targetDate, int timezoneOffsetMinutes, int slotSizeMinutes, int dayStartMinutes, int? afterEndMinutes = null);
+
+        /// <summary>
         /// Gets the start of week (Monday) for a given date.
         /// </summary>
         DateTime GetWeekStart(DateTime date);

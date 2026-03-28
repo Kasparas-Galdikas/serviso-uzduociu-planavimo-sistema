@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 
 namespace ServiceTaskPlanningSystem.Services.Travel
 {
@@ -14,7 +16,8 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             int proposedStartMinutesLocal,
             long? excludeTaskId,
             bool checkOverlap,
-            CancellationToken cancellationToken = default);
+            CancellationToken cancellationToken = default,
+            IReadOnlyList<ProposedRouteStop>? simulatedStops = null);
     }
 
     public sealed class TravelFeasibilityResult

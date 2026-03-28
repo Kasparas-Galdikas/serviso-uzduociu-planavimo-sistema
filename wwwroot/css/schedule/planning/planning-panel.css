@@ -433,6 +433,25 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
+.backlog-card--confirm {
+  cursor: default;
+}
+
+.backlog-card--confirm:active {
+  cursor: default;
+}
+
+.backlog-card--confirm .backlog-card__title {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s ease;
+}
+
+.backlog-card--confirm .backlog-card__title:hover {
+  text-decoration-color: currentColor;
+}
+
 /* ── Single-row layout ── */
 .backlog-card__row {
   display: flex;
@@ -599,4 +618,51 @@
 
 #backlogListEmpty i {
   color: #adb5bd;
+}
+
+/* ── Bulk confirm card status icon ── */
+.bulk-status-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  margin-left: 0.3rem;
+  transition: color 0.3s ease;
+  cursor: default;
+  position: relative;
+}
+
+.bulk-status-icon[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  right: 0;
+  background: rgba(30, 30, 30, 0.88);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 400;
+  padding: 0.2em 0.5em;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  z-index: 20;
+}
+
+.bulk-status-icon[data-tooltip]:hover::after {
+  opacity: 1;
+}
+
+.bulk-status-icon--pending {
+  color: #e6a817;
+  animation: bulkPulse 1.2s ease-in-out infinite;
+}
+
+.bulk-status-icon--ok  { color: #198754; }
+.bulk-status-icon--err { color: #dc3545; }
+
+@keyframes bulkPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
 }

@@ -748,6 +748,58 @@
     // (automatinis is a UI-only placeholder for now; no field changes needed)
   }
 
+  // Shared helper: recalculate start/end time with inbound travel buffer between
+  // the previous technician's last location and a newly selected service object.
+  // Called both from startBulkQueueItem (programmatic prefill) and the change listener
+  // (user interaction). Must be awaited so restoreSchedulingSnapshot runs afterwards.
+  //
+  // techId: the technician to chain from. If 0/null, scans backwards for any prior
+  //         snapshot with a tech+object (best-effort for when assignee isn't selected yet).
+  async function tryRecalcBulkTravelTime(idx, newObjectId, techId, setFn) {
+    if (idx === 0 || !newObjectId) return;
+
+    let prevSnap = null;
+    const resolvedTechId = parseInt(techId, 10) || 0;
+
+    if (resolvedTechId) {
+      for (let j = idx - 1; j >= 0; j--) {
+        const s = _bulkScheduledData[j];
+        if (s?.technicianId === resolvedTechId && s?.objectId && s?.endAt) { prevSnap = s; break; }
+      }
+    } else {
+      for (let j = idx - 1; j >= 0; j--) {
+        const s = _bulkScheduledData[j];
+        if (s?.technicianId && s?.objectId && s?.endAt) { prevSnap = s; break; }
+      }
+    }
+
+    if (!prevSnap?.objectId || !prevSnap?.endAt) return;
+    if (String(newObjectId) === String(prevSnap.objectId)) return;
+
+    const chainTechId = resolvedTechId || prevSnap.technicianId;
+    const prevEnd = parseDatetimeComponents(prevSnap.endAt);
+    if (!prevEnd) return;
+
+    try {
+      const tz  = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+      const url = `/api/tasks/suggest-start`
+        + `?technicianId=${chainTechId}`
+        + `&targetDate=${prevEnd.date}`
+        + `&afterEndMinutes=${prevEnd.minutes}`
+        + `&previousServiceObjectId=${prevSnap.objectId}`
+        + `&newServiceObjectId=${newObjectId}`;
+      const resp = await fetch(url, {
+        credentials: "same-origin",
+        headers: { "X-Timezone-Offset": String(tz) },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.startAt) setFn("#taskDetailStart", data.startAt);
+        if (data.endAt)   setFn("#taskDetailEnd",   data.endAt);
+      }
+    } catch { /* keep current prefill silently */ }
+  }
+
   async function startBulkQueueItem(idx) {
     const item = _bulkQueue[idx];
     if (!item) return;
@@ -764,8 +816,36 @@
     set("#taskDetailPriority", "");
     set("#taskDetailSkill", "");
     set("#taskDetailInstructions", "");
-    set("#taskDetailStart", _localNow ?? "");
-    set("#taskDetailEnd", localNowEnd());
+    // Chain: for new items (idx > 0), ask backend for a DB-aware next free slot.
+    // restoreSchedulingSnapshot (called right after) overrides this if the user already
+    // filled this item and is navigating back/forward — so snapshot restore is safe.
+    let chainStart = _localNow ?? "";
+    let chainEnd   = localNowEnd();
+
+    if (idx > 0) {
+      const prevSnap = _bulkScheduledData[idx - 1];
+      const prevEnd  = parseDatetimeComponents(prevSnap?.endAt);
+      const techId   = prevSnap?.technicianId;
+
+      if (prevEnd && techId) {
+        try {
+          const tz  = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+          const url = `/api/tasks/suggest-start?technicianId=${techId}&targetDate=${prevEnd.date}&afterEndMinutes=${prevEnd.minutes}`;
+          const resp = await fetch(url, {
+            credentials: "same-origin",
+            headers: { "X-Timezone-Offset": String(tz) },
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.startAt) chainStart = data.startAt;
+            if (data.endAt)   chainEnd   = data.endAt;
+          }
+        } catch { /* fallback to _localNow silently */ }
+      }
+    }
+
+    set("#taskDetailStart", chainStart);
+    set("#taskDetailEnd",   chainEnd);
     // Clear assignee and placement dataset so travel preview can't fall back to previous tech
     panel.dataset.technicianId = "";
     panel.dataset.targetDate = "";
@@ -786,6 +866,16 @@
     }
 
     await applyPrefill(item);
+
+    // applyPrefill may have set #taskDetailObject programmatically (no native change event).
+    // Directly await the travel recalc so restoreSchedulingSnapshot runs after and can safely
+    // override the times if the user is navigating back to a previously filled item.
+    if (idx > 0) {
+      const objectEl = panel.querySelector("#taskDetailObject");
+      if (objectEl?.value) {
+        await tryRecalcBulkTravelTime(idx, objectEl.value, 0, set);
+      }
+    }
 
     // Update progress indicator
     const stepEl  = document.getElementById("taskBulkProgressStep");
@@ -820,6 +910,11 @@
     nextBtn.innerHTML = 'Kitas <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>';
   }
 
+  function scrollPanelToTop() {
+    const body = document.querySelector("#taskDetailModal .offcanvas-body");
+    if (body) body.scrollTop = 0;
+  }
+
   async function onBulkNext() {
     if (_bulkConfirmPhase) {
       await confirmAndCreateAll();
@@ -835,44 +930,68 @@
     if (_bulkQueueIdx < _bulkQueue.length - 1) {
       _bulkQueueIdx++;
       await startBulkQueueItem(_bulkQueueIdx);
-      restoreSchedulingSnapshot(_bulkQueueIdx);
+      await restoreSchedulingSnapshot(_bulkQueueIdx);
       updateBulkNavButtons();
+      scrollPanelToTop();
     } else {
       showBulkConfirmView();
     }
   }
 
   async function onBulkBack() {
+    // Save current form data before navigating away so it can be restored on return.
+    const panel = getPanelEl();
+    const modal = window.schedule?.tasks?.modal;
+    if (panel && modal) {
+      _bulkScheduledData[_bulkQueueIdx] = modal.collectFormData(panel);
+    }
+
     if (_bulkConfirmPhase) {
       hideBulkConfirmView();
       _bulkConfirmPhase = false;
       _bulkQueueIdx = _bulkQueue.length - 1;
       await startBulkQueueItem(_bulkQueueIdx);
-      restoreSchedulingSnapshot(_bulkQueueIdx);
+      await restoreSchedulingSnapshot(_bulkQueueIdx);
       updateBulkNavButtons();
+      scrollPanelToTop();
       return;
     }
     if (_bulkQueueIdx > 0) {
       _bulkQueueIdx--;
       await startBulkQueueItem(_bulkQueueIdx);
-      restoreSchedulingSnapshot(_bulkQueueIdx);
+      await restoreSchedulingSnapshot(_bulkQueueIdx);
       updateBulkNavButtons();
+      scrollPanelToTop();
     }
   }
 
-  function restoreSchedulingSnapshot(idx) {
+  async function restoreSchedulingSnapshot(idx) {
     const snap = _bulkScheduledData[idx];
     if (!snap) return;
     const panel = getPanelEl();
     if (!panel) return;
 
-    if (snap.startAt) panel.querySelector("#taskDetailStart").value = snap.startAt;
-    if (snap.endAt) panel.querySelector("#taskDetailEnd").value = snap.endAt;
+    const set = (id, val) => { if (val != null) { const el = panel.querySelector(id); if (el) el.value = val; } };
+
+    set("#taskDetailStart", snap.startAt);
+    set("#taskDetailEnd", snap.endAt);
+    set("#taskDetailTitle", snap.title);
+    set("#taskDetailPriority", snap.priorityRaw);
+    set("#taskDetailSkill", snap.skillLevel);
+    set("#taskDetailInstructions", snap.instructions);
+    set("#taskDetailTechnicianComment", snap.technicianComment);
 
     const techId = snap.technicianId;
     if (techId && window.jQuery) {
       const assigneeEl = panel.querySelector("#taskDetailAssignee");
       if (assigneeEl) window.jQuery(assigneeEl).val(String(techId)).trigger("change");
+    }
+
+    const modal = window.schedule?.tasks?.modal;
+    if (modal && snap.objectId) {
+      await modal.populateObjectDropdown(panel, snap.objectId, snap.objectName, snap.objectAddress);
+      await modal.populateAddressDropdown(panel, snap.objectAddress);
+      modal.ensureObjectAddressBinding(panel);
     }
   }
 
@@ -883,11 +1002,12 @@
     document.querySelectorAll("#taskPanelContent .task-section").forEach(s => s.classList.add("d-none"));
     document.getElementById("taskBulkProgress")?.classList.add("d-none");
 
-    // Render and show confirm list
+    // Render and show confirm list, then kick off server-side pre-validation
     renderBulkConfirmCards();
     document.getElementById("taskBulkConfirmView")?.classList.remove("d-none");
 
     updateBulkNavButtons();
+    runBulkValidation();
   }
 
   function hideBulkConfirmView() {
@@ -897,7 +1017,74 @@
     document.getElementById("taskBulkProgress")?.classList.remove("d-none");
   }
 
-  function renderBulkConfirmCards(errorsByIndex = {}) {
+  async function runBulkValidation() {
+    const tzOffset = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+    const items = _bulkQueue.map((item, idx) => {
+      const snap = _bulkScheduledData[idx] || {};
+      const start = parseDatetimeComponents(snap.startAt);
+      const end   = parseDatetimeComponents(snap.endAt);
+      return {
+        technicianId:          snap.technicianId || 0,
+        targetDate:            start?.date || "",
+        startMinutes:          start?.minutes ?? 0,
+        endMinutes:            end?.minutes ?? 0,
+        title:                 item.title || "",
+        priority:              item.priority ?? 0,
+        status:                0,
+        skillLevel:            snap.skillLevel || item.skillLevel || "",
+        objectName:            snap.objectName || item.objectName || "",
+        objectAddress:         snap.objectAddress || item.locationText || "",
+        instructions:          snap.instructions || item.instructions || "",
+        timezoneOffsetMinutes: tzOffset,
+        sourceBacklogItemId:   item.id ? parseInt(item.id, 10) : null,
+      };
+    });
+
+    let data;
+    try {
+      const resp = await fetch("/api/tasks/bulk/validate", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      data = await resp.json().catch(() => ({}));
+    } catch {
+      data = {};
+    }
+
+    // If confirm view was closed before validation returned, do nothing
+    if (!_bulkConfirmPhase) return;
+
+    const errorsByIndex = {};
+    (data.errors || []).forEach(e => { errorsByIndex[e.index] = e.message; });
+    applyBulkValidationResults(errorsByIndex);
+  }
+
+  function applyBulkValidationResults(errorsByIndex) {
+    _bulkQueue.forEach((_, idx) => {
+      const icon = document.getElementById(`bulk-status-bubble-${idx}`);
+      const card = document.querySelector(`.backlog-card--confirm[data-confirm-idx="${idx}"]`);
+      const err = errorsByIndex[idx];
+      if (err) {
+        if (icon) {
+          icon.className = "bulk-status-icon bulk-status-icon--err";
+          icon.dataset.tooltip = err;
+          icon.querySelector("i").className = "bi bi-x-circle-fill";
+        }
+        if (card) card.style.borderLeftColor = "#dc3545";
+      } else {
+        if (icon) {
+          icon.className = "bulk-status-icon bulk-status-icon--ok";
+          icon.dataset.tooltip = "Gerai";
+          icon.querySelector("i").className = "bi bi-check-circle-fill";
+        }
+        if (card) card.style.borderLeftColor = "";
+      }
+    });
+  }
+
+  function renderBulkConfirmCards() {
     const list = document.getElementById("taskBulkConfirmList");
     if (!list) return;
     list.innerHTML = "";
@@ -906,8 +1093,9 @@
 
     _bulkQueue.forEach((item, idx) => {
       const snap = _bulkScheduledData[idx];
-      const priorityClass = PRIORITY_CLASSES[item.priority] ?? "bg-secondary";
-      const priorityLabel = PRIORITY_LABELS[item.priority] ?? "";
+      const effectivePriority = snap?.priorityVal != null && !isNaN(snap.priorityVal) ? snap.priorityVal : item.priority;
+      const priorityClass = PRIORITY_CLASSES[effectivePriority] ?? "bg-secondary";
+      const priorityLabel = PRIORITY_LABELS[effectivePriority] ?? "";
 
       // Resolve assignee name from current dropdown options
       let assigneeName = "—";
@@ -924,21 +1112,22 @@
         return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
       };
 
-      const errorMsg = errorsByIndex[idx];
       const card = document.createElement("div");
-      card.className = "backlog-card";
-      if (errorMsg) card.style.borderLeftColor = "#dc3545";
+      card.className = "backlog-card backlog-card--confirm";
+      card.dataset.confirmIdx = idx;
       card.innerHTML = `
         <div class="backlog-card__row">
-          <span class="backlog-card__title">${escapeHtml(item.title || "Be pavadinimo")}</span>
+          <span class="backlog-card__title">${escapeHtml(snap?.title || item.title || "Be pavadinimo")}</span>
           <div class="backlog-card__badges">
             <span class="badge ${priorityClass}">${escapeHtml(priorityLabel)}</span>
           </div>
           <button type="button" class="backlog-card__toggle" data-confirm-toggle="${idx}" aria-expanded="false">
             <i class="bi bi-chevron-right"></i>
           </button>
+          <span class="bulk-status-icon bulk-status-icon--pending" id="bulk-status-bubble-${idx}" data-tooltip="Tikrinama...">
+            <i class="bi bi-circle-fill" aria-hidden="true"></i>
+          </span>
         </div>
-        ${errorMsg ? `<div class="text-danger small mt-1">${escapeHtml(errorMsg)}</div>` : ""}
         <div class="backlog-card__details" id="bulk-confirm-details-${idx}" hidden>
           <div class="backlog-card__detail-block">
             <span class="backlog-card__detail-label">Priskirtas</span>
@@ -952,11 +1141,12 @@
             <span class="backlog-card__detail-label">Pabaiga</span>
             <div>${formatDt(snap?.endAt)}</div>
           </div>
-          ${item.objectName ? `<div class="backlog-card__detail-block">
+          ${(snap?.objectName || item.objectName) ? `<div class="backlog-card__detail-block">
             <span class="backlog-card__detail-label">Objektas</span>
-            <div class="backlog-card__location"><i class="bi bi-geo-alt me-1"></i>${escapeHtml(item.objectName)}${item.locationText ? ` · ${escapeHtml(item.locationText)}` : ""}</div>
+            <div class="backlog-card__location"><i class="bi bi-geo-alt me-1"></i>${escapeHtml(snap?.objectName || item.objectName || "")}${(snap?.objectAddress || item.locationText) ? ` · ${escapeHtml(snap?.objectAddress || item.locationText || "")}` : ""}</div>
           </div>` : ""}
         </div>`;
+
       list.appendChild(card);
     });
 
@@ -975,6 +1165,22 @@
         icon.classList.toggle("bi-chevron-right", expanded);
         icon.classList.toggle("bi-chevron-down", !expanded);
       }
+    });
+
+    // Click card title to jump directly to that task's form
+    list.addEventListener("click", async (e) => {
+      if (!e.target.closest(".backlog-card__title")) return;
+      const card = e.target.closest(".backlog-card--confirm");
+      if (!card) return;
+      const idx = parseInt(card.dataset.confirmIdx, 10);
+      if (isNaN(idx)) return;
+      hideBulkConfirmView();
+      _bulkConfirmPhase = false;
+      _bulkQueueIdx = idx;
+      await startBulkQueueItem(idx);
+      await restoreSchedulingSnapshot(idx);
+      updateBulkNavButtons();
+      scrollPanelToTop();
     });
   }
 
@@ -1033,7 +1239,7 @@
     if (!ok) {
       const errorsByIndex = {};
       (data.errors || []).forEach(e => { errorsByIndex[e.index] = e.message; });
-      renderBulkConfirmCards(errorsByIndex);
+      if (data.errors?.length) applyBulkValidationResults(errorsByIndex);
       if (data.errors?.length) {
         window.schedule?.ui?.toast?.showError?.("Kai kurios užduotys turi klaidų.");
       } else {
@@ -1335,6 +1541,19 @@
         if (hidden) hidden.value = e.target.value;
         onPlanModeChange(e.target.value);
       }
+    });
+
+    // Bulk travel-aware time recalculation on user object selection (item N, idx > 0).
+    // Delegates to tryRecalcBulkTravelTime which handles same-tech chain lookup and
+    // falls back to prev snapshot's tech when the assignee isn't selected yet.
+    getPanelEl()?.addEventListener("change", async (e) => {
+      if (e.target.id !== "taskDetailObject") return;
+      if (!_isBulkMode || _bulkQueueIdx === 0) return;
+
+      const panel = getPanelEl();
+      const currentTechId = parseInt(panel?.querySelector("#taskDetailAssignee")?.value || "0", 10) || 0;
+      const setFn = (id, val) => { const el = panel?.querySelector(id); if (el) el.value = val ?? ""; };
+      await tryRecalcBulkTravelTime(_bulkQueueIdx, e.target.value, currentTechId, setFn);
     });
 
     // Hide trigger button when switching to weekly view

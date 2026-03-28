@@ -71,6 +71,14 @@ namespace ServiceTaskPlanningSystem.Services.Time
             var roundedNow = CeilingToSlot(nowMinutes, slotSizeMinutes);
             return Math.Max(dayStartMinutes, roundedNow);
         }
+
+        public int GetNextCreatableStartMinutes(DateTime targetDate, int timezoneOffsetMinutes, int slotSizeMinutes, int dayStartMinutes, int? afterEndMinutes = null)
+        {
+            var earliest = GetEarliestCreatableStartMinutes(targetDate, timezoneOffsetMinutes, slotSizeMinutes, dayStartMinutes);
+            var candidate = afterEndMinutes.HasValue ? Math.Max(earliest, afterEndMinutes.Value) : earliest;
+            return CeilingToSlot(candidate, slotSizeMinutes);
+        }
+
         public DateTime GetWeekStart(DateTime date)
         {
             var dayOfWeek = (int)date.DayOfWeek;

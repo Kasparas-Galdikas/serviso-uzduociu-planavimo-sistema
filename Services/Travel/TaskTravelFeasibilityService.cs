@@ -44,7 +44,8 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             int proposedStartMinutesLocal,
             long? excludeTaskId,
             bool checkOverlap,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyList<ProposedRouteStop>? simulatedStops = null)
         {
             var localOffsetMinutes = proposedStartMinutesLocal - (int)proposedStartAt.TimeOfDay.TotalMinutes;
             var proposedStartLocal = proposedStartAt.AddMinutes(localOffsetMinutes);
@@ -63,7 +64,8 @@ namespace ServiceTaskPlanningSystem.Services.Travel
                         StartAt = proposedStartAt,
                         EndAt = proposedEndAt,
                         AddressId = serviceAddressId
-                    }
+                    },
+                    SimulatedStops = simulatedStops
                 },
                 cancellationToken);
 

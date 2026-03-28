@@ -18,6 +18,7 @@ using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
+using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.History;
 
@@ -150,7 +151,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             DateTime endAtUtc,
             long serviceAddressId,
             long? excludeTaskId,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IReadOnlyList<ProposedRouteStop>? simulatedStops = null)
         {
             var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
             if (taskDateLocal < userLocalToday)
@@ -177,7 +179,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 startMinutesLocal,
                 excludeTaskId,
                 checkOverlap: false,
-                cancellationToken);
+                cancellationToken,
+                simulatedStops);
 
             if (!travelCheck.IsFeasible)
             {
@@ -615,6 +618,71 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _db.Plans
                .AsNoTracking()
                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
+
+        public async Task<(int StartMinutes, int EndMinutes)> GetSuggestedNextSlotAsync(
+            long technicianId,
+            DateTime targetDate,
+            int timezoneOffsetMinutes,
+            int slotSizeMinutes,
+            int dayStartMinutes,
+            int? afterEndMinutes,
+            long? previousServiceObjectId = null,
+            long? newServiceObjectId = null,
+            CancellationToken cancellationToken = default)
+        {
+            var candidate = _timeService.GetNextCreatableStartMinutes(targetDate, timezoneOffsetMinutes, slotSizeMinutes, dayStartMinutes, afterEndMinutes);
+
+            // Travel buffer: if both item locations are known, push candidate past inbound travel time.
+            if (previousServiceObjectId.HasValue && newServiceObjectId.HasValue
+                && previousServiceObjectId.Value != newServiceObjectId.Value)
+            {
+                var prevAddrId = await _db.ServiceObjects
+                    .Where(o => o.Id == previousServiceObjectId.Value)
+                    .Select(o => (long?)o.AddressId)
+                    .FirstOrDefaultAsync(cancellationToken);
+                var newAddrId = await _db.ServiceObjects
+                    .Where(o => o.Id == newServiceObjectId.Value)
+                    .Select(o => (long?)o.AddressId)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (prevAddrId.HasValue && newAddrId.HasValue && prevAddrId.Value != newAddrId.Value)
+                {
+                    var travelMinutes = await _travelResolver.GetTravelMinutesAsync(
+                        prevAddrId.Value, newAddrId.Value, cancellationToken);
+                    if (travelMinutes is > 0)
+                    {
+                        var withTravel = _timeService.CeilingToSlot(
+                            (afterEndMinutes ?? candidate) + travelMinutes.Value, slotSizeMinutes);
+                        candidate = Math.Max(candidate, withTravel);
+                    }
+                }
+            }
+
+            var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, 0, timezoneOffsetMinutes);
+            var dayEndUtc = dayStartUtc.AddDays(1);
+
+            var existingTasks = await _db.Tasks
+                .AsNoTracking()
+                .Where(t => t.TechnicianId == technicianId)
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                .Where(t => t.StartAt >= dayStartUtc && t.StartAt < dayEndUtc)
+                .OrderBy(t => t.StartAt)
+                .Select(t => new { t.StartAt, t.EndAt })
+                .ToListAsync(cancellationToken);
+
+            foreach (var task in existingTasks)
+            {
+                var taskStartMins = (int)_timeService.ConvertUtcToLocal(task.StartAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes;
+                var taskEndMins   = (int)_timeService.ConvertUtcToLocal(task.EndAt,   timezoneOffsetMinutes).TimeOfDay.TotalMinutes;
+
+                if (candidate >= taskStartMins && candidate < taskEndMins)
+                {
+                    candidate = _timeService.CeilingToSlot(taskEndMins, slotSizeMinutes);
+                }
+            }
+
+            return (candidate, candidate + slotSizeMinutes);
+        }
 
         public async Task<LoadSnapshotDto> GetWorkloadSnapshotAsync(long technicianId, DateTime dayStartUtc, CancellationToken cancellationToken = default)
         {
@@ -1144,6 +1212,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             public required PlanEntity?[] TargetPlans { get; init; }
             public required PlacementValidationResult[] Placements { get; init; }
             public required long?[] KnownAddressIds { get; init; }
+            public List<(long TechnicianId, long AddressId, DateTime StartAt, DateTime EndAt)> SimulatedBatchStops { get; } = new();
+        }
+
+        private sealed class BulkValidationOutcome
+        {
+            public List<BulkCreateItemErrorDto> Errors { get; } = new();
+            public List<(int ItemIndex, ScheduleRepairPlan RepairPlan)> RepairPlans { get; } = new();
+            public bool HasErrors => Errors.Count > 0;
         }
 
         private sealed class BulkTaskBuildResult
@@ -1173,23 +1249,37 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             };
         }
 
-        private async Task<List<BulkCreateItemErrorDto>> ValidateBulkCreateRequestsAsync(
+        private async Task<BulkValidationOutcome> ValidateBulkCreateRequestsAsync(
             IReadOnlyList<CreateTaskRequestDto> items,
             UserContext user,
             BulkCreateContext context,
             CancellationToken cancellationToken)
         {
-            var errors = new List<BulkCreateItemErrorDto>();
+            var outcome = new BulkValidationOutcome();
             var reservedSlots = new List<(long TechId, DateTime StartUtc, DateTime EndUtc)>();
 
             for (int i = 0; i < items.Count; i++)
             {
                 var dto = items[i];
 
+                if (dto.TechnicianId <= 0)
+                {
+                    outcome.Errors.Add(new BulkCreateItemErrorDto { Index = i, Message = "Priskirtas darbuotojas yra privalomas." });
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(dto.SkillLevel) ||
+                    string.IsNullOrWhiteSpace(dto.ObjectName) ||
+                    string.IsNullOrWhiteSpace(dto.ObjectAddress))
+                {
+                    outcome.Errors.Add(new BulkCreateItemErrorDto { Index = i, Message = "Privalomi laukai turi būti užpildyti." });
+                    continue;
+                }
+
                 if (!DateTime.TryParseExact(dto.TargetDate, "yyyy-MM-dd",
                         CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsedDate))
                 {
-                    errors.Add(new BulkCreateItemErrorDto { Index = i, Message = "Netinkamas datos formatas." });
+                    outcome.Errors.Add(new BulkCreateItemErrorDto { Index = i, Message = "Netinkamas datos formatas." });
                     continue;
                 }
 
@@ -1220,7 +1310,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
                 if (!placement.IsValid)
                 {
-                    errors.Add(new BulkCreateItemErrorDto { Index = i, Message = placement.Message ?? "Netinkamas laiko langas." });
+                    outcome.Errors.Add(new BulkCreateItemErrorDto { Index = i, Message = placement.Message ?? "Netinkamas laiko langas." });
                     continue;
                 }
 
@@ -1231,7 +1321,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
                 if (hasOverlap)
                 {
-                    errors.Add(new BulkCreateItemErrorDto { Index = i, Message = "Laiko langas persidengė su kita šio paketo užduotimi." });
+                    outcome.Errors.Add(new BulkCreateItemErrorDto { Index = i, Message = "Laiko langas persidengė su kita šio paketo užduotimi." });
                     continue;
                 }
 
@@ -1246,6 +1336,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     continue;
                 }
 
+                var priorStops = context.SimulatedBatchStops
+                    .Where(s => s.TechnicianId == dto.TechnicianId)
+                    .Select(s => new ProposedRouteStop { AddressId = s.AddressId, StartAt = s.StartAt, EndAt = s.EndAt })
+                    .ToList();
+
                 var travelCheck = await CheckTimingAndTravelAsync(
                     taskDateLocal: targetDate,
                     startMinutesLocal: dto.StartMinutes,
@@ -1255,15 +1350,44 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     endAtUtc: placement.EndAtUtc,
                     serviceAddressId: addressId.Value,
                     excludeTaskId: null,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken,
+                    simulatedStops: priorStops.Count > 0 ? priorStops : null);
 
                 if (!travelCheck.IsValid)
                 {
-                    errors.Add(new BulkCreateItemErrorDto { Index = i, Message = travelCheck.Message ?? "Nepakanka laiko kelionei." });
+                    var simulatedSnapshots = context.SimulatedBatchStops
+                        .Where(s => s.TechnicianId == dto.TechnicianId)
+                        .Select((s, idx) => new ScheduleRepairTaskSnapshot(-(idx + 2), s.AddressId, s.StartAt, s.EndAt - s.StartAt))
+                        .ToList();
+
+                    var repairPlan = await _scheduleRepairService.BuildPlanAsync(
+                        new ScheduleRepairRequest
+                        {
+                            ScenarioKind = ScheduleRepairScenarioKind.Create,
+                            TechnicianId = dto.TechnicianId,
+                            DayUtc = placement.StartAtUtc.Date,
+                            TimezoneOffsetMinutes = dto.TimezoneOffsetMinutes,
+                            ExcludeTaskId = null,
+                            ProposedPlacement = new ScheduleRepairPlacement(0, addressId.Value, placement.StartAtUtc, placement.EndAtUtc),
+                            SimulatedSnapshots = simulatedSnapshots.Count > 0 ? simulatedSnapshots : null
+                        },
+                        cancellationToken);
+
+                    if (repairPlan.Success)
+                    {
+                        outcome.RepairPlans.Add((i, repairPlan));
+                    }
+                    else
+                    {
+                        outcome.Errors.Add(new BulkCreateItemErrorDto { Index = i, Message = travelCheck.Message ?? "Nepakanka laiko kelionei." });
+                        continue;
+                    }
                 }
+
+                context.SimulatedBatchStops.Add((dto.TechnicianId, addressId.Value, placement.StartAtUtc, placement.EndAtUtc));
             }
 
-            return errors;
+            return outcome;
         }
 
         private async Task<BulkTaskBuildResult> BuildTaskEntitiesAsync(
@@ -1292,6 +1416,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
                 if (!context.KnownAddressIds[i].HasValue)
                 {
+                    var lateSimulatedStops = context.SimulatedBatchStops
+                        .Where(s => s.TechnicianId == dto.TechnicianId)
+                        .Select(s => new ProposedRouteStop { AddressId = s.AddressId, StartAt = s.StartAt, EndAt = s.EndAt })
+                        .ToList();
+
                     var travelCheck = await CheckTimingAndTravelAsync(
                         taskDateLocal: targetDate,
                         startMinutesLocal: dto.StartMinutes,
@@ -1301,7 +1430,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                         endAtUtc: placement.EndAtUtc,
                         serviceAddressId: serviceObject.AddressId,
                         excludeTaskId: null,
-                        cancellationToken: cancellationToken);
+                        cancellationToken: cancellationToken,
+                        simulatedStops: lateSimulatedStops.Count > 0 ? lateSimulatedStops : null);
 
                     if (!travelCheck.IsValid)
                     {
@@ -1374,6 +1504,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             await _db.SaveChangesAsync(cancellationToken);
         }
 
+        public async Task<BulkCreateTaskResponseDto> BulkValidateTasksAsync(
+            IReadOnlyList<CreateTaskRequestDto> items,
+            UserContext user,
+            CancellationToken cancellationToken = default)
+        {
+            var context = await LoadBulkCreateContextAsync(items.Count, cancellationToken);
+            var validationOutcome = await ValidateBulkCreateRequestsAsync(items, user, context, cancellationToken);
+            return new BulkCreateTaskResponseDto
+            {
+                AllSucceeded = !validationOutcome.HasErrors,
+                Errors = validationOutcome.Errors
+            };
+        }
+
         public async Task<BulkCreateTaskResponseDto> BulkCreateTasksAsync(
             IReadOnlyList<CreateTaskRequestDto> items,
             UserContext user,
@@ -1381,10 +1525,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         {
             {
                 var context = await LoadBulkCreateContextAsync(items.Count, cancellationToken);
-                var validationErrors = await ValidateBulkCreateRequestsAsync(items, user, context, cancellationToken);
-                if (validationErrors.Count > 0)
+                var validationOutcome = await ValidateBulkCreateRequestsAsync(items, user, context, cancellationToken);
+                if (validationOutcome.HasErrors)
                 {
-                    return new BulkCreateTaskResponseDto { AllSucceeded = false, Errors = validationErrors };
+                    return new BulkCreateTaskResponseDto { AllSucceeded = false, Errors = validationOutcome.Errors };
                 }
 
                 await using var bulkTx = await BeginTransactionIfSupportedAsync(cancellationToken);
@@ -1404,6 +1548,33 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
                     var builtTasks = buildResult.Tasks;
                     await SaveBulkTasksAsync(builtTasks, cancellationToken);
+
+                    foreach (var (itemIndex, repairPlan) in validationOutcome.RepairPlans)
+                    {
+                        var taskToRepair = builtTasks[itemIndex];
+
+                        // The repair plan was built before batch tasks existed in the DB, so it
+                        // doesn't know about sibling tasks created in this same batch. Skip the
+                        // repair if its proposed placement would conflict with another batch task.
+                        if (repairPlan.PrimaryPlacement != null)
+                        {
+                            var repairStart = repairPlan.PrimaryPlacement.StartAt;
+                            var repairEnd   = repairPlan.PrimaryPlacement.EndAt;
+                            var wouldConflict = builtTasks
+                                .Where((t, idx) => idx != itemIndex && t.TechnicianId == taskToRepair.TechnicianId)
+                                .Any(t => t.StartAt < repairEnd && t.EndAt > repairStart);
+
+                            if (wouldConflict)
+                            {
+                                _logger.LogWarning("bulk-repair.skip-conflict taskId={TaskId} reason=WouldConflictWithBatchTask", taskToRepair.Id);
+                                continue;
+                            }
+                        }
+
+                        var applyResult = await _scheduleRepairService.ApplyPlanAsync(repairPlan, taskToRepair.Id, cancellationToken);
+                        if (!applyResult.Success)
+                            _logger.LogWarning("bulk-repair.apply-fail taskId={TaskId} reason={Reason}", taskToRepair.Id, applyResult.Message ?? string.Empty);
+                    }
 
                     if (bulkTx != null)
                     {

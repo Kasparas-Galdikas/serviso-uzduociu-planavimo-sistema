@@ -13,6 +13,7 @@ namespace ServiceTaskPlanningSystem.Services.Travel.RouteChains
         public long? PlanId { get; init; }
         public long? ExcludeTaskId { get; init; }
         public ProposedRouteStop? ProposedStop { get; init; }
+        public IReadOnlyList<ProposedRouteStop>? SimulatedStops { get; init; }
     }
 
     public sealed class ProposedRouteStop

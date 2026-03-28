@@ -1002,6 +1002,21 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             };
         }
 
+        [HttpPost("bulk/validate")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> BulkValidateTasks([FromBody] BulkCreateTaskRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return ValidationProblem(ModelState);
+
+            if (dto.Items == null || dto.Items.Count == 0)
+                return UnprocessableEntity(new { message = "Nenurodyti elementai." });
+
+            var user = _userContextResolver.GetCurrentUser();
+            var result = await _planService.BulkValidateTasksAsync(dto.Items, user, cancellationToken);
+            return Ok(result);
+        }
+
         [HttpPost("bulk")]
         [Authorize(Policy = "CanEditTask")]
         public async Task<IActionResult> BulkCreateTasks([FromBody] BulkCreateTaskRequestDto dto, CancellationToken cancellationToken)
@@ -1012,22 +1027,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             if (dto.Items == null || dto.Items.Count == 0)
                 return UnprocessableEntity(new { message = "Nenurodyti elementai." });
 
-            foreach (var (item, idx) in dto.Items.Select((x, i) => (x, i)))
-            {
-                if (item.Status != ScheduleTaskStatus.InProgress)
-                    return UnprocessableEntity(new { message = $"Elementas {idx + 1}: statusas turi būti 'Vykdoma'." });
-
-                if (item.TechnicianId <= 0)
-                    return UnprocessableEntity(new { message = $"Elementas {idx + 1}: priskirtas darbuotojas yra privalomas." });
-
-                if (!TryParseDate(item.TargetDate, out _))
-                    return UnprocessableEntity(new { message = $"Elementas {idx + 1}: netinkamas datos formatas." });
-
-                if (string.IsNullOrWhiteSpace(item.SkillLevel) ||
-                    string.IsNullOrWhiteSpace(item.ObjectName) ||
-                    string.IsNullOrWhiteSpace(item.ObjectAddress))
-                    return UnprocessableEntity(new { message = $"Elementas {idx + 1}: privalomi laukai turi būti užpildyti." });
-            }
+            if (dto.Items.Any(item => item.Status != ScheduleTaskStatus.InProgress))
+                return UnprocessableEntity(new { message = "Visi elementai turi turėti statusą 'Vykdoma'." });
 
             var user = _userContextResolver.GetCurrentUser();
             var result = await _planService.BulkCreateTasksAsync(dto.Items, user, cancellationToken);
@@ -1039,6 +1040,36 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             }
 
             return UnprocessableEntity(result);
+        }
+
+        [HttpGet("suggest-start")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> SuggestNextSlot(
+            [FromQuery] long technicianId,
+            [FromQuery] string targetDate,
+            [FromQuery] int? afterEndMinutes,
+            [FromQuery] long? previousServiceObjectId,
+            [FromQuery] long? newServiceObjectId,
+            CancellationToken cancellationToken)
+        {
+            if (technicianId <= 0)
+                return BadRequest(new { message = "Nenurodytas darbuotojas." });
+
+            if (!TryParseDate(targetDate, out var parsedDate))
+                return BadRequest(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
+
+            var tz = _timeService.GetBrowserTimezoneOffset(Request);
+            var (startMinutes, endMinutes) = await _planService.GetSuggestedNextSlotAsync(
+                technicianId, parsedDate, tz,
+                ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes,
+                afterEndMinutes, previousServiceObjectId, newServiceObjectId, cancellationToken);
+
+            var pad = (int n) => n.ToString().PadLeft(2, '0');
+            var startTime = $"{pad(startMinutes / 60)}:{pad(startMinutes % 60)}";
+            var endTime   = $"{pad(endMinutes   / 60)}:{pad(endMinutes   % 60)}";
+            var dateStr   = parsedDate.ToString("yyyy-MM-dd");
+
+            return Ok(new { startAt = $"{dateStr}T{startTime}", endAt = $"{dateStr}T{endTime}" });
         }
 
         private static bool TryParseDate(string value, out DateTime parsed)
