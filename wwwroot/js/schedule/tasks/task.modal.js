@@ -303,6 +303,53 @@
     };
   };
 
+  /**
+   * Calls /api/tasks/suggest-start and updates #taskDetailStart / #taskDetailEnd via setFn.
+   *
+   * chainContext = { afterEndMinutes, targetDate, previousObjectId }  → bulk chain mode
+   * chainContext = null                                                → standalone mode (appendAfterLastTask=true)
+   *
+   * setFn(selector, value) must dispatch an "input" event so downstream listeners cascade.
+   */
+  const scheduleSuggestSlot = async (modalEl, techId, chainContext, setFn) => {
+    if (!techId) return;
+    const tz = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+    const currentObjectId = parseInt(modalEl.querySelector("#taskDetailObject")?.value || "0", 10) || 0;
+
+    let url;
+    if (chainContext) {
+      url = `/api/tasks/suggest-start`
+          + `?technicianId=${techId}`
+          + `&targetDate=${chainContext.targetDate}`
+          + `&afterEndMinutes=${chainContext.afterEndMinutes}`;
+      if (chainContext.previousObjectId) url += `&previousServiceObjectId=${chainContext.previousObjectId}`;
+      if (currentObjectId)               url += `&newServiceObjectId=${currentObjectId}`;
+    } else {
+      const startRaw   = modalEl.querySelector("#taskDetailStart")?.value || "";
+      const parsed     = parseLocalDateTime(startRaw);
+      // Fall back to today in the user's local timezone when start field is empty
+      // (e.g. calendar-icon flow opens the form with no pre-filled times).
+      const todayLocal = new Date(Date.now() + tz * 60000).toISOString().slice(0, 10);
+      const targetDate = parsed?.date ?? todayLocal;
+      url = `/api/tasks/suggest-start`
+          + `?technicianId=${techId}`
+          + `&targetDate=${targetDate}`
+          + `&appendAfterLastTask=true`;
+      if (currentObjectId) url += `&newServiceObjectId=${currentObjectId}`;
+    }
+
+    try {
+      const resp = await fetch(url, { credentials: "same-origin", headers: { "X-Timezone-Offset": String(tz) } });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.startAt) setFn("#taskDetailStart", data.startAt);
+        if (data.endAt)   setFn("#taskDetailEnd",   data.endAt);
+      }
+    } catch (err) {
+      console.error("[suggest-slot] fetch error", err);
+    }
+  };
+
   const initAssigneeSelect2 = (selectEl) => {
     if (!selectEl || typeof $ === "undefined" || !$.fn.select2) {
       initSelect2(selectEl, "Pasirinkite darbuotoją...");
@@ -491,10 +538,10 @@
         const minutes = preview && Number.isFinite(preview.travelMinutes) ? preview.travelMinutes : null;
         const selectable = preview == null ? true : preview.isSelectable !== false;
         option.dataset.travelMinutes = Number.isFinite(minutes) ? String(minutes) : "";
+        // X badge shown via data-selectable; options are never disabled — suggest-start
+        // moves the time to a valid slot after the user picks an infeasible technician.
         option.dataset.selectable = selectable ? "true" : "false";
-        const isSelectedTech = tech.id === selectedTechnicianId;
-        option.disabled = !selectable && !isSelectedTech;
-        if (isSelectedTech) {
+        if (tech.id === selectedTechnicianId) {
           option.selected = true;
         }
         dropdown.appendChild(option);
@@ -567,6 +614,27 @@
     bind("#taskDetailLocation");
     bind("#taskDetailStart", "input");
     bind("#taskDetailEnd", "input");
+
+    // Tech selection in CREATE mode → suggest best free slot, then travel preview cascades.
+    // Excluded in edit mode (times must stay when reassigning) and bulk mode (bulk has its
+    // own chain-aware handler in schedule.backlog.js that calls scheduleSuggestSlot directly).
+    const onTechSelect = async (rawVal) => {
+      const techId = parseInt(rawVal || dropdown.value || "0", 10) || 0;
+      if (!techId) return;
+      if (modalEl.dataset.taskId) return;                      // edit mode — keep times
+      if (window.schedule?.backlog?._isBulkMode) return;       // bulk mode handles chaining
+      const setFn = (id, val) => {
+        const el = modalEl.querySelector(id);
+        if (!el) return;
+        el.value = val ?? "";
+        el.dispatchEvent(new Event("input", { bubbles: true })); // cascades travel preview
+      };
+      await scheduleSuggestSlot(modalEl, techId, null, setFn);
+    };
+    dropdown.addEventListener("change", (e) => onTechSelect(e.target.value));
+    if (typeof $ !== "undefined" && $.fn.select2) {
+      $(dropdown).on("select2:select select2:clear", (e) => onTechSelect(e.params?.data?.id ?? ""));
+    }
 
     refresh();
   };
@@ -708,13 +776,29 @@
     modalEl.querySelector("#taskDetailLabel").textContent = "Nauja užduotis";
     modalEl.querySelector("#taskDetailCode").textContent = "";
 
-    if (targetDate && startMinutes != null && endMinutes != null) {
-      const dateStr = targetDate;
-      const startTime = grid.minutesToTime(startMinutes);
-      const endTime = grid.minutesToTime(endMinutes);
+    // Resolve times: use provided slot times, or fall back to "now rounded to next slot"
+    // so forms opened without a pre-selected slot (e.g. calendar-icon from backlog)
+    // still show a sensible default rather than blank fields.
+    let resolvedDate = targetDate;
+    let resolvedStart = startMinutes;
+    let resolvedEnd = endMinutes;
 
-      setVal("#taskDetailStart", `${dateStr}T${startTime}`);
-      setVal("#taskDetailEnd", `${dateStr}T${endTime}`);
+    if (!resolvedDate || resolvedStart == null || resolvedEnd == null) {
+      const tz = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+      const nowLocal = new Date(Date.now() + tz * 60000);
+      const slotSize = grid.getConfig?.()?.slotSizeMinutes ?? 30;
+      const nowMins = nowLocal.getUTCHours() * 60 + nowLocal.getUTCMinutes();
+      const snappedStart = Math.ceil(nowMins / slotSize) * slotSize;
+      resolvedDate   = resolvedDate   ?? nowLocal.toISOString().slice(0, 10);
+      resolvedStart  = resolvedStart  ?? snappedStart;
+      resolvedEnd    = resolvedEnd    ?? (snappedStart + slotSize);
+    }
+
+    {
+      const startTime = grid.minutesToTime(resolvedStart);
+      const endTime   = grid.minutesToTime(resolvedEnd);
+      setVal("#taskDetailStart", `${resolvedDate}T${startTime}`);
+      setVal("#taskDetailEnd",   `${resolvedDate}T${endTime}`);
     }
 
     const startInput = modalEl.querySelector("#taskDetailStart");
@@ -1061,6 +1145,7 @@
     collectCreatePlacement,
     populateObjectDropdown,
     populateAddressDropdown,
+    scheduleSuggestSlot,
   };
 })();
 

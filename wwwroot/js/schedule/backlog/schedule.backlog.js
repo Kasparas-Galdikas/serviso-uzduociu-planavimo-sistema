@@ -530,11 +530,12 @@
   let _schedulingFromBacklogItemType = null;
 
   // ── Bulk scheduling queue state ───────────────────────────────────────────
-  let _bulkQueue         = [];
-  let _bulkQueueIdx      = 0;
-  let _isBulkMode        = false;
-  let _bulkScheduledData = [];   // form snapshots per queue item
-  let _bulkConfirmPhase  = false; // true while confirm view is shown
+  let _bulkQueue           = [];
+  let _bulkQueueIdx        = 0;
+  let _isBulkMode          = false;
+  let _bulkScheduledData   = [];   // form snapshots per queue item
+  let _bulkConfirmPhase    = false; // true while confirm view is shown
+  let _restoringSnapshot   = false; // suppresses reactive listeners during restoreSchedulingSnapshot
 
   function clearSchedulingContext() {
     _schedulingFromBacklogId = null;
@@ -661,7 +662,8 @@
       const startMinutes = parseInt(slot.dataset.slotStartMinutes, 10);
       if (!techId || !date || isNaN(startMinutes)) return;
 
-      scheduleFromBacklog(item, { techId, date, startMinutes, endMinutes: startMinutes + 60 });
+      const slotSize = window.schedule?.grid?.getConfig?.().slotSizeMinutes ?? 30;
+      scheduleFromBacklog(item, { techId, date, startMinutes, endMinutes: startMinutes + slotSize });
     });
   }
 
@@ -756,7 +758,37 @@
   // techId: the technician to chain from. If 0/null, scans backwards for any prior
   //         snapshot with a tech+object (best-effort for when assignee isn't selected yet).
   async function tryRecalcBulkTravelTime(idx, newObjectId, techId, setFn) {
-    if (idx === 0 || !newObjectId) return;
+    if (!newObjectId) return;
+
+    // idx=0: no previous snapshot to chain travel from, but if a technician is
+    // already selected we can still suggest the best standalone slot for the object.
+    if (idx === 0) {
+      const resolvedTechId = parseInt(techId, 10) || 0;
+      if (!resolvedTechId) return;
+      const panel      = getPanelEl();
+      const startVal   = panel?.querySelector("#taskDetailStart")?.value;
+      const parsed     = parseDatetimeComponents(startVal);
+      const targetDate = parsed?.date ?? (_localNow ? _localNow.split("T")[0] : "");
+      if (!targetDate) return;
+      try {
+        const tz  = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+        const url = `/api/tasks/suggest-start`
+            + `?technicianId=${resolvedTechId}`
+            + `&targetDate=${targetDate}`
+            + `&appendAfterLastTask=true`
+            + `&newServiceObjectId=${newObjectId}`;
+        const resp = await fetch(url, {
+          credentials: "same-origin",
+          headers: { "X-Timezone-Offset": String(tz) },
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.startAt) setFn("#taskDetailStart", data.startAt);
+          if (data.endAt)   setFn("#taskDetailEnd",   data.endAt);
+        }
+      } catch { /* keep current prefill silently */ }
+      return;
+    }
 
     let prevSnap = null;
     const resolvedTechId = parseInt(techId, 10) || 0;
@@ -816,36 +848,13 @@
     set("#taskDetailPriority", "");
     set("#taskDetailSkill", "");
     set("#taskDetailInstructions", "");
-    // Chain: for new items (idx > 0), ask backend for a DB-aware next free slot.
-    // restoreSchedulingSnapshot (called right after) overrides this if the user already
-    // filled this item and is navigating back/forward — so snapshot restore is safe.
-    let chainStart = _localNow ?? "";
-    let chainEnd   = localNowEnd();
-
-    if (idx > 0) {
-      const prevSnap = _bulkScheduledData[idx - 1];
-      const prevEnd  = parseDatetimeComponents(prevSnap?.endAt);
-      const techId   = prevSnap?.technicianId;
-
-      if (prevEnd && techId) {
-        try {
-          const tz  = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
-          const url = `/api/tasks/suggest-start?technicianId=${techId}&targetDate=${prevEnd.date}&afterEndMinutes=${prevEnd.minutes}`;
-          const resp = await fetch(url, {
-            credentials: "same-origin",
-            headers: { "X-Timezone-Offset": String(tz) },
-          });
-          if (resp.ok) {
-            const data = await resp.json();
-            if (data.startAt) chainStart = data.startAt;
-            if (data.endAt)   chainEnd   = data.endAt;
-          }
-        } catch { /* fallback to _localNow silently */ }
-      }
-    }
-
-    set("#taskDetailStart", chainStart);
-    set("#taskDetailEnd",   chainEnd);
+    // Leave times at the current local time as a neutral placeholder.
+    // The correct suggested slot is filled once the user selects a technician
+    // (via the taskDetailAssignee change listener → _onBulkAssigneeChange → scheduleSuggestSlot).
+    // restoreSchedulingSnapshot (called right after this function) overrides these
+    // with the user's previously saved values when navigating back/forward.
+    set("#taskDetailStart", _localNow ?? "");
+    set("#taskDetailEnd",   localNowEnd());
     // Clear assignee and placement dataset so travel preview can't fall back to previous tech
     panel.dataset.technicianId = "";
     panel.dataset.targetDate = "";
@@ -866,16 +875,6 @@
     }
 
     await applyPrefill(item);
-
-    // applyPrefill may have set #taskDetailObject programmatically (no native change event).
-    // Directly await the travel recalc so restoreSchedulingSnapshot runs after and can safely
-    // override the times if the user is navigating back to a previously filled item.
-    if (idx > 0) {
-      const objectEl = panel.querySelector("#taskDetailObject");
-      if (objectEl?.value) {
-        await tryRecalcBulkTravelTime(idx, objectEl.value, 0, set);
-      }
-    }
 
     // Update progress indicator
     const stepEl  = document.getElementById("taskBulkProgressStep");
@@ -971,27 +970,34 @@
     const panel = getPanelEl();
     if (!panel) return;
 
-    const set = (id, val) => { if (val != null) { const el = panel.querySelector(id); if (el) el.value = val; } };
+    _restoringSnapshot = true;
+    try {
+      const set = (id, val) => { if (val != null) { const el = panel.querySelector(id); if (el) el.value = val; } };
 
-    set("#taskDetailStart", snap.startAt);
-    set("#taskDetailEnd", snap.endAt);
-    set("#taskDetailTitle", snap.title);
-    set("#taskDetailPriority", snap.priorityRaw);
-    set("#taskDetailSkill", snap.skillLevel);
-    set("#taskDetailInstructions", snap.instructions);
-    set("#taskDetailTechnicianComment", snap.technicianComment);
+      set("#taskDetailStart", snap.startAt);
+      set("#taskDetailEnd", snap.endAt);
+      set("#taskDetailTitle", snap.title);
+      set("#taskDetailPriority", snap.priorityRaw);
+      set("#taskDetailSkill", snap.skillLevel);
+      set("#taskDetailInstructions", snap.instructions);
+      set("#taskDetailTechnicianComment", snap.technicianComment);
 
-    const techId = snap.technicianId;
-    if (techId && window.jQuery) {
-      const assigneeEl = panel.querySelector("#taskDetailAssignee");
-      if (assigneeEl) window.jQuery(assigneeEl).val(String(techId)).trigger("change");
-    }
+      const techId = snap.technicianId;
+      if (techId) {
+        if (window.jQuery) {
+          const assigneeEl = panel.querySelector("#taskDetailAssignee");
+          if (assigneeEl) window.jQuery(assigneeEl).val(String(techId)).trigger("change");
+        }
+      }
 
-    const modal = window.schedule?.tasks?.modal;
-    if (modal && snap.objectId) {
-      await modal.populateObjectDropdown(panel, snap.objectId, snap.objectName, snap.objectAddress);
-      await modal.populateAddressDropdown(panel, snap.objectAddress);
-      modal.ensureObjectAddressBinding(panel);
+      const modal = window.schedule?.tasks?.modal;
+      if (modal && snap.objectId) {
+        await modal.populateObjectDropdown(panel, snap.objectId, snap.objectName, snap.objectAddress);
+        await modal.populateAddressDropdown(panel, snap.objectAddress);
+        modal.ensureObjectAddressBinding(panel);
+      }
+    } finally {
+      _restoringSnapshot = false;
     }
   }
 
@@ -1548,13 +1554,67 @@
     // falls back to prev snapshot's tech when the assignee isn't selected yet.
     getPanelEl()?.addEventListener("change", async (e) => {
       if (e.target.id !== "taskDetailObject") return;
-      if (!_isBulkMode || _bulkQueueIdx === 0) return;
+      if (!_isBulkMode || _restoringSnapshot) return;
 
       const panel = getPanelEl();
       const currentTechId = parseInt(panel?.querySelector("#taskDetailAssignee")?.value || "0", 10) || 0;
-      const setFn = (id, val) => { const el = panel?.querySelector(id); if (el) el.value = val ?? ""; };
+      const setFn = (id, val) => {
+        const el = panel?.querySelector(id);
+        if (!el) return;
+        el.value = val ?? "";
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      };
       await tryRecalcBulkTravelTime(_bulkQueueIdx, e.target.value, currentTechId, setFn);
     });
+
+    // Bulk slot recalculation on technician selection.
+    // When the user picks a technician in bulk mode, suggest the best available time
+    // from that technician's schedule (chain-aware when the same tech was used previously).
+    // We register BOTH a native addEventListener (for programmatic triggers) AND
+    // a jQuery/Select2 handler (select2:select) so we catch selection regardless of
+    // how Select2 fires the event.
+    const _onBulkAssigneeChange = async (rawVal) => {
+      if (!_isBulkMode || _restoringSnapshot) return;
+
+      const newTechId = parseInt(rawVal || "0", 10) || 0;
+      if (!newTechId) return;
+
+      const panel = getPanelEl();
+      const setFn = (id, val) => {
+        const el = panel?.querySelector(id);
+        if (!el) return;
+        el.value = val ?? "";
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+
+      // Build chain context when this is the same tech as the previous confirmed item
+      const prevSnap     = _bulkQueueIdx > 0 ? _bulkScheduledData[_bulkQueueIdx - 1] : null;
+      const prevEnd      = parseDatetimeComponents(prevSnap?.endAt);
+      const chainContext = (prevEnd && prevSnap?.technicianId === newTechId)
+        ? { afterEndMinutes: prevEnd.minutes, targetDate: prevEnd.date, previousObjectId: prevSnap.objectId ?? 0 }
+        : null;
+
+      const modal = window.schedule?.tasks?.modal;
+      await modal?.scheduleSuggestSlot(panel, newTechId, chainContext, setFn);
+    };
+
+    // Native DOM change (catches programmatic .trigger("change") from jQuery in some browsers)
+    getPanelEl()?.addEventListener("change", async (e) => {
+      if (e.target.id !== "taskDetailAssignee") return;
+      await _onBulkAssigneeChange(e.target.value);
+    });
+
+    // Select2-specific: fires reliably when user picks from the dropdown
+    if (window.jQuery) {
+      const assigneeEl = getPanelEl()?.querySelector("#taskDetailAssignee");
+      if (assigneeEl) {
+        window.jQuery(assigneeEl).on("select2:select select2:clear", async (e) => {
+          const val = e.params?.data?.id ?? "";
+          console.log("[bulk.suggest] select2 event fired", e.type, val);
+          await _onBulkAssigneeChange(val);
+        });
+      }
+    }
 
     // Hide trigger button when switching to weekly view
     document.addEventListener("schedule:view:changed", (e) => {
@@ -1580,4 +1640,7 @@
     openBacklogPanel,
     getSchedulingBacklogId: () => _schedulingFromBacklogId,
   };
+  // Expose _isBulkMode as a read-only getter so task.modal.js can guard its
+  // tech-change listener (single create mode) against double-firing in bulk mode.
+  Object.defineProperty(window.schedule.backlog, "_isBulkMode", { get: () => _isBulkMode });
 })();

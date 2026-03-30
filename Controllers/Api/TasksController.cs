@@ -1050,7 +1050,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             [FromQuery] int? afterEndMinutes,
             [FromQuery] long? previousServiceObjectId,
             [FromQuery] long? newServiceObjectId,
-            CancellationToken cancellationToken)
+            [FromQuery] bool appendAfterLastTask = false,
+            CancellationToken cancellationToken = default)
         {
             if (technicianId <= 0)
                 return BadRequest(new { message = "Nenurodytas darbuotojas." });
@@ -1062,7 +1063,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var (startMinutes, endMinutes) = await _planService.GetSuggestedNextSlotAsync(
                 technicianId, parsedDate, tz,
                 ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes,
-                afterEndMinutes, previousServiceObjectId, newServiceObjectId, cancellationToken);
+                afterEndMinutes, previousServiceObjectId, newServiceObjectId, appendAfterLastTask, cancellationToken);
 
             var pad = (int n) => n.ToString().PadLeft(2, '0');
             var startTime = $"{pad(startMinutes / 60)}:{pad(startMinutes % 60)}";

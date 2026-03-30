@@ -95,6 +95,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             int? afterEndMinutes,
             long? previousServiceObjectId = null,
             long? newServiceObjectId = null,
+            bool appendAfterLastTask = false,
             CancellationToken cancellationToken = default);
     }
 }
