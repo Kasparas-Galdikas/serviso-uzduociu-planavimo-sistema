@@ -40,19 +40,22 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public LoadScoreContext OriginalState { get; }
 
         private readonly IScheduleTimeService _timeService;
+        private readonly Dictionary<(long From, long To), int>? _travelMinutes;
 
         private PlanSimulationContext(
             IReadOnlyList<TaskEntity> tasks,
             IReadOnlyList<TechnicianEntity> technicians,
             TaskEntity targetTask,
             LoadScoreContext originalState,
-            IScheduleTimeService timeService)
+            IScheduleTimeService timeService,
+            Dictionary<(long From, long To), int>? travelMinutes = null)
         {
             Tasks = tasks;
             Technicians = technicians;
             TargetTask = targetTask;
             OriginalState = originalState;
             _timeService = timeService;
+            _travelMinutes = travelMinutes;
         }
 
         /// <summary>
@@ -62,7 +65,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             IEnumerable<TaskEntity> allTasks,
             IEnumerable<TechnicianEntity> allTechnicians,
             TaskEntity targetTask,
-            IScheduleTimeService timeService)
+            IScheduleTimeService timeService,
+            Dictionary<(long From, long To), int>? travelMinutes = null)
         {
             if (timeService == null)
                 throw new ArgumentNullException(nameof(timeService));
@@ -70,14 +74,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             var tasksList = allTasks.ToList();
             var techList = allTechnicians.ToList();
 
-            var originalState = EvaluateSnapshotState(targetTask, tasksList, techList, timeService);
+            var originalState = EvaluateSnapshotState(targetTask, tasksList, techList, timeService, travelMinutes);
 
             return new PlanSimulationContext(
                 tasksList.AsReadOnly(),
                 techList.AsReadOnly(),
                 targetTask,
                 originalState,
-                timeService);
+                timeService,
+                travelMinutes);
         }
 
         /// <summary>
@@ -92,7 +97,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 Technicians,
                 TargetTask,
                 OriginalState,
-                _timeService);
+                _timeService,
+                _travelMinutes);
         }
 
         /// <summary>
@@ -101,7 +107,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         /// </summary>
         public LoadScoreContext EvaluateCurrentState()
         {
-            return EvaluateSnapshotState(TargetTask, Tasks.ToList(), Technicians.ToList(), _timeService);
+            return EvaluateSnapshotState(TargetTask, Tasks.ToList(), Technicians.ToList(), _timeService, _travelMinutes);
         }
 
         /// <summary>
@@ -113,7 +119,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             DateTime dayStart,
             DateTime weekStart,
             List<TaskEntity> allTasks,
-            List<TechnicianEntity> allTechnicians)
+            List<TechnicianEntity> allTechnicians,
+            Dictionary<(long From, long To), int>? travelMinutes = null)
         {
             var technician = allTechnicians.FirstOrDefault(t => t.Id == technicianId);
             if (technician == null)
@@ -135,7 +142,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                            t.StartAt < weekEnd)
                 .ToList();
 
-            var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks);
+            // Convert route-based travel dict to task-based if provided
+            var travelMinutesByTaskId = ConvertTravelDictToTaskBased(technician, dayTasks, weekTasks, travelMinutes);
+            var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks, travelMinutesByTaskId);
             return snapshot.Context;
         }
 
@@ -229,7 +238,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             TaskEntity targetTask,
             List<TaskEntity> allTasks,
             List<TechnicianEntity> allTechnicians,
-            IScheduleTimeService timeService)
+            IScheduleTimeService timeService,
+            Dictionary<(long From, long To), int>? travelMinutes = null)
         {
             var dayStart = targetTask.StartAt.Date;
             var weekStart = timeService.GetWeekStart(dayStart);
@@ -238,7 +248,54 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 dayStart,
                 weekStart,
                 allTasks,
-                allTechnicians);
+                allTechnicians,
+                travelMinutes);
+        }
+
+        /// <summary>
+        /// Converts route-based travel minutes to task-based by simulating technician chains.
+        /// Only used when travel dict is route-based (from ITravelTimeResolver).
+        /// </summary>
+        private static Dictionary<long, int>? ConvertTravelDictToTaskBased(
+            TechnicianEntity technician,
+            List<TaskEntity> dayTasks,
+            List<TaskEntity> weekTasks,
+            Dictionary<(long From, long To), int>? travelMinutesByRoute)
+        {
+            if (travelMinutesByRoute == null || travelMinutesByRoute.Count == 0)
+                return null;
+
+            var result = new Dictionary<long, int>();
+            
+            // Only process day tasks (workload is evaluated per day)
+            TaskEntity? prevTask = null;
+            foreach (var task in dayTasks.OrderBy(t => t.StartAt))
+            {
+                if (task.ServiceObject == null)
+                {
+                    result[task.Id] = 0;
+                    prevTask = task;
+                    continue;
+                }
+
+                var fromAddressId = prevTask != null
+                    ? (prevTask.ServiceObject?.AddressId ?? technician.WorkplaceAddressId)
+                    : technician.WorkplaceAddressId;
+                var toAddressId = task.ServiceObject.AddressId;
+
+                if (travelMinutesByRoute.TryGetValue((fromAddressId, toAddressId), out var travelMinute))
+                {
+                    result[task.Id] = travelMinute;
+                }
+                else
+                {
+                    result[task.Id] = 0;
+                }
+
+                prevTask = task;
+            }
+
+            return result;
         }
 
     }

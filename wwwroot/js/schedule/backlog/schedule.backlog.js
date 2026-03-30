@@ -533,9 +533,11 @@
   let _bulkQueue           = [];
   let _bulkQueueIdx        = 0;
   let _isBulkMode          = false;
+  let _bulkPlanMode        = "rankinis";
   let _bulkScheduledData   = [];   // form snapshots per queue item
   let _bulkConfirmPhase    = false; // true while confirm view is shown
   let _restoringSnapshot   = false; // suppresses reactive listeners during restoreSchedulingSnapshot
+  let _autoPlanningInProgress = false;
 
   function clearSchedulingContext() {
     _schedulingFromBacklogId = null;
@@ -546,6 +548,7 @@
     _bulkQueue         = [];
     _bulkQueueIdx      = 0;
     _isBulkMode        = false;
+    _bulkPlanMode      = "rankinis";
     _bulkScheduledData = [];
     _bulkConfirmPhase  = false;
     const panel = getPanelEl();
@@ -699,8 +702,9 @@
     _bulkQueue = ids.map(id => _items.find(i => String(i.id) === id)).filter(Boolean);
     if (_bulkQueue.length === 0) return;
 
-    _bulkQueueIdx = 0;
-    _isBulkMode   = true;
+	    _bulkQueueIdx = 0;
+	    _isBulkMode   = true;
+      _bulkPlanMode = "rankinis";
 
     const openPanel = window.schedule?.tasks?.openTaskPanel;
     if (typeof openPanel !== "function") {
@@ -716,11 +720,8 @@
     panel.dataset.bulkMode = "true";
 
     // Show plan mode toggle, default to rankinis
-    panel.querySelector("#planModeField")?.classList.remove("d-none");
-    const rankinisRadio = panel.querySelector("#taskPlanModeRankinis");
-    if (rankinisRadio) rankinisRadio.checked = true;
-    const hidden = panel.querySelector("#taskPlanMode");
-    if (hidden) hidden.value = "rankinis";
+	    panel.querySelector("#planModeField")?.classList.remove("d-none");
+      applyBulkPlanModeToUi();
 
     // Show scheduling fields and prefill times immediately
     panel.querySelector("#taskFieldAssignee")?.classList.remove("d-none");
@@ -741,14 +742,189 @@
     document.getElementById("taskBulkBack")?.classList.remove("d-none");
     document.getElementById("taskBulkNext")?.classList.remove("d-none");
 
-    await startBulkQueueItem(0);
-    updateBulkNavButtons();
-  }
+	    await activateBulkQueueItem(0);
+	  }
 
-  function onPlanModeChange(_value) {
-    // Both modes use the same fields and prefill — switching only signals intent
-    // (automatinis is a UI-only placeholder for now; no field changes needed)
-  }
+    function getCurrentBulkItem() {
+      return _bulkQueue[_bulkQueueIdx] ?? null;
+    }
+
+    function getBulkPlanMode() {
+      const panel = getPanelEl();
+      const hidden = panel?.querySelector("#taskPlanMode");
+      return hidden?.value || _bulkPlanMode || "rankinis";
+    }
+
+    function applyBulkPlanModeToUi() {
+      const panel = getPanelEl();
+      if (!panel) return;
+
+      const mode = _bulkPlanMode || "rankinis";
+      const hidden = panel.querySelector("#taskPlanMode");
+      if (hidden) hidden.value = mode;
+
+      panel.querySelectorAll("input[name='taskPlanModeRadio']").forEach((radio) => {
+        radio.checked = radio.value === mode;
+      });
+    }
+
+    function buildBulkSimulatedAssignments(currentIdx = _bulkQueueIdx) {
+      return _bulkScheduledData
+        .map((snap, idx) => ({ snap, idx }))
+        .filter(({ idx, snap }) =>
+          idx !== currentIdx &&
+          snap &&
+          parseInt(snap.technicianId || "0", 10) > 0 &&
+          snap.startAt &&
+          snap.endAt &&
+          parseInt(snap.addressId || "0", 10) > 0)
+        .map(({ idx, snap }) => ({
+          technicianId: parseInt(snap.technicianId, 10),
+          startAt: snap.startAt,
+          endAt: snap.endAt,
+          addressId: parseInt(snap.addressId, 10),
+          serviceObjectId: parseInt(snap.objectId || "0", 10) || null,
+          sourceBacklogItemId: _bulkQueue[idx]?.id ? parseInt(_bulkQueue[idx].id, 10) : null,
+        }));
+    }
+
+    function buildBulkChainContextForTechnician(technicianId, currentIdx = _bulkQueueIdx) {
+      const resolvedTechId = parseInt(technicianId || "0", 10) || 0;
+      if (!resolvedTechId || currentIdx <= 0) return null;
+
+      for (let j = currentIdx - 1; j >= 0; j--) {
+        const snap = _bulkScheduledData[j];
+        if (!snap?.endAt || !snap?.objectId) continue;
+        if ((parseInt(snap.technicianId || "0", 10) || 0) !== resolvedTechId) continue;
+
+        const prevEnd = parseDatetimeComponents(snap.endAt);
+        if (!prevEnd) continue;
+
+        return {
+          afterEndMinutes: prevEnd.minutes,
+          targetDate: prevEnd.date,
+          previousObjectId: parseInt(snap.objectId || "0", 10) || 0,
+        };
+      }
+
+      return null;
+    }
+
+    async function maybeRunAutomaticPlanningForCurrentItem({ force = false } = {}) {
+      if (!_isBulkMode || _restoringSnapshot || _autoPlanningInProgress) return false;
+      if (getBulkPlanMode() !== "automatinis") return true;
+
+      const item = getCurrentBulkItem();
+      const panel = getPanelEl();
+      const modal = window.schedule?.tasks?.modal;
+      if (!item || !panel || !modal) return false;
+
+      const existingSnapshot = _bulkScheduledData[_bulkQueueIdx] || {};
+      if (!force && existingSnapshot.technicianId) {
+        return true;
+      }
+
+      const snapshot = modal.collectFormData(panel) || {};
+      if (!force && snapshot.technicianId) {
+        _bulkScheduledData[_bulkQueueIdx] = snapshot;
+        return true;
+      }
+
+      const start = parseDatetimeComponents(snapshot.startAt || panel.querySelector("#taskDetailStart")?.value);
+      const end = parseDatetimeComponents(snapshot.endAt || panel.querySelector("#taskDetailEnd")?.value);
+      const tzOffset = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+      const objectName = snapshot.objectName || item.objectName || "";
+      const objectAddress = snapshot.objectAddress || item.locationText || "";
+      const simulatedAssignments = buildBulkSimulatedAssignments();
+
+      if (!start?.date || !end || !objectName || !objectAddress) {
+        return false;
+      }
+
+      const requestDto = {
+        technicianId: 0,
+        targetDate: start.date,
+        startMinutes: start.minutes,
+        endMinutes: end.minutes,
+        title: snapshot.title || item.title || "",
+        priority: snapshot.priorityVal ?? item.priority ?? 0,
+        status: 0,
+        skillLevel: snapshot.skillLevel || item.skillLevel || "",
+        objectName,
+        objectAddress,
+        instructions: snapshot.instructions || item.instructions || "",
+        timezoneOffsetMinutes: tzOffset,
+        sourceBacklogItemId: item.id ? parseInt(item.id, 10) : null,
+        simulatedAssignments,
+      };
+
+      _autoPlanningInProgress = true;
+      try {
+        const resp = await fetch("/api/tasks/suggest-auto-assignment", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestDto),
+        });
+
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.technicianId || !data.startAt || !data.endAt) {
+          window.schedule?.ui?.toast?.showError?.(data.message || "Nepavyko automatiškai parinkti darbuotojo.");
+          return false;
+        }
+
+        _restoringSnapshot = true;
+        try {
+          const set = (selector, value) => {
+            const el = panel.querySelector(selector);
+            if (!el) return;
+            el.value = value ?? "";
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+          };
+
+          set("#taskDetailStart", data.startAt);
+          set("#taskDetailEnd", data.endAt);
+
+          const assigneeEl = panel.querySelector("#taskDetailAssignee");
+          if (assigneeEl) {
+            if (window.jQuery) {
+              window.jQuery(assigneeEl).val(String(data.technicianId)).trigger("change");
+            } else {
+              assigneeEl.value = String(data.technicianId);
+              assigneeEl.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+          }
+        } finally {
+          _restoringSnapshot = false;
+        }
+
+        const modalSchedule = window.schedule?.tasks?.modal;
+        const setFn = (selector, value) => {
+          const el = panel.querySelector(selector);
+          if (!el) return;
+          el.value = value ?? "";
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+        };
+        const chainContext = buildBulkChainContextForTechnician(data.technicianId);
+        await modalSchedule?.scheduleSuggestSlot?.(panel, data.technicianId, chainContext, setFn);
+
+        _bulkScheduledData[_bulkQueueIdx] = modal.collectFormData(panel);
+        return true;
+      } catch {
+        window.schedule?.ui?.toast?.showError?.("Nepavyko automatiškai parinkti darbuotojo.");
+        return false;
+      } finally {
+        _autoPlanningInProgress = false;
+      }
+    }
+
+	  async function onPlanModeChange(value) {
+      _bulkPlanMode = value || "rankinis";
+      applyBulkPlanModeToUi();
+      if (_bulkPlanMode === "automatinis") {
+        await maybeRunAutomaticPlanningForCurrentItem({ force: true });
+      }
+	  }
 
   // Shared helper: recalculate start/end time with inbound travel buffer between
   // the previous technician's last location and a newly selected service object.
@@ -832,15 +1008,16 @@
     } catch { /* keep current prefill silently */ }
   }
 
-  async function startBulkQueueItem(idx) {
+	  async function startBulkQueueItem(idx) {
     const item = _bulkQueue[idx];
     if (!item) return;
 
     _schedulingFromBacklogId       = item.id;
     _schedulingFromBacklogItemType = item.itemType;
 
-    const panel = getPanelEl();
-    if (!panel) return;
+	    const panel = getPanelEl();
+	    if (!panel) return;
+      applyBulkPlanModeToUi();
 
     // Clear content fields before prefilling next item
     const set = (id, val) => { const el = panel.querySelector(id); if (el) el.value = val ?? ""; };
@@ -879,9 +1056,17 @@
     // Update progress indicator
     const stepEl  = document.getElementById("taskBulkProgressStep");
     const titleEl = document.getElementById("taskBulkProgressTitle");
-    if (stepEl) stepEl.textContent = `${idx + 1} / ${_bulkQueue.length}`;
-    if (titleEl) titleEl.textContent = item.title || "Be pavadinimo";
-  }
+	    if (stepEl) stepEl.textContent = `${idx + 1} / ${_bulkQueue.length}`;
+	    if (titleEl) titleEl.textContent = item.title || "Be pavadinimo";
+	  }
+
+    async function activateBulkQueueItem(idx) {
+      await startBulkQueueItem(idx);
+      await restoreSchedulingSnapshot(idx);
+      await maybeRunAutomaticPlanningForCurrentItem();
+      updateBulkNavButtons();
+      scrollPanelToTop();
+    }
 
   function finishBulkSchedule() {
     const total = _bulkQueue.length;
@@ -914,27 +1099,32 @@
     if (body) body.scrollTop = 0;
   }
 
-  async function onBulkNext() {
-    if (_bulkConfirmPhase) {
-      await confirmAndCreateAll();
-      return;
+	  async function onBulkNext() {
+	    if (_bulkConfirmPhase) {
+	      await confirmAndCreateAll();
+	      return;
+	    }
+
+      if (getBulkPlanMode() === "automatinis") {
+        const resolved = await maybeRunAutomaticPlanningForCurrentItem();
+        if (!resolved) {
+          window.schedule?.ui?.toast?.showError?.("Automatinis planavimas nerado darbuotojo ar laiko šiam įrašui.");
+          return;
+        }
+      }
+	
+	    const panel = getPanelEl();
+	    const modal = window.schedule?.tasks?.modal;
+	    if (panel && modal) {
+	      _bulkScheduledData[_bulkQueueIdx] = modal.collectFormData(panel);
     }
 
-    const panel = getPanelEl();
-    const modal = window.schedule?.tasks?.modal;
-    if (panel && modal) {
-      _bulkScheduledData[_bulkQueueIdx] = modal.collectFormData(panel);
-    }
-
-    if (_bulkQueueIdx < _bulkQueue.length - 1) {
-      _bulkQueueIdx++;
-      await startBulkQueueItem(_bulkQueueIdx);
-      await restoreSchedulingSnapshot(_bulkQueueIdx);
-      updateBulkNavButtons();
-      scrollPanelToTop();
-    } else {
-      showBulkConfirmView();
-    }
+	    if (_bulkQueueIdx < _bulkQueue.length - 1) {
+	      _bulkQueueIdx++;
+	      await activateBulkQueueItem(_bulkQueueIdx);
+	    } else {
+	      showBulkConfirmView();
+	    }
   }
 
   async function onBulkBack() {
@@ -945,24 +1135,18 @@
       _bulkScheduledData[_bulkQueueIdx] = modal.collectFormData(panel);
     }
 
-    if (_bulkConfirmPhase) {
-      hideBulkConfirmView();
-      _bulkConfirmPhase = false;
-      _bulkQueueIdx = _bulkQueue.length - 1;
-      await startBulkQueueItem(_bulkQueueIdx);
-      await restoreSchedulingSnapshot(_bulkQueueIdx);
-      updateBulkNavButtons();
-      scrollPanelToTop();
-      return;
-    }
-    if (_bulkQueueIdx > 0) {
-      _bulkQueueIdx--;
-      await startBulkQueueItem(_bulkQueueIdx);
-      await restoreSchedulingSnapshot(_bulkQueueIdx);
-      updateBulkNavButtons();
-      scrollPanelToTop();
-    }
-  }
+	    if (_bulkConfirmPhase) {
+	      hideBulkConfirmView();
+	      _bulkConfirmPhase = false;
+	      _bulkQueueIdx = _bulkQueue.length - 1;
+	      await activateBulkQueueItem(_bulkQueueIdx);
+	      return;
+	    }
+	    if (_bulkQueueIdx > 0) {
+	      _bulkQueueIdx--;
+	      await activateBulkQueueItem(_bulkQueueIdx);
+	    }
+	  }
 
   async function restoreSchedulingSnapshot(idx) {
     const snap = _bulkScheduledData[idx];
@@ -1023,17 +1207,19 @@
     document.getElementById("taskBulkProgress")?.classList.remove("d-none");
   }
 
-  async function runBulkValidation() {
-    const tzOffset = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
-    const items = _bulkQueue.map((item, idx) => {
-      const snap = _bulkScheduledData[idx] || {};
-      const start = parseDatetimeComponents(snap.startAt);
-      const end   = parseDatetimeComponents(snap.endAt);
-      return {
-        technicianId:          snap.technicianId || 0,
-        targetDate:            start?.date || "",
-        startMinutes:          start?.minutes ?? 0,
-        endMinutes:            end?.minutes ?? 0,
+	  async function runBulkValidation() {
+	    const tzOffset = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+	    const planModeRadio = document.querySelector('input[name="taskPlanModeRadio"]:checked');
+	    const planMode = planModeRadio?.value || "rankinis";
+	    const items = _bulkQueue.map((item, idx) => {
+	      const snap = _bulkScheduledData[idx] || {};
+	      const start = parseDatetimeComponents(snap.startAt);
+	      const end   = parseDatetimeComponents(snap.endAt);
+	      return {
+	        technicianId:          snap.technicianId || 0,
+	        targetDate:            start?.date || "",
+	        startMinutes:          start?.minutes ?? 0,
+	        endMinutes:            end?.minutes ?? 0,
         title:                 item.title || "",
         priority:              item.priority ?? 0,
         status:                0,
@@ -1052,7 +1238,7 @@
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ planMode, items }),
       });
       data = await resp.json().catch(() => ({}));
     } catch {
@@ -1174,21 +1360,18 @@
     });
 
     // Click card title to jump directly to that task's form
-    list.addEventListener("click", async (e) => {
-      if (!e.target.closest(".backlog-card__title")) return;
-      const card = e.target.closest(".backlog-card--confirm");
-      if (!card) return;
-      const idx = parseInt(card.dataset.confirmIdx, 10);
-      if (isNaN(idx)) return;
-      hideBulkConfirmView();
-      _bulkConfirmPhase = false;
-      _bulkQueueIdx = idx;
-      await startBulkQueueItem(idx);
-      await restoreSchedulingSnapshot(idx);
-      updateBulkNavButtons();
-      scrollPanelToTop();
-    });
-  }
+	    list.addEventListener("click", async (e) => {
+	      if (!e.target.closest(".backlog-card__title")) return;
+	      const card = e.target.closest(".backlog-card--confirm");
+	      if (!card) return;
+	      const idx = parseInt(card.dataset.confirmIdx, 10);
+	      if (isNaN(idx)) return;
+	      hideBulkConfirmView();
+	      _bulkConfirmPhase = false;
+	      _bulkQueueIdx = idx;
+	      await activateBulkQueueItem(idx);
+	    });
+	  }
 
   function parseDatetimeComponents(val) {
     if (!val || !val.includes("T")) return null;
@@ -1206,15 +1389,19 @@
 
     const tzOffset = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
 
-    const items = _bulkQueue.map((item, idx) => {
-      const snap = _bulkScheduledData[idx] || {};
-      const start = parseDatetimeComponents(snap.startAt);
-      const end   = parseDatetimeComponents(snap.endAt);
-      return {
-        technicianId:         snap.technicianId || 0,
-        targetDate:           start?.date || "",
-        startMinutes:         start?.minutes ?? 0,
-        endMinutes:           end?.minutes ?? 0,
+	    // Get the selected planning mode (rankinis or automatinis)
+	    const planModeRadio = document.querySelector('input[name="taskPlanModeRadio"]:checked');
+	    const planMode = planModeRadio?.value || "rankinis";
+
+	    const items = _bulkQueue.map((item, idx) => {
+	      const snap = _bulkScheduledData[idx] || {};
+	      const start = parseDatetimeComponents(snap.startAt);
+	      const end   = parseDatetimeComponents(snap.endAt);
+	      return {
+	        technicianId:         snap.technicianId || 0,
+	        targetDate:           start?.date || "",
+	        startMinutes:         start?.minutes ?? 0,
+	        endMinutes:           end?.minutes ?? 0,
         title:                item.title || "",
         priority:             item.priority ?? 0,
         status:               0,
@@ -1233,7 +1420,7 @@
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ planMode, items }),
       });
       data = await resp.json().catch(() => ({}));
       ok = resp.ok && data.allSucceeded;
@@ -1541,13 +1728,13 @@
       ?.addEventListener("click", () => onBulkBack());
 
     // Plan mode radio toggle (delegated on panel element)
-    getPanelEl()?.addEventListener("change", (e) => {
-      if (e.target.name === "taskPlanModeRadio") {
-        const hidden = getPanelEl()?.querySelector("#taskPlanMode");
-        if (hidden) hidden.value = e.target.value;
-        onPlanModeChange(e.target.value);
-      }
-    });
+	    getPanelEl()?.addEventListener("change", async (e) => {
+	      if (e.target.name === "taskPlanModeRadio") {
+	        const hidden = getPanelEl()?.querySelector("#taskPlanMode");
+	        if (hidden) hidden.value = e.target.value;
+	        await onPlanModeChange(e.target.value);
+	      }
+	    });
 
     // Bulk travel-aware time recalculation on user object selection (item N, idx > 0).
     // Delegates to tryRecalcBulkTravelTime which handles same-tech chain lookup and

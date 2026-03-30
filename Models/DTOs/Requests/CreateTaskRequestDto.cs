@@ -1,4 +1,5 @@
 using ServiceTaskPlanningSystem.Data;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace ServiceTaskPlanningSystem.Models.DTOs.Requests;
@@ -39,4 +40,10 @@ public class CreateTaskRequestDto : BacklogItemDto
     public int TimezoneOffsetMinutes { get; set; }
 
     public long? SourceBacklogItemId { get; set; }
+
+    /// <summary>
+    /// Optional effective bulk-plan simulation passed by the frontend so automatic
+    /// planning can evaluate against already resolved but not yet persisted items.
+    /// </summary>
+    public List<SimulatedTaskAssignmentDto>? SimulatedAssignments { get; set; }
 }

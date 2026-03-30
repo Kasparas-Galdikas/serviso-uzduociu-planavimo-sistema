@@ -90,10 +90,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             List<TaskEntity> weekTasks,
             CancellationToken cancellationToken)
         {
-            var routes = await _db.TravelRoutes
-                .AsNoTracking()
-                .ToListAsync(cancellationToken);
-            var routeLookup = routes.ToDictionary(r => (r.FromAddressId, r.ToAddressId), r => r);
+            // Use centralized resolver instead of duplicating route query logic
+            var addressIds = weekTasks
+                .Where(t => t.ServiceObject != null)
+                .Select(t => t.ServiceObject!.AddressId)
+                .Prepend(technician.WorkplaceAddressId)
+                .Distinct()
+                .ToList();
+
+            var travelMinutes = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
 
             var result = new Dictionary<long, int>();
             var tasksByDay = weekTasks
@@ -111,9 +116,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                         : technician.WorkplaceAddressId;
                     var toAddressId = task.ServiceObject!.AddressId;
 
-                    if (routeLookup.TryGetValue((fromAddressId, toAddressId), out var route))
+                    if (travelMinutes.TryGetValue((fromAddressId, toAddressId), out var travelMinute))
                     {
-                        result[task.Id] = route.DurationMinutes;
+                        result[task.Id] = travelMinute;
                     }
                     else
                     {

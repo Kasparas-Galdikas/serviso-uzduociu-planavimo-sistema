@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Interfaces;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.Travel;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -30,16 +31,19 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private readonly IEvaluationEngine _evaluationEngine;
         private readonly ILogger<TaskGenerator> _logger;
         private readonly IScheduleTimeService _timeService;
+        private readonly ITravelTimeResolver _travelResolver;
 
         public TaskGenerator(
             ScheduleDbContext db,
             IEvaluationEngine evaluationEngine,
             IScheduleTimeService timeService,
+            ITravelTimeResolver travelResolver,
             ILogger<TaskGenerator> logger)
         {
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _evaluationEngine = evaluationEngine ?? throw new ArgumentNullException(nameof(evaluationEngine));
             _timeService = timeService ?? throw new ArgumentNullException(nameof(timeService));
+            _travelResolver = travelResolver ?? throw new ArgumentNullException(nameof(travelResolver));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -84,11 +88,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                     .Include(t => t.User)
                     .ToListAsync(cancellationToken);
 
+                // Build travel time lookup for accurate workload simulation
+                var allAddresses = scopeTasks
+                    .Where(t => t.ServiceObject != null)
+                    .Select(t => t.ServiceObject!.AddressId)
+                    .Concat(allTechnicians.Select(t => t.WorkplaceAddressId))
+                    .Distinct()
+                    .ToList();
+                var travelMinutes = await _travelResolver.GetTravelMinutesAsync(allAddresses, cancellationToken);
+
                 // Compute original score using simulation for accurate baseline
                 var originalScore = ComputeTaskScore(targetTask, scopeTasks, allTechnicians, weights);
 
                 // Create simulation context for real evaluation
-                var simulation = PlanSimulationContext.Create(scopeTasks, allTechnicians, targetTask, _timeService);
+                var simulation = PlanSimulationContext.Create(scopeTasks, allTechnicians, targetTask, _timeService, travelMinutes);
 
                 // Generate candidate scenarios
                 var candidates = new List<CandidatePlan>();

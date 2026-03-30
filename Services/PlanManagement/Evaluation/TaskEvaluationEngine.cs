@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.Travel;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -14,12 +15,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
     {
         private readonly ScheduleDbContext _db;
         private readonly IScheduleTimeService _timeService;
+        private readonly ITravelTimeResolver _travelResolver;
         private readonly ILogger<TaskEvaluationEngine> _logger;
 
-        public TaskEvaluationEngine(ScheduleDbContext db, IScheduleTimeService timeService, ILogger<TaskEvaluationEngine> logger)
+        public TaskEvaluationEngine(ScheduleDbContext db, IScheduleTimeService timeService, ITravelTimeResolver travelResolver, ILogger<TaskEvaluationEngine> logger)
         {
             _db = db;
             _timeService = timeService;
+            _travelResolver = travelResolver;
             _logger = logger;
         }
 
@@ -143,10 +146,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             List<TaskEntity> tasks,
             CancellationToken cancellationToken)
         {
-            var routes = await _db.TravelRoutes
-                .AsNoTracking()
-                .ToListAsync(cancellationToken);
-            var routeLookup = routes.ToDictionary(r => (r.FromAddressId, r.ToAddressId), r => r);
+            // Use centralized resolver instead of duplicating route query logic
+            var addressIds = tasks
+                .Where(t => t.Technician != null && t.ServiceObject != null)
+                .SelectMany(t => new[] { t.Technician!.WorkplaceAddressId, t.ServiceObject!.AddressId })
+                .Distinct()
+                .ToList();
+
+            var travelMinutes = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
 
             var result = new Dictionary<long, int>();
             var tasksByTech = tasks
@@ -169,9 +176,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                             : workplaceAddressId;
                         var toAddressId = task.ServiceObject!.AddressId;
 
-                        if (routeLookup.TryGetValue((fromAddressId, toAddressId), out var route))
+                        if (travelMinutes.TryGetValue((fromAddressId, toAddressId), out var travelMinute))
                         {
-                            result[task.Id] = route.DurationMinutes;
+                            result[task.Id] = travelMinute;
                         }
                         else
                         {

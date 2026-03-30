@@ -269,12 +269,31 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             var outcome = new BulkValidationOutcome();
             var reservedSlots = new List<(long TechId, DateTime StartUtc, DateTime EndUtc)>();
 
+            _logger.LogInformation(
+                "svc.plan.bulk.validate.start itemCount={ItemCount} userId={UserId}",
+                items.Count,
+                user.UserId);
+
             for (int i = 0; i < items.Count; i++)
             {
                 var dto = items[i];
 
+                _logger.LogDebug(
+                    "svc.plan.bulk.validate.item index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} targetDate={TargetDate} startMinutes={StartMinutes} endMinutes={EndMinutes}",
+                    i,
+                    dto.SourceBacklogItemId,
+                    dto.TechnicianId,
+                    dto.TargetDate,
+                    dto.StartMinutes,
+                    dto.EndMinutes);
+
                 if (dto.TechnicianId <= 0)
                 {
+                    _logger.LogWarning(
+                        "svc.plan.bulk.validate.manual-tech-required index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId}",
+                        i,
+                        dto.SourceBacklogItemId,
+                        dto.TechnicianId);
                     outcome.Errors.Add(new BulkCreateItemErrorDto { Index = i, Message = "Priskirtas darbuotojas yra privalomas." });
                     continue;
                 }
@@ -290,6 +309,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 if (!DateTime.TryParseExact(dto.TargetDate, "yyyy-MM-dd",
                         CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsedDate))
                 {
+                    _logger.LogWarning(
+                        "svc.plan.bulk.validate.invalid-date index={Index} backlogItemId={BacklogItemId} targetDate={TargetDate}",
+                        i,
+                        dto.SourceBacklogItemId,
+                        dto.TargetDate);
                     outcome.Errors.Add(new BulkCreateItemErrorDto { Index = i, Message = "Netinkamas datos formatas." });
                     continue;
                 }
@@ -321,6 +345,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                 if (!placement.IsValid)
                 {
+                    _logger.LogWarning(
+                        "svc.plan.bulk.validate.invalid-placement index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} message={Message}",
+                        i,
+                        dto.SourceBacklogItemId,
+                        dto.TechnicianId,
+                        placement.Message);
                     outcome.Errors.Add(new BulkCreateItemErrorDto { Index = i, Message = placement.Message ?? "Netinkamas laiko langas." });
                     continue;
                 }
@@ -336,6 +366,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     continue;
                 }
 
+                _logger.LogDebug(
+                    "svc.plan.bulk.validate.placement-ok index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} startAtUtc={StartAtUtc} endAtUtc={EndAtUtc}",
+                    i,
+                    dto.SourceBacklogItemId,
+                    dto.TechnicianId,
+                    placement.StartAtUtc,
+                    placement.EndAtUtc);
+
                 reservedSlots.Add((dto.TechnicianId, placement.StartAtUtc, placement.EndAtUtc));
                 context.Placements[i] = placement;
 
@@ -344,6 +382,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                 if (!addressId.HasValue)
                 {
+                    _logger.LogDebug(
+                        "svc.plan.bulk.validate.address-missing index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} objectName={ObjectName}",
+                        i,
+                        dto.SourceBacklogItemId,
+                        dto.TechnicianId,
+                        dto.ObjectName);
                     continue;
                 }
 
@@ -360,12 +404,23 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                 if (!travelCheck.IsValid)
                 {
+                    _logger.LogWarning(
+                        "svc.plan.bulk.validate.travel-failed index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} message={Message}",
+                        i,
+                        dto.SourceBacklogItemId,
+                        dto.TechnicianId,
+                        travelCheck.Message);
                     outcome.Errors.Add(new BulkCreateItemErrorDto { Index = i, Message = travelCheck.Message ?? "Nepakanka laiko kelionei." });
                     continue;
                 }
 
                 context.SimulatedBatchStops.Add((dto.TechnicianId, addressId.Value, placement.StartAtUtc, placement.EndAtUtc));
             }
+
+            _logger.LogInformation(
+                "svc.plan.bulk.validate.completed itemCount={ItemCount} errorCount={ErrorCount}",
+                items.Count,
+                outcome.Errors.Count);
 
             return outcome;
         }
@@ -379,10 +434,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             var userLocalToday = _timeService.GetUserLocalToday(items[0].TimezoneOffsetMinutes);
             var serviceObjectCache = new Dictionary<(string ObjectName, string ObjectAddress), BulkServiceObjectResolution>();
 
+            _logger.LogInformation("svc.plan.bulk.build.start itemCount={ItemCount}", items.Count);
+
             for (int i = 0; i < items.Count; i++)
             {
                 var dto = items[i];
-                var placement = context.Placements[i];
                 var targetDate = context.ParsedDates[i];
 
                 var targetPlan = context.TargetPlans[i];
@@ -390,9 +446,24 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 {
                     context.ActivePlan = await _planLifecycle.GetOrExtendActivePlanAsync(context.ActivePlan, targetDate, userLocalToday, cancellationToken);
                     targetPlan = context.ActivePlan;
+                    _logger.LogInformation(
+                        "svc.plan.bulk.build.extended-plan index={Index} backlogItemId={BacklogItemId} planId={PlanId} targetDate={TargetDate}",
+                        i,
+                        dto.SourceBacklogItemId,
+                        targetPlan?.Id,
+                        targetDate);
                 }
 
-                var serviceObject = await ResolveBulkServiceObjectAsync(dto, placement.City, serviceObjectCache, cancellationToken);
+                if (targetPlan == null)
+                {
+                    throw new InvalidOperationException("Bulk task build could not resolve a target plan.");
+                }
+
+                var targetPlanId = targetPlan.Id;
+                var placement = context.Placements[i];
+                var city = placement.City;
+                var serviceObject = await ResolveBulkServiceObjectAsync(dto, city, serviceObjectCache, cancellationToken);
+                var technicianId = dto.TechnicianId;
 
                 if (!context.KnownAddressIds[i].HasValue)
                 {
@@ -400,7 +471,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                         taskDateLocal: targetDate,
                         startMinutesLocal: dto.StartMinutes,
                         timezoneOffsetMinutes: dto.TimezoneOffsetMinutes,
-                        technicianId: dto.TechnicianId,
+                        technicianId: technicianId,
                         startAtUtc: placement.StartAtUtc,
                         endAtUtc: placement.EndAtUtc,
                         serviceAddressId: serviceObject.AddressId,
@@ -409,6 +480,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                     if (!travelCheck.IsValid)
                     {
+                        _logger.LogWarning(
+                            "svc.plan.bulk.build.travel-failed index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} message={Message}",
+                            i,
+                            dto.SourceBacklogItemId,
+                            dto.TechnicianId,
+                            travelCheck.Message);
                         return new BulkTaskBuildResult
                         {
                             Tasks = createdTasks,
@@ -421,10 +498,21 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     }
                 }
 
+                _logger.LogInformation(
+                    "svc.plan.bulk.build.task index={Index} backlogItemId={BacklogItemId} planId={PlanId} technicianId={TechnicianId} startAtUtc={StartAtUtc} endAtUtc={EndAtUtc}",
+                    i,
+                    dto.SourceBacklogItemId,
+                    targetPlanId,
+                    technicianId,
+                    placement.StartAtUtc,
+                    placement.EndAtUtc);
+
+                context.SimulatedBatchStops.Add((technicianId, serviceObject.AddressId, placement.StartAtUtc, placement.EndAtUtc));
+
                 createdTasks.Add(new TaskEntity
                 {
-                    PlanId = targetPlan.Id,
-                    TechnicianId = dto.TechnicianId,
+                    PlanId = targetPlanId,
+                    TechnicianId = technicianId,
                     ServiceObjectId = serviceObject.ServiceObjectId,
                     Title = string.IsNullOrWhiteSpace(dto.Title) ? "Nauja uzduotis" : dto.Title.Trim(),
                     SkillLevel = dto.SkillLevel?.Trim() ?? string.Empty,
@@ -438,6 +526,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 });
             }
 
+            _logger.LogInformation("svc.plan.bulk.build.completed createdTaskCount={CreatedTaskCount}", createdTasks.Count);
             return new BulkTaskBuildResult { Tasks = createdTasks };
         }
 
@@ -483,6 +572,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             UserContext user,
             CancellationToken cancellationToken = default)
         {
+            _logger.LogInformation(
+                "svc.plan.bulk.validate-request itemCount={ItemCount} userId={UserId}",
+                items.Count,
+                user.UserId);
+
             var context = await LoadBulkCreateContextAsync(items.Count, cancellationToken);
             var validationOutcome = await ValidateBulkCreateRequestsAsync(items, user, context, cancellationToken);
             return new BulkCreateTaskResponseDto
@@ -497,11 +591,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             UserContext user,
             CancellationToken cancellationToken = default)
         {
+            _logger.LogInformation(
+                "svc.plan.bulk.create.start itemCount={ItemCount} userId={UserId}",
+                items.Count,
+                user.UserId);
+
             {
                 var context = await LoadBulkCreateContextAsync(items.Count, cancellationToken);
                 var validationOutcome = await ValidateBulkCreateRequestsAsync(items, user, context, cancellationToken);
                 if (validationOutcome.HasErrors)
                 {
+                    _logger.LogWarning(
+                        "svc.plan.bulk.create.validation-failed itemCount={ItemCount} errorCount={ErrorCount}",
+                        items.Count,
+                        validationOutcome.Errors.Count);
                     return new BulkCreateTaskResponseDto { AllSucceeded = false, Errors = validationOutcome.Errors };
                 }
 
@@ -517,6 +620,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                             await bulkTx.RollbackAsync(cancellationToken);
                         }
 
+                        _logger.LogWarning("svc.plan.bulk.create.build-failed");
                         return buildResult.FailureResponse;
                     }
 
@@ -548,14 +652,19 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                             cancellationToken: cancellationToken);
                     }
 
+                    _logger.LogInformation(
+                        "svc.plan.bulk.create.completed createdTaskCount={CreatedTaskCount}",
+                        builtTasks.Count);
+
                     return new BulkCreateTaskResponseDto
                     {
                         AllSucceeded = true,
                         TaskIds = builtTasks.Select(t => t.Id).ToList()
                     };
                 }
-                catch
+                catch (Exception ex)
                 {
+                    _logger.LogError(ex, "svc.plan.bulk.create.failed itemCount={ItemCount}", items.Count);
                     if (bulkTx != null)
                     {
                         try { await bulkTx.RollbackAsync(cancellationToken); } catch { }
