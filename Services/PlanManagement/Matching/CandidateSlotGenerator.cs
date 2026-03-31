@@ -28,11 +28,12 @@ internal sealed class CandidateSlotGenerator
     {
         var slotSize = ScheduleGrid.SlotSizeMinutes;
         var window = SchedulePlacementValidator.GetWorkingWindow(technician.Id, targetDate);
-        var earliestAllowed = _timeService.GetEarliestCreatableStartMinutes(
+        var earliestAllowed = _timeService.GetEarliestCreatablePlacement(
             targetDate,
             timezoneOffsetMinutes,
             slotSize,
-            ScheduleGrid.DayStartMinutes);
+            ScheduleGrid.DayStartMinutes,
+            window.EndMinutes).StartMinutes;
         var candidates = new HashSet<int>();
         var ordered = dayTasks
             .Where(t => WorkloadCalculator.CountsTowardsWorkload(t.Status))

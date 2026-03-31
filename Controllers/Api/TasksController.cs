@@ -852,7 +852,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return BadRequest(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
 
             var tz = _timeService.GetBrowserTimezoneOffset(Request);
-            var (startMinutes, endMinutes) = await _planService.GetSuggestedNextSlotAsync(
+            var (effectiveDate, startMinutes, endMinutes) = await _planService.GetSuggestedNextSlotAsync(
                 technicianId, parsedDate, tz,
                 ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes,
                 afterEndMinutes, previousServiceObjectId, newServiceObjectId, appendAfterLastTask, cancellationToken);
@@ -860,9 +860,9 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var pad = (int n) => n.ToString().PadLeft(2, '0');
             var startTime = $"{pad(startMinutes / 60)}:{pad(startMinutes % 60)}";
             var endTime   = $"{pad(endMinutes   / 60)}:{pad(endMinutes   % 60)}";
-            var dateStr   = parsedDate.ToString("yyyy-MM-dd");
+            var dateStr   = effectiveDate.ToString("yyyy-MM-dd");
 
-            return Ok(new { startAt = $"{dateStr}T{startTime}", endAt = $"{dateStr}T{endTime}" });
+            return Ok(new { targetDate = dateStr, startAt = $"{dateStr}T{startTime}", endAt = $"{dateStr}T{endTime}" });
         }
 
         /// <summary>
@@ -900,12 +900,13 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 var pad = (int n) => n.ToString().PadLeft(2, '0');
                 var startTime = $"{pad(suggestion.StartMinutes / 60)}:{pad(suggestion.StartMinutes % 60)}";
                 var endTime = $"{pad(suggestion.EndMinutes / 60)}:{pad(suggestion.EndMinutes % 60)}";
-                var dateStr = targetDate.ToString("yyyy-MM-dd");
+                var dateStr = suggestion.TargetDate.ToString("yyyy-MM-dd");
 
                 return Ok(new
                 {
                     technicianId = suggestion.TechnicianId,
                     technicianName = suggestion.TechnicianName,
+                    targetDate = dateStr,
                     startAt = $"{dateStr}T{startTime}",
                     endAt = $"{dateStr}T{endTime}",
                     startMinutes = suggestion.StartMinutes,

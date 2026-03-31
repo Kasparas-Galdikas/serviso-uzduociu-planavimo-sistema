@@ -109,7 +109,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         /// afterEndMinutes (or earliest creatable if null), skipping over existing scheduled tasks.
         /// Used to prefill bulk scheduling forms with chain-aware, conflict-free suggested times.
         /// </summary>
-        Task<(int StartMinutes, int EndMinutes)> GetSuggestedNextSlotAsync(
+        Task<(DateTime TargetDate, int StartMinutes, int EndMinutes)> GetSuggestedNextSlotAsync(
             long technicianId,
             DateTime targetDate,
             int timezoneOffsetMinutes,

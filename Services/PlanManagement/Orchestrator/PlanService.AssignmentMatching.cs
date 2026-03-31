@@ -12,6 +12,7 @@ using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Matching;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
+using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
@@ -113,6 +114,7 @@ internal sealed class PlanServiceAssignmentMatching
                 }
 
                 item.TechnicianId = suggestion.TechnicianId;
+                item.TargetDate = suggestion.TargetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
                 item.StartMinutes = suggestion.StartMinutes;
                 item.EndMinutes = suggestion.EndMinutes;
 
@@ -128,8 +130,8 @@ internal sealed class PlanServiceAssignmentMatching
                     accumulatedSimulatedAssignments.Add(new SimulatedTaskAssignmentDto
                     {
                         TechnicianId = suggestion.TechnicianId,
-                        StartAt = targetDate.Date.AddMinutes(suggestion.StartMinutes).ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture),
-                        EndAt = targetDate.Date.AddMinutes(suggestion.EndMinutes).ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture),
+                        StartAt = suggestion.TargetDate.Date.AddMinutes(suggestion.StartMinutes).ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture),
+                        EndAt = suggestion.TargetDate.Date.AddMinutes(suggestion.EndMinutes).ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture),
                         AddressId = resolvedServiceObject.AddressId,
                         ServiceObjectId = resolvedServiceObject.Id,
                         SourceBacklogItemId = item.SourceBacklogItemId
@@ -161,6 +163,14 @@ internal sealed class PlanServiceAssignmentMatching
         {
             return null;
         }
+
+        var earliestPlacement = _timeService.GetEarliestCreatablePlacement(
+            targetDate,
+            timezoneOffsetMinutes,
+            ScheduleGrid.SlotSizeMinutes,
+            ScheduleGrid.DayStartMinutes,
+            ScheduleGrid.DayEndMinutes);
+        targetDate = earliestPlacement.TargetDate;
 
         var targetPlan = await _db.Plans
             .AsNoTracking()
@@ -313,6 +323,7 @@ internal sealed class PlanServiceAssignmentMatching
         {
             TechnicianId = best.Technician.Id,
             TechnicianName = best.Technician.User?.Name ?? $"Technician #{best.Technician.Id}",
+            TargetDate = dayStart,
             StartMinutes = best.StartMinutes,
             EndMinutes = best.EndMinutes
         };

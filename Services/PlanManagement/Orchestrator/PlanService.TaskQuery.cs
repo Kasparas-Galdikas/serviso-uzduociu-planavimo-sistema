@@ -8,6 +8,7 @@ using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data.Seed;
+using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel;
@@ -19,15 +20,18 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         private readonly ScheduleDbContext _db;
         private readonly IScheduleTimeService _timeService;
         private readonly ITravelTimeResolver _travelResolver;
+        private readonly SchedulePlacementValidator _placementValidator;
 
         public PlanServiceTaskQuery(
             ScheduleDbContext db,
             IScheduleTimeService timeService,
-            ITravelTimeResolver travelResolver)
+            ITravelTimeResolver travelResolver,
+            SchedulePlacementValidator placementValidator)
         {
             _db = db;
             _timeService = timeService;
             _travelResolver = travelResolver;
+            _placementValidator = placementValidator;
         }
 
         public async Task<LoadSnapshotDto> GetWorkloadSnapshotAsync(long technicianId, DateTime dayStartUtc, CancellationToken cancellationToken = default)
@@ -182,7 +186,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 .AnyAsync(cancellationToken);
         }
 
-        public async Task<(int StartMinutes, int EndMinutes)> GetSuggestedNextSlotAsync(
+        public async Task<(DateTime TargetDate, int StartMinutes, int EndMinutes)> GetSuggestedNextSlotAsync(
             long technicianId,
             DateTime targetDate,
             int timezoneOffsetMinutes,
@@ -194,7 +198,19 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             bool appendAfterLastTask = false,
             CancellationToken cancellationToken = default)
         {
-            var earliestAllowed = _timeService.GetEarliestCreatableStartMinutes(targetDate, timezoneOffsetMinutes, slotSizeMinutes, dayStartMinutes);
+            var requestedDate = targetDate.Date;
+            var earliestPlacement = _timeService.GetEarliestCreatablePlacement(
+                requestedDate,
+                timezoneOffsetMinutes,
+                slotSizeMinutes,
+                dayStartMinutes,
+                ScheduleGrid.DayEndMinutes);
+            targetDate = earliestPlacement.TargetDate;
+            if (targetDate != requestedDate)
+            {
+                afterEndMinutes = null;
+            }
+            var earliestAllowed = earliestPlacement.StartMinutes;
             var candidate = afterEndMinutes.HasValue
                 ? _timeService.CeilingToSlot(afterEndMinutes.Value, slotSizeMinutes)
                 : earliestAllowed;
@@ -211,7 +227,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
             if (technician == null)
             {
-                return (candidate, candidate + slotSizeMinutes);
+                return (targetDate, candidate, candidate + slotSizeMinutes);
             }
 
             var existingTasks = await _db.Tasks
@@ -251,7 +267,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     .Distinct()
                     .ToList();
 
-                var routeLookup = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
+                var routeLookup = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken)
+                    ?? new Dictionary<(long From, long To), int>();
                 candidate = FindEarliestFeasibleCandidate(
                     candidate,
                     earliestAllowed,
@@ -264,7 +281,22 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     timezoneOffsetMinutes,
                     appendAfterLastTask);
 
-                return (candidate, candidate + slotSizeMinutes);
+                candidate = await FindEarliestValidatedCandidateAsync(
+                    targetDate,
+                    candidate,
+                    earliestAllowed,
+                    slotSizeMinutes,
+                    timezoneOffsetMinutes,
+                    technician.Id,
+                    newAddressId.Value,
+                    existingTasks,
+                    workplaceAddressId: technician.WorkplaceAddressId,
+                    previousAddressId,
+                    routeLookup,
+                    appendAfterLastTask,
+                    cancellationToken);
+
+                return (targetDate, candidate, candidate + slotSizeMinutes);
             }
 
             // appendAfterLastTask: push candidate past the technician's last task of the day
@@ -287,7 +319,65 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 }
             }
 
-            return (candidate, candidate + slotSizeMinutes);
+            return (targetDate, candidate, candidate + slotSizeMinutes);
+        }
+
+        private async Task<int> FindEarliestValidatedCandidateAsync(
+            DateTime targetDate,
+            int initialCandidate,
+            int earliestAllowed,
+            int slotSizeMinutes,
+            int timezoneOffsetMinutes,
+            long technicianId,
+            long serviceAddressId,
+            List<TaskEntity> existingTasks,
+            long workplaceAddressId,
+            long? previousAddressId,
+            IReadOnlyDictionary<(long From, long To), int> routeLookup,
+            bool appendAfterLastTask,
+            CancellationToken cancellationToken)
+        {
+            var dayEndCandidate = ScheduleGrid.DayEndMinutes - slotSizeMinutes;
+            var candidate = initialCandidate;
+
+            while (candidate <= dayEndCandidate)
+            {
+                var startAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, candidate, timezoneOffsetMinutes);
+                var endAtUtc = startAtUtc.AddMinutes(slotSizeMinutes);
+
+                var validation = await _placementValidator.ValidateTimingAndTravelAsync(
+                    taskDateLocal: targetDate,
+                    startMinutesLocal: candidate,
+                    timezoneOffsetMinutes: timezoneOffsetMinutes,
+                    technicianId: technicianId,
+                    startAtUtc: startAtUtc,
+                    endAtUtc: endAtUtc,
+                    serviceAddressId: serviceAddressId,
+                    excludeTaskId: null,
+                    cancellationToken: cancellationToken,
+                    simulatedStops: null,
+                    checkOverlap: true);
+
+                if (validation.IsValid)
+                {
+                    return candidate;
+                }
+
+                var nextCandidateSeed = Math.Max(candidate + slotSizeMinutes, earliestAllowed);
+                candidate = FindEarliestFeasibleCandidate(
+                    nextCandidateSeed,
+                    earliestAllowed,
+                    slotSizeMinutes,
+                    workplaceAddressId,
+                    previousAddressId,
+                    serviceAddressId,
+                    existingTasks,
+                    routeLookup,
+                    timezoneOffsetMinutes,
+                    appendAfterLastTask);
+            }
+
+            return initialCandidate;
         }
 
         private int FindEarliestFeasibleCandidate(

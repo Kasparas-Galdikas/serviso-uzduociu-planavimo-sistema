@@ -289,13 +289,102 @@ public sealed class PlanServiceAutoAssignmentTests
         suggestion.EndMinutes.Should().Be(suggestion.StartMinutes + 30);
     }
 
-    private PlanService CreateService(ScheduleDbContext db) =>
+    [Fact]
+    public async Task GetSuggestedNextSlotAsync_UsesSharedTravelValidation()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedTechnician(db, 1, 100, "Tech One");
+        var serviceObject = SeedServiceObject(db, 10, "Obj-1", 200);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+
+        await service.GetSuggestedNextSlotAsync(
+            1,
+            day,
+            0,
+            30,
+            8 * 60,
+            null,
+            null,
+            serviceObject.Id,
+            false,
+            CancellationToken.None);
+
+        await _travelFeasibility.Received().EvaluatePlacementAsync(
+            1,
+            Arg.Any<DateTime>(),
+            Arg.Any<DateTime>(),
+            200,
+            Arg.Any<int>(),
+            null,
+            true,
+            Arg.Any<CancellationToken>(),
+            Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>());
+    }
+
+    [Fact]
+    public async Task GetSuggestedNextSlotAsync_AfterPlanningWindow_RollsToTomorrow()
+    {
+        using var db = CreateContext();
+        var today = new DateTime(2026, 3, 10);
+        SeedTechnician(db, 1, 100, "Tech One");
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, new FixedTimeService(new DateTime(2026, 3, 10, 20, 1, 0, DateTimeKind.Utc)));
+
+        var suggestion = await service.GetSuggestedNextSlotAsync(
+            1,
+            today,
+            0,
+            30,
+            8 * 60,
+            null,
+            null,
+            null,
+            false,
+            CancellationToken.None);
+
+        suggestion.TargetDate.Should().Be(today.AddDays(1));
+        suggestion.StartMinutes.Should().Be(8 * 60);
+        suggestion.EndMinutes.Should().Be(8 * 60 + 30);
+    }
+
+    [Fact]
+    public async Task SuggestAutoAssignmentAsync_AfterPlanningWindow_RollsToTomorrow()
+    {
+        using var db = CreateContext();
+        var today = new DateTime(2026, 3, 10);
+        SeedPlan(db);
+        var serviceObject = SeedServiceObject(db, 10, "Obj-1", 200);
+        SeedTechnician(db, 1, 100, "Tech One");
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, new FixedTimeService(new DateTime(2026, 3, 10, 20, 1, 0, DateTimeKind.Utc)));
+
+        var suggestion = await service.SuggestAutoAssignmentAsync(
+            today,
+            60,
+            serviceObject.Name,
+            TaskPriority.Medium,
+            0,
+            null,
+            null,
+            CancellationToken.None);
+
+        suggestion.Should().NotBeNull();
+        suggestion!.TargetDate.Should().Be(today.AddDays(1));
+        suggestion.StartMinutes.Should().BeGreaterThanOrEqualTo(8 * 60);
+    }
+
+    private PlanService CreateService(ScheduleDbContext db, IScheduleTimeService? timeService = null) =>
         new(
             db,
             _evaluation,
             _planningCalendar,
             _permission,
-            _timeService,
+            timeService ?? _timeService,
             _routeEvaluation,
             _travelFeasibility,
             _repairService,
@@ -383,5 +472,17 @@ public sealed class PlanServiceAutoAssignmentTests
         };
         db.ServiceObjects.Add(serviceObject);
         return serviceObject;
+    }
+
+    private sealed class FixedTimeService : ScheduleTimeService
+    {
+        private readonly DateTime _nowUtc;
+
+        public FixedTimeService(DateTime nowUtc)
+        {
+            _nowUtc = nowUtc;
+        }
+
+        public override DateTime GetCurrentUtcTime() => _nowUtc;
     }
 }

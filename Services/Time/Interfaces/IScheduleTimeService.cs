@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Http;
 
 namespace ServiceTaskPlanningSystem.Services.Time
 {
+    public readonly record struct CreatablePlacement(DateTime TargetDate, int StartMinutes);
+
     /// <summary>
     /// Central service for all time-related operations.
     /// Handles conversions between UTC (storage) and local time (display/user input).
@@ -52,9 +54,22 @@ namespace ServiceTaskPlanningSystem.Services.Time
         int CeilingToSlot(int minutesSinceMidnight, int slotSizeMinutes);
 
         /// <summary>
+        /// Returns the earliest creatable placement from the selected date.
+        /// If the selected date is today and the current time is already beyond the
+        /// day's plannable window, the placement rolls forward to the next day at dayStartMinutes.
+        /// </summary>
+        CreatablePlacement GetEarliestCreatablePlacement(
+            DateTime targetDate,
+            int timezoneOffsetMinutes,
+            int slotSizeMinutes,
+            int dayStartMinutes,
+            int dayEndMinutes);
+
+        /// <summary>
         /// Returns the earliest local start-minute allowed for task creation on the selected date.
         /// For today (in user's timezone), this is "now" rounded up to the slot boundary.
         /// For future dates, returns dayStartMinutes.
+        /// Obsolete for cross-day callers; prefer GetEarliestCreatablePlacement.
         /// </summary>
         int GetEarliestCreatableStartMinutes(DateTime targetDate, int timezoneOffsetMinutes, int slotSizeMinutes, int dayStartMinutes);
 

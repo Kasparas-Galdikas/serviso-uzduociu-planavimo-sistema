@@ -134,7 +134,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 db, evaluationEngine, planningCalendar, timeService,
                 log.CreateLogger<PlanServicePlanLifecycle>());
 
-            _taskQuery = new PlanServiceTaskQuery(db, timeService, travelResolver);
+            _taskQuery = new PlanServiceTaskQuery(db, timeService, travelResolver, _placementValidator);
 
             _taskCreation = new PlanServiceTaskCreation(
                 db, evaluationEngine, timeService, scheduleRepairService, historyWriter,
@@ -222,7 +222,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             CancellationToken cancellationToken = default)
             => _taskQuery.HasTaskOverlapAsync(excludeTaskId, technicianId, startUtc, endUtc, cancellationToken);
 
-        public Task<(int StartMinutes, int EndMinutes)> GetSuggestedNextSlotAsync(
+        public Task<(DateTime TargetDate, int StartMinutes, int EndMinutes)> GetSuggestedNextSlotAsync(
             long technicianId,
             DateTime targetDate,
             int timezoneOffsetMinutes,
