@@ -13,7 +13,6 @@ public class SimulatedTaskAssignmentDto
     [Required]
     public string EndAt { get; set; } = string.Empty;
 
-    [Range(1, long.MaxValue)]
     public long AddressId { get; set; }
 
     public long? ServiceObjectId { get; set; }

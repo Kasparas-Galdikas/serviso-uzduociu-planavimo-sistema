@@ -15,15 +15,13 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
     public class PlansController : ControllerBase
     {
         private readonly IPlanService _planService;
-        private readonly IEvaluationEngine _evaluationEngine;
         private readonly ILogger<PlansController> _logger;
         private readonly ITaskHistoryReader _historyReader;
         private readonly IUserContextResolver _userContextResolver;
 
-        public PlansController(IPlanService planService, IEvaluationEngine evaluationEngine, ILogger<PlansController> logger, ITaskHistoryReader historyReader, IUserContextResolver userContextResolver)
+        public PlansController(IPlanService planService, ILogger<PlansController> logger, ITaskHistoryReader historyReader, IUserContextResolver userContextResolver)
         {
             _planService = planService;
-            _evaluationEngine = evaluationEngine;
             _logger = logger;
             _historyReader = historyReader;
             _userContextResolver = userContextResolver;
@@ -111,28 +109,17 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         [Authorize(Policy = "RequireManager")]
         public async Task<IActionResult> RecalculateEvaluations(CancellationToken cancellationToken)
         {
-            var active = await _planService.GetActivePlanAsync(cancellationToken);
-            var draft = await _planService.GetDraftPlanAsync(cancellationToken);
+            var (activePlanId, draftPlanId) = await _planService.RecalculateCurrentPlansAsync(cancellationToken);
 
-            if (active == null && draft == null)
+            if (activePlanId == null && draftPlanId == null)
             {
                 return Ok(new { message = "No active or draft plans to recalculate." });
             }
 
-            if (active != null)
-            {
-                await _evaluationEngine.RecalculatePlanAsync(active.Id, cancellationToken);
-            }
-
-            if (draft != null)
-            {
-                await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
-            }
-
             return Ok(new
             {
-                recalculatedActive = active?.Id,
-                recalculatedDraft = draft?.Id
+                recalculatedActive = activePlanId,
+                recalculatedDraft = draftPlanId
             });
         }
     }

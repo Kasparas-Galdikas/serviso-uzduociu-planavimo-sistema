@@ -30,6 +30,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         private readonly ServiceLocationResolver _locationResolver;
         private readonly RouteEvaluationCaller _routeEvaluationCaller;
         private readonly PlanServicePlanLifecycle _planLifecycle;
+        private readonly PlanServiceAssignmentMatching _assignmentMatching;
         private readonly ILogger<PlanServiceTaskCreation> _logger;
 
         public PlanServiceTaskCreation(
@@ -42,6 +43,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             ServiceLocationResolver locationResolver,
             RouteEvaluationCaller routeEvaluationCaller,
             PlanServicePlanLifecycle planLifecycle,
+            PlanServiceAssignmentMatching assignmentMatching,
             ILogger<PlanServiceTaskCreation> logger)
         {
             _db = db;
@@ -53,7 +55,31 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             _locationResolver = locationResolver;
             _routeEvaluationCaller = routeEvaluationCaller;
             _planLifecycle = planLifecycle;
+            _assignmentMatching = assignmentMatching;
             _logger = logger;
+        }
+
+        private async Task<List<CreateTaskRequestDto>> PrepareBulkItemsForModeAsync(
+            IReadOnlyList<CreateTaskRequestDto> items,
+            string? planMode,
+            CancellationToken cancellationToken)
+        {
+            var effectiveItems = items as List<CreateTaskRequestDto> ?? new List<CreateTaskRequestDto>(items);
+
+            if (!"automatinis".Equals(planMode, StringComparison.OrdinalIgnoreCase))
+            {
+                return effectiveItems;
+            }
+
+            _logger.LogInformation("svc.plan.bulk.mode.automatinis.prepare itemCount={ItemCount}", effectiveItems.Count);
+
+            foreach (var item in effectiveItems)
+            {
+                item.TechnicianId = 0;
+            }
+
+            await _assignmentMatching.ApplyAutomaticAssignmentsAsync(effectiveItems, cancellationToken);
+            return effectiveItems;
         }
 
         public async Task<TaskCreateResult> CreateTaskAsync(long technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, long? sourceBacklogItemId = null, CancellationToken cancellationToken = default)
@@ -373,8 +399,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     dto.TechnicianId,
                     placement.StartAtUtc,
                     placement.EndAtUtc);
-
-                reservedSlots.Add((dto.TechnicianId, placement.StartAtUtc, placement.EndAtUtc));
                 context.Placements[i] = placement;
 
                 var addressId = await _locationResolver.TryLookupServiceAddressIdAsync(dto.ObjectName, dto.ObjectAddress, cancellationToken);
@@ -414,6 +438,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     continue;
                 }
 
+                reservedSlots.Add((dto.TechnicianId, placement.StartAtUtc, placement.EndAtUtc));
                 context.SimulatedBatchStops.Add((dto.TechnicianId, addressId.Value, placement.StartAtUtc, placement.EndAtUtc));
             }
 
@@ -569,16 +594,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
         public async Task<BulkCreateTaskResponseDto> BulkValidateTasksAsync(
             IReadOnlyList<CreateTaskRequestDto> items,
+            string? planMode,
             UserContext user,
             CancellationToken cancellationToken = default)
         {
-            _logger.LogInformation(
-                "svc.plan.bulk.validate-request itemCount={ItemCount} userId={UserId}",
-                items.Count,
-                user.UserId);
+            var effectiveItems = await PrepareBulkItemsForModeAsync(items, planMode, cancellationToken);
 
-            var context = await LoadBulkCreateContextAsync(items.Count, cancellationToken);
-            var validationOutcome = await ValidateBulkCreateRequestsAsync(items, user, context, cancellationToken);
+            _logger.LogInformation(
+                "svc.plan.bulk.validate-request itemCount={ItemCount} userId={UserId} planMode={PlanMode}",
+                effectiveItems.Count,
+                user.UserId,
+                planMode ?? "rankinis");
+
+            var context = await LoadBulkCreateContextAsync(effectiveItems.Count, cancellationToken);
+            var validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken);
             return new BulkCreateTaskResponseDto
             {
                 AllSucceeded = !validationOutcome.HasErrors,
@@ -588,23 +617,28 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
         public async Task<BulkCreateTaskResponseDto> BulkCreateTasksAsync(
             IReadOnlyList<CreateTaskRequestDto> items,
+            string? planMode,
             UserContext user,
             CancellationToken cancellationToken = default)
         {
+            var effectiveItems = await PrepareBulkItemsForModeAsync(items, planMode, cancellationToken);
+
             _logger.LogInformation(
-                "svc.plan.bulk.create.start itemCount={ItemCount} userId={UserId}",
-                items.Count,
-                user.UserId);
+                "svc.plan.bulk.create.start itemCount={ItemCount} userId={UserId} planMode={PlanMode}",
+                effectiveItems.Count,
+                user.UserId,
+                planMode ?? "rankinis");
 
             {
-                var context = await LoadBulkCreateContextAsync(items.Count, cancellationToken);
-                var validationOutcome = await ValidateBulkCreateRequestsAsync(items, user, context, cancellationToken);
+                var context = await LoadBulkCreateContextAsync(effectiveItems.Count, cancellationToken);
+                var validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken);
                 if (validationOutcome.HasErrors)
                 {
                     _logger.LogWarning(
-                        "svc.plan.bulk.create.validation-failed itemCount={ItemCount} errorCount={ErrorCount}",
-                        items.Count,
-                        validationOutcome.Errors.Count);
+                        "svc.plan.bulk.create.validation-failed itemCount={ItemCount} errorCount={ErrorCount} errors={Errors}",
+                        effectiveItems.Count,
+                        validationOutcome.Errors.Count,
+                        string.Join(" | ", validationOutcome.Errors.Select(e => $"index={e.Index};message={e.Message}")));
                     return new BulkCreateTaskResponseDto { AllSucceeded = false, Errors = validationOutcome.Errors };
                 }
 
@@ -612,7 +646,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                 try
                 {
-                    var buildResult = await BuildTaskEntitiesAsync(items, context, cancellationToken);
+                    var buildResult = await BuildTaskEntitiesAsync(effectiveItems, context, cancellationToken);
                     if (buildResult.FailureResponse != null)
                     {
                         if (bulkTx != null)
@@ -664,7 +698,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "svc.plan.bulk.create.failed itemCount={ItemCount}", items.Count);
+                    _logger.LogError(ex, "svc.plan.bulk.create.failed itemCount={ItemCount}", effectiveItems.Count);
                     if (bulkTx != null)
                     {
                         try { await bulkTx.RollbackAsync(cancellationToken); } catch { }

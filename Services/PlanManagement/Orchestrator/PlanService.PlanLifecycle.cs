@@ -274,6 +274,31 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             _logger.LogInformation("svc.plan.discard draftId={DraftId} removedTasks={Tasks}", draft.Id, draft.Tasks.Count);
         }
 
+        public async Task<(long? ActivePlanId, long? DraftPlanId)> RecalculateCurrentPlansAsync(CancellationToken cancellationToken = default)
+        {
+            var active = await GetActivePlanAsync(cancellationToken);
+            var draft = await GetDraftPlanAsync(cancellationToken);
+
+            if (active == null && draft == null)
+            {
+                _logger.LogInformation("svc.plan.recalculate-current.none");
+                return (null, null);
+            }
+
+            if (active != null)
+            {
+                await _evaluationEngine.RecalculatePlanAsync(active.Id, cancellationToken);
+            }
+
+            if (draft != null)
+            {
+                await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
+            }
+
+            _logger.LogInformation("svc.plan.recalculate-current activeId={ActivePlanId} draftId={DraftPlanId}", active?.Id, draft?.Id);
+            return (active?.Id, draft?.Id);
+        }
+
         /// <summary>
         /// Generates tasks for a draft plan by cloning tasks from the active plan.
         /// Tasks are adjusted to fit the new date range while preserving all relationships.

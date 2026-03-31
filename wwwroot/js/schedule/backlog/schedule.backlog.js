@@ -22,14 +22,30 @@
   let _items = [];
   let _localNow = null;
 
-  function localNowEnd() {
+  function formatLocalInputValue(date) {
+    const pad = n => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  function getRoundedLocalNowRange() {
     if (!_localNow) return "";
     const slotSize = window.schedule?.grid?.getConfig?.().slotSizeMinutes ?? 30;
-    const d = new Date(_localNow);
-    if (isNaN(d)) return "";
-    d.setMinutes(d.getMinutes() + slotSize);
-    const pad = n => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const start = new Date(_localNow);
+    if (isNaN(start)) return "";
+
+    start.setSeconds(0, 0);
+    const remainder = start.getMinutes() % slotSize;
+    if (remainder !== 0) {
+      start.setMinutes(start.getMinutes() + (slotSize - remainder));
+    }
+
+    const end = new Date(start);
+    end.setMinutes(end.getMinutes() + slotSize);
+
+    return {
+      start: formatLocalInputValue(start),
+      end: formatLocalInputValue(end)
+    };
   }
   let _activeTypeTab = ITEM_TYPE.Permanent;
   let _selectionMode = false;
@@ -727,10 +743,11 @@
     panel.querySelector("#taskFieldAssignee")?.classList.remove("d-none");
     panel.querySelector("#taskFieldStart")?.classList.remove("d-none");
     panel.querySelector("#taskFieldEnd")?.classList.remove("d-none");
+    const roundedNow = getRoundedLocalNowRange();
     const startEl = panel.querySelector("#taskDetailStart");
-    if (startEl) startEl.value = _localNow ?? "";
+    if (startEl) startEl.value = roundedNow?.start ?? _localNow ?? "";
     const endEl = panel.querySelector("#taskDetailEnd");
-    if (endEl) endEl.value = localNowEnd();
+    if (endEl) endEl.value = roundedNow?.end ?? "";
 
     // Show progress indicator
     document.getElementById("taskBulkProgress")?.classList.remove("d-none");
@@ -777,12 +794,12 @@
           parseInt(snap.technicianId || "0", 10) > 0 &&
           snap.startAt &&
           snap.endAt &&
-          parseInt(snap.addressId || "0", 10) > 0)
+          (parseInt(snap.addressId || "0", 10) > 0 || parseInt(snap.objectId || "0", 10) > 0))
         .map(({ idx, snap }) => ({
           technicianId: parseInt(snap.technicianId, 10),
           startAt: snap.startAt,
           endAt: snap.endAt,
-          addressId: parseInt(snap.addressId, 10),
+          addressId: parseInt(snap.addressId || "0", 10),
           serviceObjectId: parseInt(snap.objectId || "0", 10) || null,
           sourceBacklogItemId: _bulkQueue[idx]?.id ? parseInt(_bulkQueue[idx].id, 10) : null,
         }));
@@ -935,6 +952,8 @@
   //         snapshot with a tech+object (best-effort for when assignee isn't selected yet).
   async function tryRecalcBulkTravelTime(idx, newObjectId, techId, setFn) {
     if (!newObjectId) return;
+    const simulatedAssignments = buildBulkSimulatedAssignments();
+    const tz  = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
 
     // idx=0: no previous snapshot to chain travel from, but if a technician is
     // already selected we can still suggest the best standalone slot for the object.
@@ -947,15 +966,21 @@
       const targetDate = parsed?.date ?? (_localNow ? _localNow.split("T")[0] : "");
       if (!targetDate) return;
       try {
-        const tz  = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
-        const url = `/api/tasks/suggest-start`
-            + `?technicianId=${resolvedTechId}`
-            + `&targetDate=${targetDate}`
-            + `&appendAfterLastTask=true`
-            + `&newServiceObjectId=${newObjectId}`;
-        const resp = await fetch(url, {
+        const resp = await fetch("/api/tasks/suggest-start", {
+          method: "POST",
           credentials: "same-origin",
-          headers: { "X-Timezone-Offset": String(tz) },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Timezone-Offset": String(tz),
+          },
+          body: JSON.stringify({
+            technicianId: resolvedTechId,
+            targetDate,
+            appendAfterLastTask: true,
+            newServiceObjectId: newObjectId,
+            timezoneOffsetMinutes: tz,
+            simulatedAssignments,
+          }),
         });
         if (resp.ok) {
           const data = await resp.json();
@@ -989,16 +1014,22 @@
     if (!prevEnd) return;
 
     try {
-      const tz  = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
-      const url = `/api/tasks/suggest-start`
-        + `?technicianId=${chainTechId}`
-        + `&targetDate=${prevEnd.date}`
-        + `&afterEndMinutes=${prevEnd.minutes}`
-        + `&previousServiceObjectId=${prevSnap.objectId}`
-        + `&newServiceObjectId=${newObjectId}`;
-      const resp = await fetch(url, {
+      const resp = await fetch("/api/tasks/suggest-start", {
+        method: "POST",
         credentials: "same-origin",
-        headers: { "X-Timezone-Offset": String(tz) },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Timezone-Offset": String(tz),
+        },
+        body: JSON.stringify({
+          technicianId: chainTechId,
+          targetDate: prevEnd.date,
+          afterEndMinutes: prevEnd.minutes,
+          previousServiceObjectId: prevSnap.objectId,
+          newServiceObjectId: newObjectId,
+          timezoneOffsetMinutes: tz,
+          simulatedAssignments,
+        }),
       });
       if (resp.ok) {
         const data = await resp.json();
@@ -1025,13 +1056,14 @@
     set("#taskDetailPriority", "");
     set("#taskDetailSkill", "");
     set("#taskDetailInstructions", "");
-    // Leave times at the current local time as a neutral placeholder.
+    // Leave times at the current local grid slot as a neutral placeholder.
     // The correct suggested slot is filled once the user selects a technician
     // (via the taskDetailAssignee change listener → _onBulkAssigneeChange → scheduleSuggestSlot).
     // restoreSchedulingSnapshot (called right after this function) overrides these
     // with the user's previously saved values when navigating back/forward.
-    set("#taskDetailStart", _localNow ?? "");
-    set("#taskDetailEnd",   localNowEnd());
+    const roundedNow = getRoundedLocalNowRange();
+    set("#taskDetailStart", roundedNow?.start ?? _localNow ?? "");
+    set("#taskDetailEnd",   roundedNow?.end ?? "");
     // Clear assignee and placement dataset so travel preview can't fall back to previous tech
     panel.dataset.technicianId = "";
     panel.dataset.targetDate = "";
@@ -1774,15 +1806,36 @@
         el.dispatchEvent(new Event("input", { bubbles: true }));
       };
 
-      // Build chain context when this is the same tech as the previous confirmed item
-      const prevSnap     = _bulkQueueIdx > 0 ? _bulkScheduledData[_bulkQueueIdx - 1] : null;
-      const prevEnd      = parseDatetimeComponents(prevSnap?.endAt);
-      const chainContext = (prevEnd && prevSnap?.technicianId === newTechId)
-        ? { afterEndMinutes: prevEnd.minutes, targetDate: prevEnd.date, previousObjectId: prevSnap.objectId ?? 0 }
-        : null;
+      const startVal = panel?.querySelector("#taskDetailStart")?.value;
+      const parsed = parseDatetimeComponents(startVal);
+      const targetDate = parsed?.date ?? (_localNow ? _localNow.split("T")[0] : "");
+      if (!targetDate) return;
 
-      const modal = window.schedule?.tasks?.modal;
-      await modal?.scheduleSuggestSlot(panel, newTechId, chainContext, setFn);
+      const tz = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+      const objectId = parseInt(panel?.querySelector("#taskDetailObject")?.value || "0", 10) || null;
+      const simulatedAssignments = buildBulkSimulatedAssignments();
+      const resp = await fetch("/api/tasks/suggest-start", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Timezone-Offset": String(tz),
+        },
+        body: JSON.stringify({
+          technicianId: newTechId,
+          targetDate,
+          appendAfterLastTask: true,
+          newServiceObjectId: objectId,
+          timezoneOffsetMinutes: tz,
+          simulatedAssignments,
+        }),
+      });
+
+      if (!resp.ok) return;
+
+      const data = await resp.json().catch(() => ({}));
+      if (data.startAt) setFn("#taskDetailStart", data.startAt);
+      if (data.endAt) setFn("#taskDetailEnd", data.endAt);
     };
 
     // Native DOM change (catches programmatic .trigger("change") from jQuery in some browsers)

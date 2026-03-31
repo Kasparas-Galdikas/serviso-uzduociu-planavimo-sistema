@@ -34,6 +34,9 @@ internal sealed class CandidateSlotGenerator
             slotSize,
             ScheduleGrid.DayStartMinutes,
             window.EndMinutes).StartMinutes;
+        var userLocalNow = _timeService.ConvertUtcToLocal(_timeService.GetCurrentUtcTime(), timezoneOffsetMinutes);
+        var isTargetToday = targetDate.Date == userLocalNow.Date;
+        var nowLocalMinutes = (int)userLocalNow.TimeOfDay.TotalMinutes;
         var candidates = new HashSet<int>();
         var ordered = dayTasks
             .Where(t => WorkloadCalculator.CountsTowardsWorkload(t.Status))
@@ -42,12 +45,15 @@ internal sealed class CandidateSlotGenerator
 
         if (ordered.Count == 0)
         {
+            var workplaceTravel = GetTravelMinutes(routeLookup, technician.WorkplaceAddressId, serviceObject.AddressId);
             var firstStart = Math.Max(
                 earliestAllowed,
-                ScheduleGrid.DayStartMinutes + GetTravelMinutes(
-                    routeLookup,
-                    technician.WorkplaceAddressId,
-                    serviceObject.AddressId));
+                _timeService.CeilingToSlot(ScheduleGrid.DayStartMinutes + workplaceTravel, slotSize));
+            if (isTargetToday)
+            {
+                var travelFloor = _timeService.CeilingToSlot(nowLocalMinutes + workplaceTravel, slotSize);
+                firstStart = Math.Max(firstStart, travelFloor);
+            }
 
             if (FitsWithinWindow(firstStart, durationMinutes, window.EndMinutes))
             {
@@ -58,8 +64,16 @@ internal sealed class CandidateSlotGenerator
         }
 
         var first = ordered[0];
+        var firstTaskInboundTravel = GetTravelMinutes(routeLookup, technician.WorkplaceAddressId, serviceObject.AddressId);
+        var beforeFirstCandidate = earliestAllowed;
+        if (isTargetToday)
+        {
+            var travelFloor = _timeService.CeilingToSlot(nowLocalMinutes + firstTaskInboundTravel, slotSize);
+            beforeFirstCandidate = Math.Max(beforeFirstCandidate, travelFloor);
+        }
+
         if (IsSlotFeasible(
-                candidateStartMinutes: earliestAllowed,
+                candidateStartMinutes: beforeFirstCandidate,
                 durationMinutes: durationMinutes,
                 previousTask: null,
                 nextTask: first,
@@ -69,7 +83,7 @@ internal sealed class CandidateSlotGenerator
                 timezoneOffsetMinutes: timezoneOffsetMinutes,
                 windowEndMinutes: window.EndMinutes))
         {
-            candidates.Add(earliestAllowed);
+            candidates.Add(beforeFirstCandidate);
         }
 
         for (var i = 0; i < ordered.Count; i++)
@@ -88,6 +102,15 @@ internal sealed class CandidateSlotGenerator
             if (candidateStartMinutes < earliestAllowed)
             {
                 candidateStartMinutes = earliestAllowed;
+            }
+
+            if (isTargetToday)
+            {
+                var travelFloor = _timeService.CeilingToSlot(nowLocalMinutes + previousTravelMinutes, slotSize);
+                if (candidateStartMinutes < travelFloor)
+                {
+                    candidateStartMinutes = travelFloor;
+                }
             }
 
             if (IsSlotFeasible(

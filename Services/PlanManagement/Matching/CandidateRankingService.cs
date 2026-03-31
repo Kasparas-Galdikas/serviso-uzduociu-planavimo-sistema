@@ -9,6 +9,8 @@ internal sealed class CandidateRankingService
     {
         return candidates
             .OrderBy(c => c.ScoreBreakdown.TotalScore)
+            .ThenByDescending(c => c.LocalityTier)
+            .ThenBy(c => c.TargetDate)
             .ThenBy(c => c.StartMinutes)
             .ThenBy(c => c.Technician.Id)
             .FirstOrDefault();

@@ -794,7 +794,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return UnprocessableEntity(new { message = "Nenurodyti elementai." });
 
             var user = _userContextResolver.GetCurrentUser();
-            var result = await _planService.BulkValidateTasksAsync(dto.Items, user, cancellationToken);
+            var result = await _planService.BulkValidateTasksAsync(dto.Items, dto.PlanMode, user, cancellationToken);
             return Ok(result);
         }
 
@@ -815,14 +815,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             var user = _userContextResolver.GetCurrentUser();
 
-            if ("automatinis".Equals(dto.PlanMode, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogInformation("api.task.bulk.automatinis.start");
-                await _planService.ApplyAutomaticAssignmentsAsync(dto.Items, cancellationToken);
-                _logger.LogInformation("api.task.bulk.automatinis.done");
-            }
-
-            var result = await _planService.BulkCreateTasksAsync(dto.Items, user, cancellationToken);
+            var result = await _planService.BulkCreateTasksAsync(dto.Items, dto.PlanMode, user, cancellationToken);
 
             if (result.AllSucceeded)
             {
@@ -855,12 +848,43 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var (effectiveDate, startMinutes, endMinutes) = await _planService.GetSuggestedNextSlotAsync(
                 technicianId, parsedDate, tz,
                 ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes,
-                afterEndMinutes, previousServiceObjectId, newServiceObjectId, appendAfterLastTask, cancellationToken);
+                afterEndMinutes, previousServiceObjectId, newServiceObjectId, appendAfterLastTask, null, cancellationToken);
 
             var pad = (int n) => n.ToString().PadLeft(2, '0');
             var startTime = $"{pad(startMinutes / 60)}:{pad(startMinutes % 60)}";
             var endTime   = $"{pad(endMinutes   / 60)}:{pad(endMinutes   % 60)}";
             var dateStr   = effectiveDate.ToString("yyyy-MM-dd");
+
+            return Ok(new { targetDate = dateStr, startAt = $"{dateStr}T{startTime}", endAt = $"{dateStr}T{endTime}" });
+        }
+
+        [HttpPost("suggest-start")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> SuggestNextSlot([FromBody] SuggestNextSlotRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return ValidationProblem(ModelState);
+
+            if (!TryParseDate(dto.TargetDate, out var parsedDate))
+                return BadRequest(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
+
+            var (effectiveDate, startMinutes, endMinutes) = await _planService.GetSuggestedNextSlotAsync(
+                dto.TechnicianId,
+                parsedDate,
+                dto.TimezoneOffsetMinutes,
+                ScheduleGrid.SlotSizeMinutes,
+                ScheduleGrid.DayStartMinutes,
+                dto.AfterEndMinutes,
+                dto.PreviousServiceObjectId,
+                dto.NewServiceObjectId,
+                dto.AppendAfterLastTask,
+                dto.SimulatedAssignments,
+                cancellationToken);
+
+            var pad = (int n) => n.ToString().PadLeft(2, '0');
+            var startTime = $"{pad(startMinutes / 60)}:{pad(startMinutes % 60)}";
+            var endTime = $"{pad(endMinutes / 60)}:{pad(endMinutes % 60)}";
+            var dateStr = effectiveDate.ToString("yyyy-MM-dd");
 
             return Ok(new { targetDate = dateStr, startAt = $"{dateStr}T{startTime}", endAt = $"{dateStr}T{endTime}" });
         }

@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Data.Seed;
@@ -196,6 +198,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             long? previousServiceObjectId = null,
             long? newServiceObjectId = null,
             bool appendAfterLastTask = false,
+            List<SimulatedTaskAssignmentDto>? simulatedAssignments = null,
             CancellationToken cancellationToken = default)
         {
             var requestedDate = targetDate.Date;
@@ -238,6 +241,19 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 .Where(t => t.StartAt >= dayStartUtc && t.StartAt < dayEndUtc)
                 .OrderBy(t => t.StartAt)
                 .ToListAsync(cancellationToken);
+
+            var simulatedTasks = (await BuildSimulatedTasks(simulatedAssignments, timezoneOffsetMinutes, cancellationToken))
+                .Where(t => t.TechnicianId == technicianId)
+                .Where(t => t.StartAt >= dayStartUtc && t.StartAt < dayEndUtc)
+                .ToList();
+
+            if (simulatedTasks.Count > 0)
+            {
+                existingTasks = existingTasks
+                    .Concat(simulatedTasks)
+                    .OrderBy(t => t.StartAt)
+                    .ToList();
+            }
 
             long? previousAddressId = null;
             long? newAddressId = null;
@@ -462,6 +478,100 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
         private int LocalMinutes(DateTime utcDateTime, int timezoneOffsetMinutes) =>
             (int)_timeService.ConvertUtcToLocal(utcDateTime, timezoneOffsetMinutes).TimeOfDay.TotalMinutes;
+
+        private async Task<List<TaskEntity>> BuildSimulatedTasks(
+            IEnumerable<SimulatedTaskAssignmentDto>? simulatedAssignments,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken)
+        {
+            var tasks = new List<TaskEntity>();
+            if (simulatedAssignments == null)
+            {
+                return tasks;
+            }
+
+            var nextTemporaryId = -1L;
+            foreach (var assignment in simulatedAssignments)
+            {
+                var addressId = assignment.AddressId;
+                if (addressId <= 0 && assignment.ServiceObjectId.HasValue && assignment.ServiceObjectId.Value > 0)
+                {
+                    addressId = await _db.ServiceObjects
+                        .AsNoTracking()
+                        .Where(o => o.Id == assignment.ServiceObjectId.Value)
+                        .Select(o => o.AddressId)
+                        .FirstOrDefaultAsync(cancellationToken);
+                }
+
+                if (assignment.TechnicianId <= 0 ||
+                    addressId <= 0 ||
+                    !TryParseSimulatedDateTime(assignment.StartAt, timezoneOffsetMinutes, out var startAtUtc) ||
+                    !TryParseSimulatedDateTime(assignment.EndAt, timezoneOffsetMinutes, out var endAtUtc) ||
+                    endAtUtc <= startAtUtc)
+                {
+                    continue;
+                }
+
+                tasks.Add(new TaskEntity
+                {
+                    Id = nextTemporaryId--,
+                    TechnicianId = assignment.TechnicianId,
+                    ServiceObjectId = assignment.ServiceObjectId ?? 0,
+                    ServiceObject = new ServiceObjectEntity
+                    {
+                        Id = assignment.ServiceObjectId ?? 0,
+                        AddressId = addressId,
+                        Name = string.Empty
+                    },
+                    StartAt = startAtUtc,
+                    EndAt = endAtUtc,
+                    Priority = TaskPriority.Medium,
+                    Status = ScheduleTaskStatus.InProgress,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            return tasks;
+        }
+
+        private bool TryParseSimulatedDateTime(string value, int timezoneOffsetMinutes, out DateTime parsedUtc)
+        {
+            var formats = new[]
+            {
+                "yyyy-MM-dd'T'HH:mm",
+                "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK",
+                "O"
+            };
+
+            if (DateTime.TryParseExact(
+                    value,
+                    formats,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind,
+                    out var parsed))
+            {
+                parsedUtc = parsed.Kind == DateTimeKind.Utc
+                    ? parsed
+                    : _timeService.ConvertLocalToUtc(DateTime.SpecifyKind(parsed, DateTimeKind.Unspecified), timezoneOffsetMinutes);
+                return true;
+            }
+
+            if (DateTime.TryParse(
+                    value,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeLocal,
+                    out parsed))
+            {
+                parsedUtc = parsed.Kind == DateTimeKind.Utc
+                    ? parsed
+                    : _timeService.ConvertLocalToUtc(DateTime.SpecifyKind(parsed, DateTimeKind.Unspecified), timezoneOffsetMinutes);
+                return true;
+            }
+
+            parsedUtc = default;
+            return false;
+        }
 
         private static int ResolveTravelMinutes(
             IReadOnlyDictionary<(long From, long To), int> routeLookup,

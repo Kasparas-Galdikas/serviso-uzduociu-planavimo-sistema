@@ -15,6 +15,7 @@ using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel;
+using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using Xunit;
 
 namespace Tests.Unit.PlanManagement;
@@ -33,6 +34,8 @@ public sealed class PlanServiceAutoAssignmentTests
 
     public PlanServiceAutoAssignmentTests()
     {
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
         _travelFeasibility.EvaluatePlacementAsync(
                 Arg.Any<long>(),
                 Arg.Any<DateTime>(),
@@ -52,9 +55,12 @@ public sealed class PlanServiceAutoAssignmentTests
     }
 
     [Fact]
-    public async Task SuggestAutoAssignmentAsync_WithoutActiveOrDraftPlan_ReturnsNull()
+    public async Task SuggestAutoAssignmentAsync_WithoutActiveOrDraftPlan_CanStillSuggest()
     {
         using var db = CreateContext();
+        SeedTechnician(db, 1, 100, "Tech One");
+        var serviceObject = SeedServiceObject(db, 10, "Obj-1", 200);
+        await db.SaveChangesAsync();
         var service = CreateService(db);
 
         var suggestion = await service.SuggestAutoAssignmentAsync(
@@ -67,7 +73,10 @@ public sealed class PlanServiceAutoAssignmentTests
             null,
             CancellationToken.None);
 
-        suggestion.Should().BeNull();
+        suggestion.Should().NotBeNull();
+        suggestion!.TechnicianId.Should().Be(1);
+        suggestion.TargetDate.Should().Be(DateTime.UtcNow.Date.AddDays(1));
+        suggestion.StartMinutes.Should().BeGreaterThanOrEqualTo(8 * 60);
     }
 
     [Fact]
@@ -283,6 +292,7 @@ public sealed class PlanServiceAutoAssignmentTests
             null,
             serviceObject.Id,
             false,
+            null,
             CancellationToken.None);
 
         suggestion.StartMinutes.Should().BeGreaterThanOrEqualTo(600);
@@ -310,6 +320,7 @@ public sealed class PlanServiceAutoAssignmentTests
             null,
             serviceObject.Id,
             false,
+            null,
             CancellationToken.None);
 
         await _travelFeasibility.Received().EvaluatePlacementAsync(
@@ -344,6 +355,7 @@ public sealed class PlanServiceAutoAssignmentTests
             null,
             null,
             false,
+            null,
             CancellationToken.None);
 
         suggestion.TargetDate.Should().Be(today.AddDays(1));
@@ -376,6 +388,135 @@ public sealed class PlanServiceAutoAssignmentTests
         suggestion.Should().NotBeNull();
         suggestion!.TargetDate.Should().Be(today.AddDays(1));
         suggestion.StartMinutes.Should().BeGreaterThanOrEqualTo(8 * 60);
+    }
+
+    [Fact]
+    public async Task SuggestAutoAssignmentAsync_WhenRequestedDayIsFull_ChoosesFutureDate()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        var plan = SeedPlan(db);
+        var serviceObject = SeedServiceObject(db, 10, "Obj-1", 200);
+        SeedTechnician(db, 1, 100, "Tech One");
+
+        db.Tasks.Add(new TaskEntity
+        {
+            Id = 2000,
+            PlanId = plan.Id,
+            TechnicianId = 1,
+            ServiceObjectId = serviceObject.Id,
+            StartAt = day.AddHours(8),
+            EndAt = day.AddHours(20),
+            Title = "Full Day",
+            Priority = TaskPriority.Medium,
+            Status = ScheduleTaskStatus.InProgress,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        _travelResolver.GetTravelMinutesAsync(Arg.Any<IEnumerable<long>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new Dictionary<(long From, long To), int>()));
+
+        var service = CreateService(db);
+
+        var suggestion = await service.SuggestAutoAssignmentAsync(
+            day,
+            60,
+            serviceObject.Name,
+            TaskPriority.Medium,
+            0,
+            null,
+            null,
+            CancellationToken.None);
+
+        suggestion.Should().NotBeNull();
+        suggestion!.TargetDate.Should().Be(day.AddDays(1));
+        suggestion.StartMinutes.Should().Be(8 * 60);
+    }
+
+    [Fact]
+    public async Task SuggestAutoAssignmentAsync_PrefersSameDayWhenFeasibleDespiteFutureAvailability()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        var plan = SeedPlan(db);
+        var serviceObject = SeedServiceObject(db, 10, "Obj-1", 200);
+        SeedTechnician(db, 1, 100, "Tech One");
+
+        db.Tasks.Add(new TaskEntity
+        {
+            Id = 2100,
+            PlanId = plan.Id,
+            TechnicianId = 1,
+            ServiceObjectId = serviceObject.Id,
+            StartAt = day.AddDays(1).AddHours(8),
+            EndAt = day.AddDays(1).AddHours(17),
+            Title = "Heavier Tomorrow",
+            Priority = TaskPriority.Medium,
+            Status = ScheduleTaskStatus.InProgress,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        _travelResolver.GetTravelMinutesAsync(Arg.Any<IEnumerable<long>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new Dictionary<(long From, long To), int>()));
+
+        var service = CreateService(db);
+
+        var suggestion = await service.SuggestAutoAssignmentAsync(
+            day,
+            60,
+            serviceObject.Name,
+            TaskPriority.Medium,
+            0,
+            null,
+            null,
+            CancellationToken.None);
+
+        suggestion.Should().NotBeNull();
+        suggestion!.TargetDate.Should().Be(day);
+    }
+
+    [Fact]
+    public async Task BulkValidateTasksAsync_AutomatinisMode_ReassignsStaleTechnicianIdsInServiceLayer()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedPlan(db);
+        SeedTechnician(db, 1, 100, "Tech One");
+        SeedServiceObject(db, 10, "Obj-1", 200);
+        await db.SaveChangesAsync();
+
+        _travelResolver.GetTravelMinutesAsync(Arg.Any<IEnumerable<long>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new Dictionary<(long From, long To), int>()));
+
+        var service = CreateService(db);
+        var items = new List<CreateTaskRequestDto>
+        {
+            new()
+            {
+                TechnicianId = 999,
+                TargetDate = day.ToString("yyyy-MM-dd"),
+                StartMinutes = 8 * 60,
+                EndMinutes = 9 * 60,
+                Title = "Task",
+                Priority = TaskPriority.Medium,
+                Status = ScheduleTaskStatus.InProgress,
+                SkillLevel = "A",
+                ObjectName = "Obj-1",
+                ObjectAddress = "Object 10, City",
+                TimezoneOffsetMinutes = 0
+            }
+        };
+
+        var result = await service.BulkValidateTasksAsync(
+            items,
+            "automatinis",
+            new UserContext { UserId = 1, Role = UserRole.Manager },
+            CancellationToken.None);
+
+        result.AllSucceeded.Should().BeTrue();
+        items[0].TechnicianId.Should().Be(1);
     }
 
     private PlanService CreateService(ScheduleDbContext db, IScheduleTimeService? timeService = null) =>

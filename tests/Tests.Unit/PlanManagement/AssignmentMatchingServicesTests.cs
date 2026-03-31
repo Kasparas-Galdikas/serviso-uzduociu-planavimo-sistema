@@ -64,6 +64,41 @@ public sealed class AssignmentMatchingServicesTests
     }
 
     [Fact]
+    public void CandidateSlotGenerator_ForFirstTask_RoundsTravelAdjustedStartToGrid()
+    {
+        var generator = new CandidateSlotGenerator(_timeService);
+        var technician = new TechnicianEntity
+        {
+            Id = 1,
+            WorkplaceAddressId = 100,
+            DailyLimit = 8,
+            WeeklyLimit = 40
+        };
+        var serviceObject = new ServiceObjectEntity
+        {
+            Id = 10,
+            AddressId = 200,
+            Name = "Obj-1"
+        };
+        var day = DateTime.UtcNow.Date.AddDays(1);
+
+        var starts = generator.GenerateCandidateStartMinutes(
+            technician,
+            new List<TaskEntity>(),
+            day,
+            0,
+            30,
+            serviceObject,
+            new Dictionary<(long From, long To), int>
+            {
+                [(100, 200)] = 4
+            });
+
+        starts.Should().ContainSingle();
+        starts[0].Should().Be(510);
+    }
+
+    [Fact]
     public void CandidateScoreCalculator_AddsTravelAndBatchPenalties()
     {
         var calculator = new CandidateScoreCalculator();
@@ -98,13 +133,18 @@ public sealed class AssignmentMatchingServicesTests
         var withoutPenalties = calculator.BuildRankedCandidate(
             technician,
             day,
+            day,
+            day,
             tasks,
             new Dictionary<(long From, long To), int>(),
             0,
+            CandidateLocalityTier.SameCity,
             480,
             540);
         var withPenalties = calculator.BuildRankedCandidate(
             technician,
+            day,
+            day,
             day,
             tasks,
             new Dictionary<(long From, long To), int>
@@ -112,12 +152,53 @@ public sealed class AssignmentMatchingServicesTests
                 [(100, 200)] = 120
             },
             2,
+            CandidateLocalityTier.SameCity,
             480,
             540);
 
         withPenalties.ScoreBreakdown.TravelPenalty.Should().BeGreaterThan(0);
-        withPenalties.ScoreBreakdown.BatchPenalty.Should().Be(2 * CandidateScoreCalculator.BatchBalancePenaltyPerAssignment);
+        withPenalties.ScoreBreakdown.BatchPenalty.Should().Be(4 * CandidateScoreCalculator.BatchBalancePenaltyPerAssignment);
         withPenalties.ScoreBreakdown.TotalScore.Should().BeGreaterThan(withoutPenalties.ScoreBreakdown.TotalScore);
+    }
+
+    [Fact]
+    public void CandidateScoreCalculator_AddsDelayPenaltyForFutureDates()
+    {
+        var calculator = new CandidateScoreCalculator();
+        var technician = new TechnicianEntity
+        {
+            Id = 1,
+            WorkplaceAddressId = 100,
+            DailyLimit = 8,
+            WeeklyLimit = 40
+        };
+        var day = DateTime.UtcNow.Date.AddDays(1);
+
+        var todayCandidate = calculator.BuildRankedCandidate(
+            technician,
+            day,
+            day,
+            day,
+            new List<TaskEntity>(),
+            new Dictionary<(long From, long To), int>(),
+            0,
+            CandidateLocalityTier.SameCity,
+            480,
+            540);
+        var tomorrowCandidate = calculator.BuildRankedCandidate(
+            technician,
+            day,
+            day.AddDays(1),
+            day.AddDays(1),
+            new List<TaskEntity>(),
+            new Dictionary<(long From, long To), int>(),
+            0,
+            CandidateLocalityTier.SameCity,
+            480,
+            540);
+
+        tomorrowCandidate.ScoreBreakdown.DelayPenalty.Should().Be(CandidateScoreCalculator.DelayPenaltyPerDay);
+        tomorrowCandidate.ScoreBreakdown.TotalScore.Should().BeGreaterThan(todayCandidate.ScoreBreakdown.TotalScore);
     }
 
     [Fact]
@@ -130,13 +211,43 @@ public sealed class AssignmentMatchingServicesTests
         var best = ranking.SelectBest(
             new[]
             {
-                new RankedTechnicianCandidate(tech2, 540, 600, new CandidateScoreBreakdown(10, 0, 0)),
-                new RankedTechnicianCandidate(tech1, 480, 540, new CandidateScoreBreakdown(10, 0, 0)),
-                new RankedTechnicianCandidate(tech1, 600, 660, new CandidateScoreBreakdown(15, 0, 0))
+                new RankedTechnicianCandidate(tech2, DateTime.Today, 540, 600, CandidateLocalityTier.SameCity, new CandidateScoreBreakdown(10, 0, 0, 0, 0)),
+                new RankedTechnicianCandidate(tech1, DateTime.Today, 480, 540, CandidateLocalityTier.SameCity, new CandidateScoreBreakdown(10, 0, 0, 0, 0)),
+                new RankedTechnicianCandidate(tech1, DateTime.Today, 600, 660, CandidateLocalityTier.SameCity, new CandidateScoreBreakdown(15, 0, 0, 0, 0))
             });
 
         best.Should().NotBeNull();
         best!.Technician.Id.Should().Be(1);
         best.StartMinutes.Should().Be(480);
+    }
+
+    [Fact]
+    public void CandidateDateWindowGenerator_GeneratesBoundedFutureDates()
+    {
+        var generator = new CandidateDateWindowGenerator();
+        var start = new DateTime(2026, 3, 10);
+        var dates = generator.GenerateDates(start, start.AddDays(2), 5);
+
+        dates.Should().Equal(
+            start,
+            start.AddDays(1),
+            start.AddDays(2));
+    }
+
+    [Fact]
+    public void CandidateLocalitySelector_PrefersSameCityTechnicians()
+    {
+        var selector = new CandidateLocalitySelector();
+        var pool = selector.SelectPool(
+            new[]
+            {
+                new TechnicianEntity { Id = 1, WorkplaceAddress = new AddressEntity { City = "Vilnius" } },
+                new TechnicianEntity { Id = 2, WorkplaceAddress = new AddressEntity { City = "Kaunas" } }
+            },
+            new ServiceObjectEntity { Address = new AddressEntity { City = "Vilnius" } });
+
+        pool.Tier.Should().Be(CandidateLocalityTier.SameCity);
+        pool.Technicians.Should().ContainSingle();
+        pool.Technicians[0].Id.Should().Be(1);
     }
 }

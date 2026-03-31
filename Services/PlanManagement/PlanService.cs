@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
@@ -74,6 +73,30 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 => Task.CompletedTask;
         }
 
+        private sealed class ForwardingLogger<TCategoryName> : ILogger<TCategoryName>
+        {
+            private readonly ILogger _inner;
+
+            public ForwardingLogger(ILogger inner)
+            {
+                _inner = inner;
+            }
+
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+                => _inner.BeginScope(state);
+
+            public bool IsEnabled(LogLevel logLevel)
+                => _inner.IsEnabled(logLevel);
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+                => _inner.Log(logLevel, eventId, state, exception, formatter);
+        }
+
         // ── Constructors ─────────────────────────────────────────────────────
 
         public PlanService(
@@ -117,46 +140,22 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _historyWriter           = historyWriter;
             _logger                  = logger;
 
-            var log = NullLoggerFactory.Instance;
-
             _locationResolver = new ServiceLocationResolver(db);
 
             _routeEvaluationCaller = new RouteEvaluationCaller(
                 routeEvaluationService,
-                log.CreateLogger<RouteEvaluationCaller>());
+                new ForwardingLogger<RouteEvaluationCaller>(logger));
 
             _placementValidator = new SchedulePlacementValidator(
                 db, taskPermissionService, timeService,
                 travelFeasibilityService, scheduleRepairService,
-                log.CreateLogger<SchedulePlacementValidator>());
+                new ForwardingLogger<SchedulePlacementValidator>(logger));
 
             _planLifecycle = new PlanServicePlanLifecycle(
                 db, evaluationEngine, planningCalendar, timeService,
-                log.CreateLogger<PlanServicePlanLifecycle>());
+                new ForwardingLogger<PlanServicePlanLifecycle>(logger));
 
             _taskQuery = new PlanServiceTaskQuery(db, timeService, travelResolver, _placementValidator);
-
-            _taskCreation = new PlanServiceTaskCreation(
-                db, evaluationEngine, timeService, scheduleRepairService, historyWriter,
-                _placementValidator, _locationResolver, _routeEvaluationCaller, _planLifecycle,
-                log.CreateLogger<PlanServiceTaskCreation>());
-
-            _taskModification = new PlanServiceTaskModification(
-                db, evaluationEngine, timeService, scheduleRepairService,
-                taskPermissionService, historyWriter,
-                _placementValidator, _locationResolver, _routeEvaluationCaller, _planLifecycle,
-                travelFeasibilityService,
-                log.CreateLogger<PlanServiceTaskModification>());
-
-            _taskDeletion = new PlanServiceTaskDeletion(
-                db, evaluationEngine, scheduleRepairService, taskPermissionService, historyWriter,
-                _routeEvaluationCaller, _planLifecycle,
-                log.CreateLogger<PlanServiceTaskDeletion>());
-
-            _taskPreview = new PlanServiceTaskPreview(
-                db, timeService, taskPermissionService, travelResolver,
-                _placementValidator, routeEvaluationService,
-                log.CreateLogger<PlanServiceTaskPreview>());
 
             _assignmentMatching = new PlanServiceAssignmentMatching(
                 db,
@@ -164,10 +163,34 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 _placementValidator,
                 travelResolver,
                 new CandidateEligibilityEvaluator(),
+                new CandidateLocalitySelector(),
+                new CandidateDateWindowGenerator(),
                 new CandidateSlotGenerator(timeService),
                 new CandidateScoreCalculator(),
                 new CandidateRankingService(),
-                log.CreateLogger<PlanServiceAssignmentMatching>());
+                new ForwardingLogger<PlanServiceAssignmentMatching>(logger));
+
+            _taskCreation = new PlanServiceTaskCreation(
+                db, evaluationEngine, timeService, scheduleRepairService, historyWriter,
+                _placementValidator, _locationResolver, _routeEvaluationCaller, _planLifecycle, _assignmentMatching,
+                new ForwardingLogger<PlanServiceTaskCreation>(logger));
+
+            _taskModification = new PlanServiceTaskModification(
+                db, evaluationEngine, timeService, scheduleRepairService,
+                taskPermissionService, historyWriter,
+                _placementValidator, _locationResolver, _routeEvaluationCaller, _planLifecycle,
+                travelFeasibilityService,
+                new ForwardingLogger<PlanServiceTaskModification>(logger));
+
+            _taskDeletion = new PlanServiceTaskDeletion(
+                db, evaluationEngine, scheduleRepairService, taskPermissionService, historyWriter,
+                _routeEvaluationCaller, _planLifecycle,
+                new ForwardingLogger<PlanServiceTaskDeletion>(logger));
+
+            _taskPreview = new PlanServiceTaskPreview(
+                db, timeService, taskPermissionService, travelResolver,
+                _placementValidator, routeEvaluationService,
+                new ForwardingLogger<PlanServiceTaskPreview>(logger));
         }
 
         // ── Plan lifecycle ───────────────────────────────────────────────────
@@ -190,6 +213,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
         public Task DiscardDraftAsync(CancellationToken cancellationToken = default)
             => _planLifecycle.DiscardDraftAsync(cancellationToken);
+
+        public Task<(long? ActivePlanId, long? DraftPlanId)> RecalculateCurrentPlansAsync(CancellationToken cancellationToken = default)
+            => _planLifecycle.RecalculateCurrentPlansAsync(cancellationToken);
 
         // ── Task queries ─────────────────────────────────────────────────────
 
@@ -232,11 +258,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             long? previousServiceObjectId = null,
             long? newServiceObjectId = null,
             bool appendAfterLastTask = false,
+            List<SimulatedTaskAssignmentDto>? simulatedAssignments = null,
             CancellationToken cancellationToken = default)
             => _taskQuery.GetSuggestedNextSlotAsync(
                 technicianId, targetDate, timezoneOffsetMinutes,
                 slotSizeMinutes, dayStartMinutes, afterEndMinutes,
-                previousServiceObjectId, newServiceObjectId, appendAfterLastTask, cancellationToken);
+                previousServiceObjectId, newServiceObjectId, appendAfterLastTask, simulatedAssignments, cancellationToken);
 
         // ── Task creation ────────────────────────────────────────────────────
 
@@ -263,15 +290,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
         public Task<BulkCreateTaskResponseDto> BulkValidateTasksAsync(
             IReadOnlyList<CreateTaskRequestDto> items,
+            string? planMode,
             UserContext user,
             CancellationToken cancellationToken = default)
-            => _taskCreation.BulkValidateTasksAsync(items, user, cancellationToken);
+            => _taskCreation.BulkValidateTasksAsync(items, planMode, user, cancellationToken);
 
         public Task<BulkCreateTaskResponseDto> BulkCreateTasksAsync(
             IReadOnlyList<CreateTaskRequestDto> items,
+            string? planMode,
             UserContext user,
             CancellationToken cancellationToken = default)
-            => _taskCreation.BulkCreateTasksAsync(items, user, cancellationToken);
+            => _taskCreation.BulkCreateTasksAsync(items, planMode, user, cancellationToken);
 
         // ── Task modification ────────────────────────────────────────────────
 

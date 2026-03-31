@@ -9,13 +9,19 @@ internal sealed class CandidateScoreCalculator
 {
     internal const double BatchBalancePenaltyPerAssignment = 20.0;
     internal const double TravelPenaltyPerHour = 15.0;
+    internal const double DelayPenaltyPerDay = 100.0;
+    internal const double GlobalFallbackPenalty = 250.0;
+    internal const double DayTaskCountPenaltyPerTask = 25.0;
 
     public RankedTechnicianCandidate BuildRankedCandidate(
         TechnicianEntity technician,
+        DateTime requestedDate,
+        DateTime candidateDate,
         DateTime dayStartUtc,
         IReadOnlyList<TaskEntity> allTasks,
         IReadOnlyDictionary<(long From, long To), int> routeLookup,
         int batchAssignmentCount,
+        CandidateLocalityTier localityTier,
         int startMinutes,
         int endMinutes)
     {
@@ -46,13 +52,22 @@ internal sealed class CandidateScoreCalculator
         var snapshot = WorkloadCalculator.Evaluate(technician, dayTasks, weekTasks, travelMinutesByTaskId);
         var loadScore = LoadScoreCalculator.ComputeLoadScore(snapshot.Context, LoadScoreWeights.CreateDefault());
         var travelPenalty = snapshot.Context.TravelTimeHours * TravelPenaltyPerHour;
-        var batchPenalty = batchAssignmentCount * BatchBalancePenaltyPerAssignment;
+        var batchPenalty = batchAssignmentCount <= 0
+            ? 0
+            : batchAssignmentCount * batchAssignmentCount * BatchBalancePenaltyPerAssignment;
+        var delayPenalty = Math.Max(0, (candidateDate.Date - requestedDate.Date).Days) * DelayPenaltyPerDay;
+        var localityPenalty = localityTier == CandidateLocalityTier.GlobalFallback ? GlobalFallbackPenalty : 0;
+        // dayTasks includes the candidate task already appended by the caller, so existing count is Count - 1.
+        var existingDayTaskCount = Math.Max(0, dayTasks.Count - 1);
+        var spreadPenalty = existingDayTaskCount * DayTaskCountPenaltyPerTask;
 
         return new RankedTechnicianCandidate(
             technician,
+            candidateDate.Date,
             startMinutes,
             endMinutes,
-            new CandidateScoreBreakdown(loadScore, travelPenalty, batchPenalty));
+            localityTier,
+            new CandidateScoreBreakdown(loadScore, travelPenalty, batchPenalty, delayPenalty, localityPenalty, SpreadPenalty: spreadPenalty));
     }
 
     internal static Dictionary<long, int>? BuildTravelMinutesByTaskIdFromLookup(
