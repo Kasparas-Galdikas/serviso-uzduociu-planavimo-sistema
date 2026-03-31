@@ -9,8 +9,6 @@ using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using ServiceTaskPlanningSystem.Services.Scheduling;
-using Microsoft.EntityFrameworkCore;
-using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.History;
 
@@ -20,16 +18,11 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
     [Route("api/tasks")]
     public class TasksController : ControllerBase
     {
-        private sealed record PreviewTaskRow(long TechnicianId, DateTime StartAt, DateTime EndAt, long AddressId);
-
         private readonly IPlanService _planService;
         private readonly ILogger<TasksController> _logger;
         private readonly ITaskPermissionService _taskPermissionService;
         private readonly IScheduleTimeService _timeService;
         private readonly IUserContextResolver _userContextResolver;
-        private readonly ScheduleDbContext _db;
-        private readonly ILocationApiClient _locationApiClient;
-        private readonly IDistanceApiClient _distanceApiClient;
         private readonly ITaskTravelFeasibilityService _travelFeasibilityService;
 
         public TasksController(
@@ -37,9 +30,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             ITaskPermissionService taskPermissionService,
             IScheduleTimeService timeService,
             IUserContextResolver userContextResolver,
-            ScheduleDbContext db,
-            ILocationApiClient locationApiClient,
-            IDistanceApiClient distanceApiClient,
             ITaskTravelFeasibilityService travelFeasibilityService,
             ILogger<TasksController> logger)
         {
@@ -47,9 +37,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             _taskPermissionService = taskPermissionService;
             _timeService = timeService;
             _userContextResolver = userContextResolver;
-            _db = db;
-            _locationApiClient = locationApiClient;
-            _distanceApiClient = distanceApiClient;
             _travelFeasibilityService = travelFeasibilityService;
             _logger = logger;
         }
@@ -339,232 +326,26 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         public async Task<IActionResult> PreviewAssigneeTravel([FromBody] AssigneeTravelPreviewRequestDto dto, CancellationToken cancellationToken)
         {
             if (!ModelState.IsValid)
-            {
                 return ValidationProblem(ModelState);
-            }
 
             if (!TryParseDate(dto.TargetDate, out var targetDate))
-            {
                 return UnprocessableEntity(new { message = "Netinkamas datos formatas. Naudokite yyyy-MM-dd." });
-            }
 
             if (dto.EndMinutes <= dto.StartMinutes)
-            {
-                return UnprocessableEntity(new { message = "Pabaigos laikas turi bÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â«ti vÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âlesnis uÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¾ pradÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¾iÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦." });
-            }
+                return UnprocessableEntity(new { message = "Pabaigos laikas turi buti veliau uz pradzios laika." });
 
-            var normalizedAddress = dto.ObjectAddress.Trim();
-            var targetAddressId = await _db.Addresses
-                .AsNoTracking()
-                .Where(a => a.FullAddress == normalizedAddress)
-                .Select(a => (long?)a.Id)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            var result = new AssigneeTravelPreviewResponseDto();
-            var technicians = await _db.Technicians
-                .AsNoTracking()
-                .Select(t => new { t.Id, t.WorkplaceAddressId })
-                .ToListAsync(cancellationToken);
-
-            if (!targetAddressId.HasValue || technicians.Count == 0)
-            {
-                result.Items.AddRange(technicians.Select(t => new AssigneeTravelPreviewItemDto
-                {
-                    TechnicianId = t.Id,
-                    TravelMinutes = null,
-                    IsSelectable = true
-                }));
-                return Ok(result);
-            }
-
-            var startAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, dto.StartMinutes, dto.TimezoneOffsetMinutes);
-            var endAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, dto.EndMinutes, dto.TimezoneOffsetMinutes);
-            var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, 0, dto.TimezoneOffsetMinutes);
-            var dayEndUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate.AddDays(1), 0, dto.TimezoneOffsetMinutes);
-            long? scopedPlanId = null;
-            if (dto.TaskId.HasValue)
-            {
-                scopedPlanId = await _db.Tasks
-                    .AsNoTracking()
-                    .Where(t => t.Id == dto.TaskId.Value)
-                    .Select(t => t.PlanId)
-                    .FirstOrDefaultAsync(cancellationToken);
-            }
-
-            var dayTasks = await _db.Tasks
-                .AsNoTracking()
-                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
-                .Where(t => dto.TaskId == null || t.Id != dto.TaskId.Value)
-                .Where(t => scopedPlanId == null || t.PlanId == scopedPlanId)
-                .Where(t => t.StartAt < dayEndUtc && t.EndAt > dayStartUtc)
-                .Select(t => new PreviewTaskRow(
-                    t.TechnicianId,
-                    t.StartAt,
-                    t.EndAt,
-                    t.ServiceObject.AddressId))
-                .ToListAsync(cancellationToken);
-
-            var tasksByTech = dayTasks
-                .GroupBy(t => t.TechnicianId)
-                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.StartAt).ToList());
-
-            var candidates = new List<(long TechnicianId, long FromAddressId)>();
-            foreach (var tech in technicians)
-            {
-                var techTasks = tasksByTech.TryGetValue(tech.Id, out var list)
-                    ? list
-                    : new List<PreviewTaskRow>();
-
-                var prevTask = techTasks
-                    .Where(t => t.EndAt <= startAtUtc)
-                    .OrderByDescending(t => t.EndAt)
-                    .FirstOrDefault();
-
-                var fromAddressId = prevTask != null ? (long)prevTask.AddressId : tech.WorkplaceAddressId;
-                candidates.Add((tech.Id, fromAddressId));
-            }
-
-            var requiredPairs = candidates
-                .Select(c => (FromAddressId: c.FromAddressId, ToAddressId: targetAddressId.Value))
-                .Distinct()
-                .ToList();
-
-            await WarmupMissingRoutesAsync(requiredPairs, cancellationToken);
-
-            foreach (var c in candidates)
-            {
-                var feasibility = await _travelFeasibilityService.EvaluatePlacementAsync(
-                    c.TechnicianId,
-                    startAtUtc,
-                    endAtUtc,
-                    targetAddressId.Value,
-                    dto.StartMinutes,
-                    dto.TaskId,
-                    checkOverlap: true,
-                    cancellationToken);
-
-                result.Items.Add(new AssigneeTravelPreviewItemDto
-                {
-                    TechnicianId = c.TechnicianId,
-                    TravelMinutes = feasibility.InboundTravelMinutes,
-                    IsSelectable = feasibility.IsFeasible
-                });
-            }
+            var result = await _travelFeasibilityService.BuildAssigneeTravelPreviewAsync(
+                targetDate,
+                dto.ObjectAddress,
+                dto.StartMinutes,
+                dto.EndMinutes,
+                dto.TimezoneOffsetMinutes,
+                dto.TaskId,
+                cancellationToken);
 
             return Ok(result);
         }
 
-        private async Task WarmupMissingRoutesAsync(
-            IReadOnlyCollection<(long FromAddressId, long ToAddressId)> pairs,
-            CancellationToken cancellationToken)
-        {
-            if (pairs.Count == 0)
-            {
-                return;
-            }
-
-            var fromIds = pairs.Select(p => p.FromAddressId).Distinct().ToList();
-            var toIds = pairs.Select(p => p.ToAddressId).Distinct().ToList();
-            var existingPairs = await _db.TravelRoutes
-                .AsNoTracking()
-                .Where(r => fromIds.Contains(r.FromAddressId) && toIds.Contains(r.ToAddressId))
-                .Select(r => new { r.FromAddressId, r.ToAddressId })
-                .ToListAsync(cancellationToken);
-            var existingLookup = existingPairs
-                .Select(p => (p.FromAddressId, p.ToAddressId))
-                .ToHashSet();
-
-            var missingPairs = pairs
-                .Where(p => !existingLookup.Contains((p.FromAddressId, p.ToAddressId)))
-                .Distinct()
-                .ToList();
-            if (missingPairs.Count == 0)
-            {
-                return;
-            }
-
-            try
-            {
-                var addressIds = missingPairs
-                    .SelectMany(p => new[] { p.FromAddressId, p.ToAddressId })
-                    .Distinct()
-                    .ToList();
-                var addresses = await _db.Addresses
-                    .Where(a => addressIds.Contains(a.Id))
-                    .ToListAsync(cancellationToken);
-                var byId = addresses.ToDictionary(a => a.Id);
-
-                var coordsUpdated = false;
-                foreach (var address in addresses)
-                {
-                    if (address.Latitude.HasValue && address.Longitude.HasValue)
-                    {
-                        continue;
-                    }
-
-                    var coords = await _locationApiClient.GeocodeAsync(address.FullAddress, cancellationToken);
-                    address.Latitude = coords.Latitude;
-                    address.Longitude = coords.Longitude;
-                    coordsUpdated = true;
-                }
-
-                if (coordsUpdated)
-                {
-                    await _db.SaveChangesAsync(cancellationToken);
-                }
-
-                var matrixAddressIds = addresses
-                    .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
-                    .Select(a => a.Id)
-                    .Distinct()
-                    .ToList();
-                if (matrixAddressIds.Count < 2)
-                {
-                    return;
-                }
-
-                var matrixAddresses = matrixAddressIds
-                    .Select(id => byId[id])
-                    .ToList();
-                var indexByAddressId = matrixAddresses
-                    .Select((address, idx) => new { address.Id, idx })
-                    .ToDictionary(x => x.Id, x => x.idx);
-                var points = matrixAddresses
-                    .Select(a => new GeoPoint(a.Latitude!.Value, a.Longitude!.Value))
-                    .ToList();
-                var matrix = await _distanceApiClient.GetMatrixAsync(points, cancellationToken);
-
-                foreach (var pair in missingPairs)
-                {
-                    if (!indexByAddressId.TryGetValue(pair.FromAddressId, out var fromIdx) ||
-                        !indexByAddressId.TryGetValue(pair.ToAddressId, out var toIdx))
-                    {
-                        continue;
-                    }
-
-                    var distanceMeters = matrix.DistancesMeters[fromIdx][toIdx];
-                    var durationSeconds = matrix.DurationsSeconds[fromIdx][toIdx];
-                    var distanceKm = Math.Round((decimal)(distanceMeters / 1000d), 2);
-                    var durationMinutes = (int)Math.Ceiling(durationSeconds / 60d);
-                    var calculatedAt = DateTime.UtcNow;
-
-                    // Warmup may run in parallel with other route evaluators.
-                    await _db.Database.ExecuteSqlInterpolatedAsync(
-                        $@"INSERT INTO travel_routes (from_address_id, to_address_id, distance_km, duration_minutes, calculated_at)
-                           VALUES ({pair.FromAddressId}, {pair.ToAddressId}, {distanceKm}, {durationMinutes}, {calculatedAt})
-                           ON CONFLICT (from_address_id, to_address_id)
-                           DO UPDATE SET
-                               distance_km = EXCLUDED.distance_km,
-                               duration_minutes = EXCLUDED.duration_minutes,
-                               calculated_at = EXCLUDED.calculated_at",
-                        cancellationToken);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "api.task.preview.assignee-travel.warmup.failed");
-            }
-        }
 
         [HttpPatch("{id:long}")]
         [Authorize(Policy = "CanEditTask")]
@@ -1022,7 +803,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         public async Task<IActionResult> BulkCreateTasks([FromBody] BulkCreateTaskRequestDto dto, CancellationToken cancellationToken)
         {
             _logger.LogInformation("api.task.bulk.create.start planMode={PlanMode} itemCount={ItemCount}", dto.PlanMode ?? "(null)", dto.Items?.Count ?? 0);
-            
+
             if (!ModelState.IsValid)
                 return ValidationProblem(ModelState);
 
@@ -1030,22 +811,17 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return UnprocessableEntity(new { message = "Nenurodyti elementai." });
 
             if (dto.Items.Any(item => item.Status != ScheduleTaskStatus.InProgress))
-                return UnprocessableEntity(new { message = "Visi elementai turi turėti statusą 'Vykdoma'." });
+                return UnprocessableEntity(new { message = "Visi elementai turi tureti statusa Vykdoma." });
 
             var user = _userContextResolver.GetCurrentUser();
-            
-            // If automatinis mode, apply automatic technician/time suggestions
-            if (!string.IsNullOrEmpty(dto.PlanMode) && dto.PlanMode.Equals("automatinis", StringComparison.OrdinalIgnoreCase))
+
+            if ("automatinis".Equals(dto.PlanMode, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogInformation("api.task.bulk.automatinis.detected planMode={PlanMode}", dto.PlanMode);
-                await ApplyAutomaticPlanningAsync(dto.Items, cancellationToken);
-                _logger.LogInformation("api.task.bulk.automatinis.completed");
+                _logger.LogInformation("api.task.bulk.automatinis.start");
+                await _planService.ApplyAutomaticAssignmentsAsync(dto.Items, cancellationToken);
+                _logger.LogInformation("api.task.bulk.automatinis.done");
             }
-            else
-            {
-                _logger.LogInformation("api.task.bulk.manual.mode planMode={PlanMode}", dto.PlanMode ?? "(null)");
-            }
-            
+
             var result = await _planService.BulkCreateTasksAsync(dto.Items, user, cancellationToken);
 
             if (result.AllSucceeded)
@@ -1057,95 +833,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             return UnprocessableEntity(result);
         }
 
-        /// <summary>
-        /// Applies automatic technician and time suggestions to bulk task items.
-        /// For each item without a technician assignment, finds the best technician and time slot.
-        /// </summary>
-        private async Task ApplyAutomaticPlanningAsync(List<CreateTaskRequestDto> items, CancellationToken cancellationToken)
-        {
-            _logger.LogInformation("[AUTO_PLANNING] Starting automatic planning for {ItemCount} items", items.Count);
-            _logger.LogInformation("[AUTO_PLANNING] Processing {ItemCount} items for automatic assignment", items.Count);
-            var itemsProcessed = 0;
-            var itemsSkipped = 0;
-            var sortedIndexes = Enumerable.Range(0, items.Count)
-                .OrderByDescending(idx => (int)items[idx].Priority)
-                .ToList();
-            var batchAssignmentCounts = new Dictionary<long, int>();
-
-            for (int si = 0; si < sortedIndexes.Count; si++)
-            {
-                var i = sortedIndexes[si];
-                var item = items[i];
-                
-                _logger.LogDebug("[AUTO_PLANNING] Item {Index}: title='{Title}' object='{Object}' targetDate='{Date}' techId={TechId}", 
-                    i, item.Title, item.ObjectName, item.TargetDate, item.TechnicianId);
-                
-                // Skip if technician already assigned
-                if (item.TechnicianId > 0)
-                {
-                    _logger.LogDebug("[AUTO_PLANNING] Item {Index}: Skipping - technician already assigned ({TechId})", i, item.TechnicianId);
-                    itemsSkipped++;
-                    continue;
-                }
-
-                // Parse target date
-                if (!DateTime.TryParseExact(item.TargetDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var targetDate))
-                {
-                    _logger.LogError("[AUTO_PLANNING] Item {Index}: FAILED - Could not parse target date '{TargetDate}'", i, item.TargetDate);
-                    itemsSkipped++;
-                    continue;
-                }
-
-                try
-                {
-                    _logger.LogInformation("[AUTO_PLANNING] Item {Index}: Getting technician suggestion (object={Object}, date={Date})", i, item.ObjectName, targetDate.Date);
-
-                    var suggestion = await _planService.SuggestAutoAssignmentAsync(
-                        targetDate,
-                        item.EndMinutes - item.StartMinutes,
-                        item.ObjectName,
-                        item.Priority,
-                        item.TimezoneOffsetMinutes,
-                        item.SimulatedAssignments,
-                        batchAssignmentCounts,
-                        cancellationToken);
-
-                    if (suggestion == null)
-                    {
-                        _logger.LogWarning("[AUTO_PLANNING] Item {Index}: FAILED - No technician suggestion returned", i);
-                        itemsSkipped++;
-                        continue;
-                    }
-
-                    item.TechnicianId = suggestion.TechnicianId;
-
-                    _logger.LogInformation("[AUTO_PLANNING] Item {Index}: Suggested technician {TechId}", i, suggestion.TechnicianId);
-
-                    item.StartMinutes = suggestion.StartMinutes;
-                    item.EndMinutes = suggestion.EndMinutes;
-
-                    _logger.LogInformation(
-                        "[AUTO_PLANNING] Item {Index}: SUCCESS - Assigned to tech {TechId} at {StartMin}-{EndMin} minutes",
-                        i,
-                        suggestion.TechnicianId,
-                        suggestion.StartMinutes,
-                        suggestion.EndMinutes);
-                    batchAssignmentCounts[suggestion.TechnicianId] =
-                        batchAssignmentCounts.GetValueOrDefault(suggestion.TechnicianId) + 1;
-                    itemsProcessed++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex,
-                        "[AUTO_PLANNING] Item {Index}: EXCEPTION - Could not suggest automatic assignment, will require manual assignment. Error: {ErrorMessage}",
-                        i, ex.Message);
-                    itemsSkipped++;
-                    // Don't fail the entire bulk operation, just skip this item's auto-assignment
-                }
-            }
-            
-            _logger.LogInformation("[AUTO_PLANNING] Completed: {ProcessedCount} items auto-assigned, {SkippedCount} items skipped", itemsProcessed, itemsSkipped);
-        }
 
         [HttpGet("suggest-start")]
         [Authorize(Policy = "CanEditTask")]

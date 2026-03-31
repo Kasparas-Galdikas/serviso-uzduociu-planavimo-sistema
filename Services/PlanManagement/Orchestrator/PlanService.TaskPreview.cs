@@ -57,6 +57,74 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             _logger = logger;
         }
 
+        public async Task ApplyAutomaticAssignmentsAsync(
+            List<CreateTaskRequestDto> items,
+            CancellationToken cancellationToken = default)
+        {
+            _logger.LogInformation("svc.plan.auto-assign.start count={Count}", items.Count);
+            var itemsProcessed = 0;
+            var itemsSkipped = 0;
+            var sortedIndexes = Enumerable.Range(0, items.Count)
+                .OrderByDescending(idx => (int)items[idx].Priority)
+                .ToList();
+            var batchAssignmentCounts = new Dictionary<long, int>();
+
+            for (var si = 0; si < sortedIndexes.Count; si++)
+            {
+                var i = sortedIndexes[si];
+                var item = items[i];
+
+                if (item.TechnicianId > 0)
+                {
+                    itemsSkipped++;
+                    continue;
+                }
+
+                if (!DateTime.TryParseExact(item.TargetDate, "yyyy-MM-dd",
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None, out var targetDate))
+                {
+                    _logger.LogError("svc.plan.auto-assign.date-parse-failed index={Index} date={Date}", i, item.TargetDate);
+                    itemsSkipped++;
+                    continue;
+                }
+
+                try
+                {
+                    var suggestion = await SuggestAutoAssignmentAsync(
+                        targetDate,
+                        item.EndMinutes - item.StartMinutes,
+                        item.ObjectName,
+                        item.Priority,
+                        item.TimezoneOffsetMinutes,
+                        item.SimulatedAssignments,
+                        batchAssignmentCounts,
+                        cancellationToken);
+
+                    if (suggestion == null)
+                    {
+                        _logger.LogWarning("svc.plan.auto-assign.no-suggestion index={Index}", i);
+                        itemsSkipped++;
+                        continue;
+                    }
+
+                    item.TechnicianId  = suggestion.TechnicianId;
+                    item.StartMinutes  = suggestion.StartMinutes;
+                    item.EndMinutes    = suggestion.EndMinutes;
+                    batchAssignmentCounts[suggestion.TechnicianId] =
+                        batchAssignmentCounts.GetValueOrDefault(suggestion.TechnicianId) + 1;
+                    itemsProcessed++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "svc.plan.auto-assign.exception index={Index}", i);
+                    itemsSkipped++;
+                }
+            }
+
+            _logger.LogInformation("svc.plan.auto-assign.done processed={Processed} skipped={Skipped}", itemsProcessed, itemsSkipped);
+        }
+
         public async Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentAsync(
             DateTime targetDate,
             int durationMinutes,

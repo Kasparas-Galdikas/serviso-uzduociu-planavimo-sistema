@@ -374,6 +374,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             => _taskPreview.PreviewSwapSmartAsync(
                 sourceTaskId, targetTaskId, timezoneOffsetMinutes, cancellationToken);
 
+        public Task ApplyAutomaticAssignmentsAsync(
+            List<CreateTaskRequestDto> items,
+            CancellationToken cancellationToken = default)
+            => _taskPreview.ApplyAutomaticAssignmentsAsync(items, cancellationToken);
+
         public Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentAsync(
             DateTime targetDate,
             int durationMinutes,

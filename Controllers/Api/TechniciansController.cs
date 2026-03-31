@@ -1,11 +1,8 @@
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ServiceTaskPlanningSystem.Data;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using ServiceTaskPlanningSystem.Services.Technicians;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -14,35 +11,20 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
     [AllowAnonymous]
     public class TechniciansController : ControllerBase
     {
-        private readonly ScheduleDbContext _db;
+        private readonly ITechnicianLookupService _technicianLookupService;
 
-        public TechniciansController(ScheduleDbContext db)
+        public TechniciansController(ITechnicianLookupService technicianLookupService)
         {
-            _db = db;
+            _technicianLookupService = technicianLookupService;
         }
 
         /// <summary>
-        /// Get list of all active technicians for assignment dropdown
+        /// Get list of all technicians for assignment dropdown.
         /// </summary>
         [HttpGet]
         public async Task<IActionResult> GetTechnicians(CancellationToken cancellationToken)
         {
-            var technicians = await _db.Technicians
-                .AsNoTracking()
-                .Include(t => t.User)
-                .Include(t => t.WorkplaceAddress)
-                .OrderBy(t => t.User != null ? t.User.Name : t.Id.ToString())
-                .Select(t => new
-                {
-                    id = t.Id,
-                    name = t.User != null
-                        ? (!string.IsNullOrWhiteSpace(t.User.Name) ? t.User.Name : t.User.Email)
-                        : $"Technician #{t.Id}",
-                    city = t.WorkplaceAddress.City,
-                    region = t.WorkplaceAddress.City
-                })
-                .ToListAsync(cancellationToken);
-
+            var technicians = await _technicianLookupService.GetAllAsync(cancellationToken);
             return Ok(technicians);
         }
     }

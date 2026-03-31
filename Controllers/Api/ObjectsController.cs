@@ -1,10 +1,7 @@
-﻿using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ServiceTaskPlanningSystem.Data;
-using ServiceTaskPlanningSystem.Models.DTOs.Responses;
+using ServiceTaskPlanningSystem.Services.ServiceObjects;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -12,29 +9,18 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
     [Route("api/objects")]
     public class ObjectsController : ControllerBase
     {
-        private readonly ScheduleDbContext _db;
+        private readonly IServiceObjectService _serviceObjectService;
 
-        public ObjectsController(ScheduleDbContext db)
+        public ObjectsController(IServiceObjectService serviceObjectService)
         {
-            _db = db;
+            _serviceObjectService = serviceObjectService;
         }
 
         [HttpGet]
         public async Task<IActionResult> GetObjects(CancellationToken cancellationToken)
         {
-            var objects = await _db.ServiceObjects
-                .AsNoTracking()
-                .OrderBy(o => o.Name)
-                .Select(o => new ObjectLookupResponseDto
-                {
-                    Id = o.Id,
-                    Name = o.Name,
-                    Address = o.Address.FullAddress
-                })
-                .ToListAsync(cancellationToken);
-
+            var objects = await _serviceObjectService.GetAllAsync(cancellationToken);
             return Ok(objects);
         }
     }
 }
-

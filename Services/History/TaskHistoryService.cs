@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -6,11 +8,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 
 namespace ServiceTaskPlanningSystem.Services.History
 {
-    public class TaskHistoryService : ITaskHistoryWriter
+    public class TaskHistoryService : ITaskHistoryWriter, ITaskHistoryReader
     {
+        private const int BacklogHistoryDays = 7;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<TaskHistoryService> _logger;
 
@@ -97,6 +101,70 @@ namespace ServiceTaskPlanningSystem.Services.History
                 // History writes must never block or fail the main operation.
                 _logger.LogWarning(ex, "history.write.fail taskId={TaskId} action={Action}", taskId, actionType);
             }
+        }
+
+        public async Task<List<TaskHistoryItemDto>> GetPlanHistoryAsync(
+            long planId,
+            int limit,
+            bool includeBacklog,
+            long? userId,
+            CancellationToken cancellationToken = default)
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+
+            var planLogs = await db.TaskActionLogs
+                .AsNoTracking()
+                .Where(l => l.PlanId == planId)
+                .Select(l => new TaskHistoryItemDto
+                {
+                    Id = l.Id,
+                    TaskId = l.TaskId,
+                    ActionType = l.ActionType,
+                    Outcome = l.Outcome,
+                    Summary = l.Summary,
+                    OccurredAt = l.OccurredAtUtc,
+                    ActorDisplayName = l.ActorName,
+                    ActorRole = l.ActorRole,
+                    Source = l.Source,
+                    DetailsJson = l.DetailsJson
+                })
+                .ToListAsync(cancellationToken);
+
+            if (includeBacklog && userId.HasValue)
+            {
+                var cutoff = DateTime.UtcNow.AddDays(-BacklogHistoryDays);
+                var backlogLogs = await db.TaskActionLogs
+                    .AsNoTracking()
+                    .Where(l => l.PlanId == null
+                             && l.ActorUserId == userId.Value
+                             && l.OccurredAtUtc >= cutoff)
+                    .Select(l => new TaskHistoryItemDto
+                    {
+                        Id = l.Id,
+                        TaskId = l.TaskId,
+                        ActionType = l.ActionType,
+                        Outcome = l.Outcome,
+                        Summary = l.Summary,
+                        OccurredAt = l.OccurredAtUtc,
+                        ActorDisplayName = l.ActorName,
+                        ActorRole = l.ActorRole,
+                        Source = l.Source,
+                        DetailsJson = l.DetailsJson
+                    })
+                    .ToListAsync(cancellationToken);
+
+                return planLogs
+                    .Concat(backlogLogs)
+                    .OrderByDescending(l => l.OccurredAt)
+                    .Take(limit)
+                    .ToList();
+            }
+
+            return planLogs
+                .OrderByDescending(l => l.OccurredAt)
+                .Take(limit)
+                .ToList();
         }
     }
 }

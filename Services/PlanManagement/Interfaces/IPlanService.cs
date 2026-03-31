@@ -96,6 +96,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Mutates items in-place with auto-assigned TechnicianId, StartMinutes, EndMinutes.
+        /// Items processed in descending priority order. Items already having a TechnicianId are skipped.
+        /// Zero writes.
+        /// </summary>
+        Task ApplyAutomaticAssignmentsAsync(
+            List<CreateTaskRequestDto> items,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Returns the next free start minute for a technician on a date, chained after
         /// afterEndMinutes (or earliest creatable if null), skipping over existing scheduled tasks.
         /// Used to prefill bulk scheduling forms with chain-aware, conflict-free suggested times.
