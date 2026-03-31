@@ -16,6 +16,7 @@ using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.History;
+using ServiceTaskPlanningSystem.Services.PlanManagement.Matching;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
 
@@ -46,6 +47,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private readonly PlanServiceTaskModification _taskModification;
         private readonly PlanServiceTaskDeletion _taskDeletion;
         private readonly PlanServiceTaskPreview _taskPreview;
+        private readonly PlanServiceAssignmentMatching _assignmentMatching;
 
         // ── Noop fallbacks for optional dependencies ─────────────────────────
 
@@ -153,9 +155,19 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             _taskPreview = new PlanServiceTaskPreview(
                 db, timeService, taskPermissionService, travelResolver,
-                travelFeasibilityService, scheduleRepairService,
                 _placementValidator, routeEvaluationService,
                 log.CreateLogger<PlanServiceTaskPreview>());
+
+            _assignmentMatching = new PlanServiceAssignmentMatching(
+                db,
+                timeService,
+                _placementValidator,
+                travelResolver,
+                new CandidateEligibilityEvaluator(),
+                new CandidateSlotGenerator(timeService),
+                new CandidateScoreCalculator(),
+                new CandidateRankingService(),
+                log.CreateLogger<PlanServiceAssignmentMatching>());
         }
 
         // ── Plan lifecycle ───────────────────────────────────────────────────
@@ -377,7 +389,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public Task ApplyAutomaticAssignmentsAsync(
             List<CreateTaskRequestDto> items,
             CancellationToken cancellationToken = default)
-            => _taskPreview.ApplyAutomaticAssignmentsAsync(items, cancellationToken);
+            => _assignmentMatching.ApplyAutomaticAssignmentsAsync(items, cancellationToken);
 
         public Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentAsync(
             DateTime targetDate,
@@ -388,7 +400,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             List<SimulatedTaskAssignmentDto>? simulatedAssignments,
             Dictionary<long, int>? batchAssignmentCounts,
             CancellationToken cancellationToken = default)
-            => _taskPreview.SuggestAutoAssignmentAsync(
+            => _assignmentMatching.SuggestAutoAssignmentAsync(
                 targetDate,
                 durationMinutes,
                 objectName,

@@ -31,6 +31,26 @@ public sealed class PlanServiceAutoAssignmentTests
     private readonly ILogger<PlanService> _logger = Substitute.For<ILogger<PlanService>>();
     private readonly IScheduleTimeService _timeService = new ScheduleTimeService();
 
+    public PlanServiceAutoAssignmentTests()
+    {
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>(),
+                Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>())
+            .Returns(new TravelFeasibilityResult
+            {
+                IsFeasible = true,
+                InboundTravelMinutes = 0,
+                OutboundTravelMinutes = 0
+            });
+    }
+
     [Fact]
     public async Task SuggestAutoAssignmentAsync_WithoutActiveOrDraftPlan_ReturnsNull()
     {
@@ -200,6 +220,40 @@ public sealed class PlanServiceAutoAssignmentTests
         suggestion.Should().NotBeNull();
         suggestion!.StartMinutes.Should().BeGreaterThanOrEqualTo(600);
         suggestion.EndMinutes.Should().Be(suggestion.StartMinutes + 60);
+    }
+
+    [Fact]
+    public async Task SuggestAutoAssignmentAsync_UsesSharedTravelValidation()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedPlan(db);
+        SeedTechnician(db, 1, 100, "Tech One");
+        SeedServiceObject(db, 10, "Obj-1", 200);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+
+        await service.SuggestAutoAssignmentAsync(
+            day,
+            60,
+            "Obj-1",
+            TaskPriority.Medium,
+            0,
+            null,
+            null,
+            CancellationToken.None);
+
+        await _travelFeasibility.Received().EvaluatePlacementAsync(
+            Arg.Any<long>(),
+            Arg.Any<DateTime>(),
+            Arg.Any<DateTime>(),
+            200,
+            Arg.Any<int>(),
+            null,
+            true,
+            Arg.Any<CancellationToken>(),
+            Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>());
     }
 
     [Fact]

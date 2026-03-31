@@ -15,6 +15,7 @@ using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel;
+using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
@@ -86,7 +87,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             DateTime endAtUtc,
             long serviceAddressId,
             long? excludeTaskId,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IReadOnlyList<ProposedRouteStop>? simulatedStops = null,
+            bool checkOverlap = false)
         {
             var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
             if (taskDateLocal < userLocalToday)
@@ -112,8 +115,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                 serviceAddressId,
                 startMinutesLocal,
                 excludeTaskId,
-                checkOverlap: false,
-                cancellationToken);
+                checkOverlap,
+                cancellationToken,
+                simulatedStops);
 
             if (!travelCheck.IsFeasible)
             {
@@ -147,11 +151,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             DateTime endAtUtc,
             long serviceAddressId,
             long? excludeTaskId,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IReadOnlyList<ProposedRouteStop>? simulatedStops = null,
+            bool checkOverlap = false)
         {
             var result = await CheckTimingAndTravelAsync(
                 taskDateLocal, startMinutesLocal, timezoneOffsetMinutes,
-                technicianId, startAtUtc, endAtUtc, serviceAddressId, excludeTaskId, cancellationToken);
+                technicianId, startAtUtc, endAtUtc, serviceAddressId, excludeTaskId, cancellationToken,
+                simulatedStops, checkOverlap);
 
             if (result.ViolationKind == TimingTravelViolationKind.TravelInfeasible)
             {
