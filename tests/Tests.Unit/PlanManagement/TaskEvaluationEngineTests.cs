@@ -11,6 +11,7 @@ using NSubstitute;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Time;
+using ServiceTaskPlanningSystem.Services.Travel;
 using Xunit;
 
 namespace Tests.Unit.PlanManagement;
@@ -87,8 +88,15 @@ public sealed class TaskEvaluationEngineTests
         await db.SaveChangesAsync();
 
         var timeService = new ScheduleTimeService();
+        var travelResolver = Substitute.For<ITravelTimeResolver>();
+        travelResolver.GetTravelMinutesAsync(Arg.Any<IEnumerable<long>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new Dictionary<(long From, long To), int>
+            {
+                [(1, 2)] = 10,
+                [(2, 3)] = 60
+            }));
         var logger = Substitute.For<ILogger<TaskEvaluationEngine>>();
-        var sut = new TaskEvaluationEngine(db, timeService, logger);
+        var sut = new TaskEvaluationEngine(db, timeService, travelResolver, logger);
 
         await sut.RecalculateTasksAsync(new[] { 100L, 101L }, CancellationToken.None);
 

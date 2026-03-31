@@ -1,13 +1,13 @@
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
     /// <summary>
-    /// Defines how the task generator is being used.
+    /// Defines how the assignment fitness engine is being used.
     /// </summary>
-    public enum GeneratorScope
+    public enum FitnessScope
     {
 
         /// User manually edits or creates tasks.
-        /// Generator only validates and suggests.
+        /// Fitness engine only validates and suggests.
         Manual,
 
         /// Automatic task generation (initial or batch planning).

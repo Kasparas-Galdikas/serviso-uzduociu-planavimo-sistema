@@ -373,5 +373,24 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             CancellationToken cancellationToken = default)
             => _taskPreview.PreviewSwapSmartAsync(
                 sourceTaskId, targetTaskId, timezoneOffsetMinutes, cancellationToken);
+
+        public Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentAsync(
+            DateTime targetDate,
+            int durationMinutes,
+            string objectName,
+            TaskPriority priority,
+            int timezoneOffsetMinutes,
+            List<SimulatedTaskAssignmentDto>? simulatedAssignments,
+            Dictionary<long, int>? batchAssignmentCounts,
+            CancellationToken cancellationToken = default)
+            => _taskPreview.SuggestAutoAssignmentAsync(
+                targetDate,
+                durationMinutes,
+                objectName,
+                priority,
+                timezoneOffsetMinutes,
+                simulatedAssignments,
+                batchAssignmentCounts,
+                cancellationToken);
     }
 }

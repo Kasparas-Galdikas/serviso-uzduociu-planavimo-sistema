@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -13,7 +13,7 @@ using ServiceTaskPlanningSystem.Services.Travel;
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
 
-    /// Generates candidate plan improvement suggestions.
+    /// Rates how well each candidate technician fits a given task based on workload simulation.
     /// Strategy:
     /// 1. Load current plan snapshot from database (read-only)
     /// 2. Retrieve evaluation results for all tasks
@@ -25,20 +25,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
     /// 5. Score and rank candidates (best first)
     /// 6. Return top N suggestions
     /// Does NOT modify database or apply changes.
-    public sealed class TaskGenerator : ITaskGenerator
+    public sealed class AssignmentFitnessEngine : IAssignmentFitnessEngine
     {
         private readonly ScheduleDbContext _db;
         private readonly IEvaluationEngine _evaluationEngine;
-        private readonly ILogger<TaskGenerator> _logger;
+        private readonly ILogger<AssignmentFitnessEngine> _logger;
         private readonly IScheduleTimeService _timeService;
         private readonly ITravelTimeResolver _travelResolver;
 
-        public TaskGenerator(
+        public AssignmentFitnessEngine(
             ScheduleDbContext db,
             IEvaluationEngine evaluationEngine,
             IScheduleTimeService timeService,
             ITravelTimeResolver travelResolver,
-            ILogger<TaskGenerator> logger)
+            ILogger<AssignmentFitnessEngine> logger)
         {
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _evaluationEngine = evaluationEngine ?? throw new ArgumentNullException(nameof(evaluationEngine));
@@ -48,7 +48,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         }
 
         public async Task<IReadOnlyList<CandidatePlan>> GenerateCandidatesAsync(
-            GeneratorContext context,
+            FitnessContext context,
             CancellationToken cancellationToken = default)
         {
             if (context == null)
@@ -148,7 +148,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
         private async Task<List<TaskEntity>> LoadScopedTasksAsync(
             TaskEntity targetTask,
-            GeneratorContext context,
+            FitnessContext context,
             long? planId,
             CancellationToken cancellationToken)
         {
@@ -172,7 +172,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private List<CandidatePlan> GenerateTimeShiftCandidates(
             TaskEntity targetTask,
             List<TaskEntity> scopeTasks,
-            GeneratorContext context,
+            FitnessContext context,
             double originalScore,
             LoadScoreWeights weights,
             PlanSimulationContext simulation)
@@ -262,7 +262,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             TaskEntity targetTask,
             List<TaskEntity> scopeTasks,
             List<TechnicianEntity> allTechnicians,
-            GeneratorContext context,
+            FitnessContext context,
             double originalScore,
             LoadScoreWeights weights,
             PlanSimulationContext simulation)
@@ -346,7 +346,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private List<CandidatePlan> GenerateDayShiftCandidates(
             TaskEntity targetTask,
             List<TaskEntity> scopeTasks,
-            GeneratorContext context,
+            FitnessContext context,
             double originalScore,
             LoadScoreWeights weights,
             PlanSimulationContext simulation)
@@ -480,4 +480,3 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         }
     }
 }
-

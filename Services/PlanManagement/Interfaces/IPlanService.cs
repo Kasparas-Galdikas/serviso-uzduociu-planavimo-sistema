@@ -82,6 +82,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Finds the best-fit technician for a new task based on workload scoring.
+        /// Zero writes. Returns null if no suitable technician can be found.
+        /// </summary>
+        Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentAsync(
+            DateTime targetDate,
+            int durationMinutes,
+            string objectName,
+            TaskPriority priority,
+            int timezoneOffsetMinutes,
+            List<SimulatedTaskAssignmentDto>? simulatedAssignments,
+            Dictionary<long, int>? batchAssignmentCounts,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Returns the next free start minute for a technician on a date, chained after
         /// afterEndMinutes (or earliest creatable if null), skipping over existing scheduled tasks.
         /// Used to prefill bulk scheduling forms with chain-aware, conflict-free suggested times.
@@ -99,5 +113,3 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             CancellationToken cancellationToken = default);
     }
 }
-
-

@@ -3,18 +3,18 @@ using System.Collections.Generic;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
-    /// Captures a snapshot of the current plan state for candidate generation.
+    /// Captures a snapshot of the current plan state for fitness evaluation.
     /// Describes WHAT needs improvement, in WHAT scope, and with WHAT constraints.
-    /// This is an immutable context object that the generator receives.
+    /// This is an immutable context object that the fitness engine receives.
     /// All data is read-only database snapshots - no modifications happen here.
-    public sealed class GeneratorContext
+    public sealed class FitnessContext
     {
-        /// Task that triggered generation.
+        /// Task that triggered evaluation.
         /// This is the problematic or selected task to optimize.
         public long TargetTaskId { get; init; }
 
-        /// Scope constraints for generation (same day, same week, any technician, etc.)
-        public GeneratorScope Scope { get; init; }
+        /// Scope constraints for evaluation (same day, same week, any technician, etc.)
+        public FitnessScope Scope { get; init; }
 
         /// Maximum number of candidate plans to generate and return.
         /// Defaults to 5.
@@ -55,4 +55,3 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     }
 }
-

@@ -13,7 +13,6 @@ using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.History;
-using ServiceTaskPlanningSystem.Services.PlanManagement.Planner;
 
 namespace ServiceTaskPlanningSystem.Controllers.Api
 {
@@ -32,7 +31,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         private readonly ILocationApiClient _locationApiClient;
         private readonly IDistanceApiClient _distanceApiClient;
         private readonly ITaskTravelFeasibilityService _travelFeasibilityService;
-        private readonly AutomaticPlannerService _automaticPlanner;
 
         public TasksController(
             IPlanService planService,
@@ -43,7 +41,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             ILocationApiClient locationApiClient,
             IDistanceApiClient distanceApiClient,
             ITaskTravelFeasibilityService travelFeasibilityService,
-            AutomaticPlannerService automaticPlanner,
             ILogger<TasksController> logger)
         {
             _planService = planService;
@@ -54,7 +51,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             _locationApiClient = locationApiClient;
             _distanceApiClient = distanceApiClient;
             _travelFeasibilityService = travelFeasibilityService;
-            _automaticPlanner = automaticPlanner;
             _logger = logger;
         }
 
@@ -1068,79 +1064,17 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         private async Task ApplyAutomaticPlanningAsync(List<CreateTaskRequestDto> items, CancellationToken cancellationToken)
         {
             _logger.LogInformation("[AUTO_PLANNING] Starting automatic planning for {ItemCount} items", items.Count);
-            
-            // Load planning context: plans and all technicians
-            var draftPlan = await _db.Plans.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
-            
-            _logger.LogDebug("[AUTO_PLANNING] Draft plan: {DraftPlanId}", draftPlan?.Id ?? 0);
-            
-            var activePlan = await _db.Plans.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Active, cancellationToken);
-            
-            _logger.LogDebug("[AUTO_PLANNING] Active plan: {ActivePlanId}", activePlan?.Id ?? 0);
-            
-            var targetPlan = draftPlan ?? activePlan;
-            if (targetPlan == null)
-            {
-                _logger.LogError("[AUTO_PLANNING] FAILED: No Draft or Active plan found for automatic planning");
-                return; // No plan available, skip automatic planning
-            }
-
-            _logger.LogInformation("[AUTO_PLANNING] Using plan {PlanId} with status {PlanStatus}", targetPlan.Id, targetPlan.Status);
-
-            var allTechs = await _db.Technicians.AsNoTracking()
-                .OrderBy(t => t.Id)
-                .ToListAsync(cancellationToken);
-
-            _logger.LogInformation("[AUTO_PLANNING] Loaded {TechnicianCount} technicians", allTechs.Count);
-            
-            if (allTechs.Count == 0)
-            {
-                _logger.LogError("[AUTO_PLANNING] FAILED: No technicians found for automatic planning");
-                return; // No technicians available, skip automatic planning
-            }
-
-            // Get all service objects we'll need
-            var objectNames = items.Select(i => i.ObjectName).Distinct().ToList();
-            _logger.LogDebug("[AUTO_PLANNING] Looking up {ObjectCount} service objects: {Objects}", objectNames.Count, string.Join(", ", objectNames));
-            
-            var serviceObjects = await _db.ServiceObjects.AsNoTracking()
-                .Where(so => objectNames.Contains(so.Name))
-                .ToListAsync(cancellationToken);
-
-            // Map by name for quick lookup
-            var objectsByName = serviceObjects.ToDictionary(so => so.Name);
-            _logger.LogInformation("[AUTO_PLANNING] Found {FoundObjects} of {RequiredObjects} service objects", objectsByName.Count, objectNames.Count);
-
-            // Get existing tasks in the target plan for the dates we're scheduling
-            var targetDates = new HashSet<DateTime>();
-            foreach (var item in items)
-            {
-                if (DateTime.TryParseExact(item.TargetDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
-                {
-                    targetDates.Add(parsedDate);
-                }
-            }
-
-            _logger.LogDebug("[AUTO_PLANNING] Processing dates: {DateCount} dates", targetDates.Count);
-            
-            var existingTasks = await _db.Tasks.AsNoTracking()
-                .Include(t => t.ServiceObject)
-                .Include(t => t.Technician)
-                .Where(t => t.PlanId == targetPlan.Id &&
-                           targetDates.Contains(t.StartAt.Date))
-                .ToListAsync(cancellationToken);
-
-            _logger.LogInformation("[AUTO_PLANNING] Loaded {ExistingTaskCount} existing tasks for reference", existingTasks.Count);
-
-            // Process each item for automatic planning
             _logger.LogInformation("[AUTO_PLANNING] Processing {ItemCount} items for automatic assignment", items.Count);
             var itemsProcessed = 0;
             var itemsSkipped = 0;
-            
-            for (int i = 0; i < items.Count; i++)
+            var sortedIndexes = Enumerable.Range(0, items.Count)
+                .OrderByDescending(idx => (int)items[idx].Priority)
+                .ToList();
+            var batchAssignmentCounts = new Dictionary<long, int>();
+
+            for (int si = 0; si < sortedIndexes.Count; si++)
             {
+                var i = sortedIndexes[si];
                 var item = items[i];
                 
                 _logger.LogDebug("[AUTO_PLANNING] Item {Index}: title='{Title}' object='{Object}' targetDate='{Date}' techId={TechId}", 
@@ -1154,14 +1088,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     continue;
                 }
 
-                // Skip if object not found
-                if (!objectsByName.TryGetValue(item.ObjectName, out var serviceObject))
-                {
-                    _logger.LogError("[AUTO_PLANNING] Item {Index}: FAILED - Service object '{ObjectName}' not found", i, item.ObjectName);
-                    itemsSkipped++;
-                    continue;
-                }
-
                 // Parse target date
                 if (!DateTime.TryParseExact(item.TargetDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var targetDate))
                 {
@@ -1170,84 +1096,42 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     continue;
                 }
 
-                // Build a temporary task entity for automatic planner
-                var tempTask = new TaskEntity
-                {
-                    Id = 0, // Placeholder ID
-                    PlanId = targetPlan.Id,
-                    TechnicianId = 0, // To be assigned
-                    Title = item.Title ?? "",
-                    ServiceObjectId = serviceObject.Id,
-                    ServiceObject = serviceObject,
-                    StartAt = targetDate, // Will be refined by planner
-                    EndAt = targetDate.AddMinutes(item.EndMinutes - item.StartMinutes),
-                    Priority = item.Priority,
-                    Status = item.Status
-                };
-
                 try
                 {
                     _logger.LogInformation("[AUTO_PLANNING] Item {Index}: Getting technician suggestion (object={Object}, date={Date})", i, item.ObjectName, targetDate.Date);
-                    
-                    // Get automatic technician suggestion
-                    var suggestion = await _automaticPlanner.SuggestTechAndTimeAsync(
-                        tempTask,
-                        targetPlan.Id,
-                        allTechs,
-                        existingTasks,
+
+                    var suggestion = await _planService.SuggestAutoAssignmentAsync(
                         targetDate,
+                        item.EndMinutes - item.StartMinutes,
+                        item.ObjectName,
+                        item.Priority,
+                        item.TimezoneOffsetMinutes,
+                        item.SimulatedAssignments,
+                        batchAssignmentCounts,
                         cancellationToken);
+
+                    if (suggestion == null)
+                    {
+                        _logger.LogWarning("[AUTO_PLANNING] Item {Index}: FAILED - No technician suggestion returned", i);
+                        itemsSkipped++;
+                        continue;
+                    }
 
                     item.TechnicianId = suggestion.TechnicianId;
 
                     _logger.LogInformation("[AUTO_PLANNING] Item {Index}: Suggested technician {TechId}", i, suggestion.TechnicianId);
 
-                    // Get time slot for the selected technician
-                    _logger.LogDebug("[AUTO_PLANNING] Item {Index}: Getting time slot for technician {TechId}", i, suggestion.TechnicianId);
-                    
-                    var slotResult = await _planService.GetSuggestedNextSlotAsync(
-                        suggestion.TechnicianId,
-                        targetDate,
-                        item.TimezoneOffsetMinutes,
-                        ScheduleGrid.SlotSizeMinutes,
-                        ScheduleGrid.DayStartMinutes,
-                        null,
-                        null,
-                        serviceObject.Id,
-                        false,
-                        cancellationToken);
-
-                    int suggestedStartMinutes = slotResult.Item1;
-                    int suggestedEndMinutes = slotResult.Item2;
-
-                    item.StartMinutes = suggestedStartMinutes;
-                    item.EndMinutes = suggestedEndMinutes;
+                    item.StartMinutes = suggestion.StartMinutes;
+                    item.EndMinutes = suggestion.EndMinutes;
 
                     _logger.LogInformation(
                         "[AUTO_PLANNING] Item {Index}: SUCCESS - Assigned to tech {TechId} at {StartMin}-{EndMin} minutes",
                         i,
                         suggestion.TechnicianId,
-                        suggestedStartMinutes,
-                        suggestedEndMinutes);
-
-                    // Add this new task to existing tasks for next iteration scoring
-                    var newTaskStartAt = targetDate.AddMinutes(suggestedStartMinutes);
-                    var newTaskEndAt = targetDate.AddMinutes(suggestedEndMinutes);
-                    
-                    var newTaskForScoring = new TaskEntity
-                    {
-                        Id = tempTask.Id,
-                        PlanId = tempTask.PlanId,
-                        TechnicianId = suggestion.TechnicianId,
-                        Title = tempTask.Title,
-                        ServiceObjectId = tempTask.ServiceObjectId,
-                        ServiceObject = serviceObject,
-                        StartAt = newTaskStartAt,
-                        EndAt = newTaskEndAt,
-                        Priority = tempTask.Priority,
-                        Status = tempTask.Status
-                    };
-                    existingTasks.Add(newTaskForScoring);
+                        suggestion.StartMinutes,
+                        suggestion.EndMinutes);
+                    batchAssignmentCounts[suggestion.TechnicianId] =
+                        batchAssignmentCounts.GetValueOrDefault(suggestion.TechnicianId) + 1;
                     itemsProcessed++;
                 }
                 catch (Exception ex)
@@ -1313,99 +1197,32 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             try
             {
-                // Load planning context
-                var draftPlan = await _db.Plans.AsNoTracking()
-                    .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
-                
-                var activePlan = await _db.Plans.AsNoTracking()
-                    .FirstOrDefaultAsync(p => p.Status == PlanStatus.Active, cancellationToken);
-                
-                var targetPlan = draftPlan ?? activePlan;
-                if (targetPlan == null)
-                    return UnprocessableEntity(new { message = "Nėra aktyvaus plano. Prašome sukurti ar suaktyvinti planą." });
-
-                // Load all technicians
-                var allTechs = await _db.Technicians.AsNoTracking()
-                    .OrderBy(t => t.Id)
-                    .ToListAsync(cancellationToken);
-
-                if (allTechs.Count == 0)
-                    return UnprocessableEntity(new { message = "Nėra pasiekiamų darbuotojų. Prašome pridėti darbuotojus." });
-
-                // Get service object
-                var serviceObject = await _db.ServiceObjects.AsNoTracking()
-                    .FirstOrDefaultAsync(so => so.Name == dto.ObjectName, cancellationToken);
-
-                if (serviceObject == null)
-                    return NotFound(new { message = $"Objektas '{dto.ObjectName}' nerastas." });
-
-                // Get existing tasks in the target plan for this date
-                var existingTasks = await _db.Tasks.AsNoTracking()
-                    .Include(t => t.ServiceObject)
-                    .Include(t => t.Technician)
-                    .Where(t => t.PlanId == targetPlan.Id &&
-                               t.StartAt >= targetDate &&
-                               t.StartAt < targetDate.AddDays(1))
-                    .ToListAsync(cancellationToken);
-
-                // Build temporary task for planning
-                var tempTask = new TaskEntity
-                {
-                    Id = 0,
-                    PlanId = targetPlan.Id,
-                    TechnicianId = 0,
-                    Title = dto.Title ?? "",
-                    ServiceObjectId = serviceObject.Id,
-                    ServiceObject = serviceObject,
-                    StartAt = targetDate,
-                    EndAt = targetDate.AddMinutes(dto.EndMinutes - dto.StartMinutes),
-                    Priority = dto.Priority,
-                    Status = ScheduleTaskStatus.InProgress
-                };
-
-                // Get automatic technician suggestion
-                var suggestion = await _automaticPlanner.SuggestTechAndTimeAsync(
-                    tempTask,
-                    targetPlan.Id,
-                    allTechs,
-                    existingTasks,
+                var suggestion = await _planService.SuggestAutoAssignmentAsync(
                     targetDate,
-                    cancellationToken);
-
-                // Get time slot for the selected technician
-                var slotResult = await _planService.GetSuggestedNextSlotAsync(
-                    suggestion.TechnicianId,
-                    targetDate,
+                    dto.EndMinutes - dto.StartMinutes,
+                    dto.ObjectName,
+                    dto.Priority,
                     dto.TimezoneOffsetMinutes,
-                    ScheduleGrid.SlotSizeMinutes,
-                    ScheduleGrid.DayStartMinutes,
+                    dto.SimulatedAssignments,
                     null,
-                    null,
-                    serviceObject.Id,
-                    false,
                     cancellationToken);
 
-                int suggestedStartMinutes = slotResult.Item1;
-                int suggestedEndMinutes = slotResult.Item2;
-
-                // Get technician name for response
-                var technician = allTechs.FirstOrDefault(t => t.Id == suggestion.TechnicianId);
+                if (suggestion == null)
+                    return UnprocessableEntity(new { message = "Nepavyko rasti tinkamo automatinio priskyrimo šiai užduočiai." });
 
                 var pad = (int n) => n.ToString().PadLeft(2, '0');
-                var startTime = $"{pad(suggestedStartMinutes / 60)}:{pad(suggestedStartMinutes % 60)}";
-                var endTime = $"{pad(suggestedEndMinutes / 60)}:{pad(suggestedEndMinutes % 60)}";
+                var startTime = $"{pad(suggestion.StartMinutes / 60)}:{pad(suggestion.StartMinutes % 60)}";
+                var endTime = $"{pad(suggestion.EndMinutes / 60)}:{pad(suggestion.EndMinutes % 60)}";
                 var dateStr = targetDate.ToString("yyyy-MM-dd");
-
-                var technicianName = technician?.User?.Name ?? $"Technician #{technician?.Id}" ?? "Unknown";
 
                 return Ok(new
                 {
                     technicianId = suggestion.TechnicianId,
-                    technicianName = technicianName,
+                    technicianName = suggestion.TechnicianName,
                     startAt = $"{dateStr}T{startTime}",
                     endAt = $"{dateStr}T{endTime}",
-                    startMinutes = suggestedStartMinutes,
-                    endMinutes = suggestedEndMinutes
+                    startMinutes = suggestion.StartMinutes,
+                    endMinutes = suggestion.EndMinutes
                 });
             }
             catch (Exception ex)
@@ -1430,6 +1247,3 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
     }
 }
-
-
-

@@ -200,43 +200,72 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 : earliestAllowed;
             candidate = Math.Max(candidate, earliestAllowed);
 
-            // Travel buffer: if both item locations are known, push candidate past inbound travel time.
-            if (previousServiceObjectId.HasValue && newServiceObjectId.HasValue
-                && previousServiceObjectId.Value != newServiceObjectId.Value)
-            {
-                var prevAddrId = await _db.ServiceObjects
-                    .Where(o => o.Id == previousServiceObjectId.Value)
-                    .Select(o => (long?)o.AddressId)
-                    .FirstOrDefaultAsync(cancellationToken);
-                var newAddrId = await _db.ServiceObjects
-                    .Where(o => o.Id == newServiceObjectId.Value)
-                    .Select(o => (long?)o.AddressId)
-                    .FirstOrDefaultAsync(cancellationToken);
-
-                if (prevAddrId.HasValue && newAddrId.HasValue && prevAddrId.Value != newAddrId.Value)
-                {
-                    var travelMinutes = await _travelResolver.GetTravelMinutesAsync(
-                        prevAddrId.Value, newAddrId.Value, cancellationToken);
-                    if (travelMinutes is > 0)
-                    {
-                        var withTravel = _timeService.CeilingToSlot(
-                            (afterEndMinutes ?? candidate) + travelMinutes.Value, slotSizeMinutes);
-                        candidate = Math.Max(candidate, withTravel);
-                    }
-                }
-            }
-
             var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, 0, timezoneOffsetMinutes);
             var dayEndUtc = dayStartUtc.AddDays(1);
 
+            var technician = await _db.Technicians
+                .AsNoTracking()
+                .Where(t => t.Id == technicianId)
+                .Select(t => new { t.Id, t.WorkplaceAddressId })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (technician == null)
+            {
+                return (candidate, candidate + slotSizeMinutes);
+            }
+
             var existingTasks = await _db.Tasks
                 .AsNoTracking()
+                .Include(t => t.ServiceObject)
                 .Where(t => t.TechnicianId == technicianId)
                 .Where(t => t.Status != ScheduleTaskStatus.Canceled)
                 .Where(t => t.StartAt >= dayStartUtc && t.StartAt < dayEndUtc)
                 .OrderBy(t => t.StartAt)
-                .Select(t => new { t.StartAt, t.EndAt })
                 .ToListAsync(cancellationToken);
+
+            long? previousAddressId = null;
+            long? newAddressId = null;
+            if (previousServiceObjectId.HasValue)
+            {
+                previousAddressId = await _db.ServiceObjects
+                    .Where(o => o.Id == previousServiceObjectId.Value)
+                    .Select(o => (long?)o.AddressId)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+
+            if (newServiceObjectId.HasValue)
+            {
+                newAddressId = await _db.ServiceObjects
+                    .Where(o => o.Id == newServiceObjectId.Value)
+                    .Select(o => (long?)o.AddressId)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+
+            if (newAddressId.HasValue)
+            {
+                var addressIds = existingTasks
+                    .Select(t => t.ServiceObject?.AddressId ?? 0)
+                    .Append(technician.WorkplaceAddressId)
+                    .Append(newAddressId.Value)
+                    .Where(id => id > 0)
+                    .Distinct()
+                    .ToList();
+
+                var routeLookup = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
+                candidate = FindEarliestFeasibleCandidate(
+                    candidate,
+                    earliestAllowed,
+                    slotSizeMinutes,
+                    technician.WorkplaceAddressId,
+                    previousAddressId,
+                    newAddressId.Value,
+                    existingTasks,
+                    routeLookup,
+                    timezoneOffsetMinutes,
+                    appendAfterLastTask);
+
+                return (candidate, candidate + slotSizeMinutes);
+            }
 
             // appendAfterLastTask: push candidate past the technician's last task of the day
             // so the suggestion appends to the end of their schedule rather than filling the
@@ -259,6 +288,104 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             }
 
             return (candidate, candidate + slotSizeMinutes);
+        }
+
+        private int FindEarliestFeasibleCandidate(
+            int candidate,
+            int earliestAllowed,
+            int slotSizeMinutes,
+            long workplaceAddressId,
+            long? previousAddressId,
+            long newAddressId,
+            List<TaskEntity> existingTasks,
+            IReadOnlyDictionary<(long From, long To), int> routeLookup,
+            int timezoneOffsetMinutes,
+            bool appendAfterLastTask)
+        {
+            if (appendAfterLastTask && existingTasks.Count > 0)
+            {
+                var lastTask = existingTasks[^1];
+                var lastEndMinutes = (int)_timeService.ConvertUtcToLocal(lastTask.EndAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes;
+                var fromAddressId = lastTask.ServiceObject?.AddressId ?? workplaceAddressId;
+                var inboundTravel = ResolveTravelMinutes(routeLookup, fromAddressId, newAddressId);
+                candidate = Math.Max(candidate, _timeService.CeilingToSlot(lastEndMinutes + inboundTravel, slotSizeMinutes));
+            }
+
+            candidate = Math.Max(candidate, earliestAllowed);
+
+            while (true)
+            {
+                var previousTask = existingTasks
+                    .LastOrDefault(t => LocalMinutes(t.EndAt, timezoneOffsetMinutes) <= candidate);
+                var nextTask = existingTasks
+                    .FirstOrDefault(t => LocalMinutes(t.StartAt, timezoneOffsetMinutes) >= candidate);
+
+                var inboundFromAddressId = previousAddressId
+                    ?? previousTask?.ServiceObject?.AddressId
+                    ?? workplaceAddressId;
+                var inboundTravel = ResolveTravelMinutes(routeLookup, inboundFromAddressId, newAddressId);
+                var previousEndMinutes = previousTask != null
+                    ? LocalMinutes(previousTask.EndAt, timezoneOffsetMinutes)
+                    : ScheduleGrid.DayStartMinutes;
+
+                var earliestFromInbound = _timeService.CeilingToSlot(
+                    Math.Max(candidate, previousEndMinutes + inboundTravel),
+                    slotSizeMinutes);
+
+                if (earliestFromInbound > candidate)
+                {
+                    candidate = Math.Max(earliestFromInbound, earliestAllowed);
+                    continue;
+                }
+
+                var overlappingTask = existingTasks.FirstOrDefault(t =>
+                {
+                    var taskStartMinutes = LocalMinutes(t.StartAt, timezoneOffsetMinutes);
+                    var taskEndMinutes = LocalMinutes(t.EndAt, timezoneOffsetMinutes);
+                    return candidate < taskEndMinutes && candidate + slotSizeMinutes > taskStartMinutes;
+                });
+
+                if (overlappingTask != null)
+                {
+                    candidate = Math.Max(
+                        _timeService.CeilingToSlot(LocalMinutes(overlappingTask.EndAt, timezoneOffsetMinutes), slotSizeMinutes),
+                        earliestAllowed);
+                    continue;
+                }
+
+                if (nextTask != null)
+                {
+                    var nextStartMinutes = LocalMinutes(nextTask.StartAt, timezoneOffsetMinutes);
+                    var outboundTravel = ResolveTravelMinutes(routeLookup, newAddressId, nextTask.ServiceObject?.AddressId ?? 0);
+                    if (candidate + slotSizeMinutes + outboundTravel > nextStartMinutes)
+                    {
+                        candidate = Math.Max(
+                            _timeService.CeilingToSlot(LocalMinutes(nextTask.EndAt, timezoneOffsetMinutes), slotSizeMinutes),
+                            earliestAllowed);
+                        continue;
+                    }
+                }
+
+                return candidate;
+            }
+        }
+
+        private int LocalMinutes(DateTime utcDateTime, int timezoneOffsetMinutes) =>
+            (int)_timeService.ConvertUtcToLocal(utcDateTime, timezoneOffsetMinutes).TimeOfDay.TotalMinutes;
+
+        private static int ResolveTravelMinutes(
+            IReadOnlyDictionary<(long From, long To), int> routeLookup,
+            long fromAddressId,
+            long toAddressId)
+        {
+            if (fromAddressId <= 0 || toAddressId <= 0 || fromAddressId == toAddressId)
+            {
+                return 0;
+            }
+
+            return routeLookup.TryGetValue((fromAddressId, toAddressId), out var minutes)
+                ? minutes
+                : 0;
         }
     }
 }

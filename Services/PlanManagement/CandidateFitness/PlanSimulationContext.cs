@@ -8,13 +8,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
     /// <summary>
     /// In-memory snapshot of a plan state for simulation purposes.
-    /// 
-    /// Used by TaskGenerator to:
+    ///
+    /// Used by AssignmentFitnessEngine to:
     /// 1. Clone current tasks
     /// 2. Apply a proposed PlanChange
     /// 3. Recalculate metrics on the modified snapshot
     /// 4. Compute scores WITHOUT touching the database
-    /// 
+    ///
     /// This is immutable after creation - changes are applied via WithModifiedTasks().
     /// </summary>
     public sealed class PlanSimulationContext
@@ -266,7 +266,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 return null;
 
             var result = new Dictionary<long, int>();
-            
+
             // Only process day tasks (workload is evaluated per day)
             TaskEntity? prevTask = null;
             foreach (var task in dayTasks.OrderBy(t => t.StartAt))
