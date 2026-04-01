@@ -478,7 +478,7 @@ public sealed class PlanServiceAutoAssignmentTests
     }
 
     [Fact]
-    public async Task BulkValidateTasksAsync_AutomatinisMode_ReassignsStaleTechnicianIdsInServiceLayer()
+    public async Task BulkValidateTasksAsync_AutomatinisMode_KeepsClientAssignmentsForValidation()
     {
         using var db = CreateContext();
         var day = DateTime.UtcNow.Date.AddDays(1);
@@ -515,8 +515,8 @@ public sealed class PlanServiceAutoAssignmentTests
             new UserContext { UserId = 1, Role = UserRole.Manager },
             CancellationToken.None);
 
-        result.AllSucceeded.Should().BeTrue();
-        items[0].TechnicianId.Should().Be(1);
+        result.AllSucceeded.Should().BeFalse();
+        items[0].TechnicianId.Should().Be(999);
     }
 
     private PlanService CreateService(ScheduleDbContext db, IScheduleTimeService? timeService = null) =>

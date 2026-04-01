@@ -11,24 +11,24 @@ namespace Tests.Integration.Fixtures;
 /// </summary>
 public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 {
-    private readonly PostgresContainerFixture _postgres;
+    private readonly IntegrationDatabaseFixture _database;
     private readonly bool _useTestAuth;
     private readonly Action<IServiceCollection>? _configureTestServices;
     private readonly IReadOnlyDictionary<string, string?>? _configOverrides;
 
     public TestWebApplicationFactory(
-        PostgresContainerFixture postgres,
+        IntegrationDatabaseFixture database,
         bool useTestAuth = true,
         Action<IServiceCollection>? configureTestServices = null,
         IReadOnlyDictionary<string, string?>? configOverrides = null)
     {
-        _postgres = postgres;
+        _database = database;
         _useTestAuth = useTestAuth;
         _configureTestServices = configureTestServices;
         _configOverrides = configOverrides;
 
         // Set environment variable BEFORE host builds - ConfigurationLoader reads this
-        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", _postgres.ConnectionString);
+        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", _database.ConnectionString);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

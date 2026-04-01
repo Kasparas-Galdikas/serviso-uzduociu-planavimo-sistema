@@ -329,6 +329,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                 PlacementError.NotEditable => new TaskUpdateResult(TaskUpdateError.NotEditable, validation.Message),
                 PlacementError.Forbidden => new TaskUpdateResult(TaskUpdateError.NotEditable, validation.Message),
                 PlacementError.TechnicianNotFound => new TaskUpdateResult(TaskUpdateError.TechnicianNotFound, validation.Message),
+                PlacementError.Overlap => new TaskUpdateResult(TaskUpdateError.Overlap, validation.Message),
                 _ => new TaskUpdateResult(TaskUpdateError.InvalidWindow, validation.Message)
             };
 
@@ -464,15 +465,24 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             }
             else
             {
-                var constraintScope = await _planScopeResolver.ResolveConstraintScopeAsync(startAt, endAt, cancellationToken);
-                hasOverlap = await _planScopeResolver.ApplyConstraintScope(
-                        _db.Tasks.AsNoTracking(),
-                        constraintScope)
+                var overlapQuery = _db.Tasks
+                    .AsNoTracking()
                     .Where(t => ignoreTaskIds == null || !ignoreTaskIds.Contains(t.Id))
                     .Where(t => t.TechnicianId == targetTechnicianId)
                     .Where(t => t.Status != ScheduleTaskStatus.Canceled)
-                    .Where(t => t.StartAt < endAt && t.EndAt > startAt)
-                    .AnyAsync(cancellationToken);
+                    .Where(t => t.StartAt < endAt && t.EndAt > startAt);
+
+                if (plan?.Id != null)
+                {
+                    var targetPlanId = plan.Id;
+                    overlapQuery = overlapQuery.Where(t => !t.PlanId.HasValue || t.PlanId == targetPlanId);
+                }
+                else
+                {
+                    overlapQuery = overlapQuery.Where(t => !t.PlanId.HasValue);
+                }
+
+                hasOverlap = await overlapQuery.AnyAsync(cancellationToken);
             }
 
             if (hasOverlap)
