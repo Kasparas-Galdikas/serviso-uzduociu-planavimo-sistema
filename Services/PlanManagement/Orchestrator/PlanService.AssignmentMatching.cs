@@ -23,6 +23,104 @@ internal sealed class PlanServiceAssignmentMatching
 {
     private const int SearchHorizonDays = 5;
 
+    private sealed record AssignmentContextRequest(DateTime TargetDate, string ObjectName, int TimezoneOffsetMinutes);
+
+    private sealed class AssignmentMatchingContext
+    {
+        public required List<TechnicianEntity> Technicians { get; init; }
+        public required Dictionary<string, ServiceObjectEntity> ServiceObjectsByName { get; init; }
+        public required List<TaskEntity> PersistedWeekTasks { get; init; }
+        public required Dictionary<(long From, long To), int> RouteLookup { get; init; }
+        public required HashSet<long> RouteLookupAddressIds { get; init; }
+        public required DateTime LoadRangeStart { get; init; }
+        public required DateTime LoadRangeEndExclusive { get; init; }
+    }
+
+    /// <summary>
+    /// Holds incrementally-updated state shared across all items in a bulk assignment loop.
+    /// Eliminates the O(n²) cost of rebuilding allWeekTasks, workload groupings, and
+    /// simulated-stop groupings from scratch for every item in the batch.
+    /// </summary>
+    private sealed class BulkMatchingState
+    {
+        private long _nextTempTaskId;
+
+        public List<TaskEntity> AllWeekTasks { get; }
+        public Dictionary<(long TechnicianId, DateTime Day), List<TaskEntity>> WorkloadByTechnicianDay { get; }
+        public Dictionary<(long TechnicianId, DateTime Day), List<ProposedRouteStop>> SimulatedStopsByTechnicianDay { get; }
+        public HashSet<long> KnownAddressIds { get; }
+
+        public BulkMatchingState(List<TaskEntity> persistedTasks, List<TechnicianEntity> technicians)
+        {
+            AllWeekTasks = new List<TaskEntity>(persistedTasks);
+            WorkloadByTechnicianDay = persistedTasks
+                .Where(t => WorkloadCalculator.CountsTowardsWorkload(t.Status))
+                .GroupBy(t => (t.TechnicianId, Day: t.StartAt.Date))
+                .ToDictionary(g => g.Key, g => g.OrderBy(t => t.StartAt).ToList());
+            SimulatedStopsByTechnicianDay = new Dictionary<(long, DateTime), List<ProposedRouteStop>>();
+            KnownAddressIds = persistedTasks
+                .Where(t => t.ServiceObject != null)
+                .Select(t => t.ServiceObject!.AddressId)
+                .Concat(technicians.Select(t => t.WorkplaceAddressId))
+                .Where(id => id > 0)
+                .ToHashSet();
+            var minId = persistedTasks.Count > 0 ? persistedTasks.Min(t => (long?)t.Id) ?? 0L : 0L;
+            _nextTempTaskId = Math.Min(-1L, minId - 1L);
+        }
+
+        /// <summary>Returns the next available temp ID without consuming it.</summary>
+        public long PeekNextTempId() => _nextTempTaskId;
+
+        /// <summary>Returns and consumes the next available temp ID.</summary>
+        public long AllocateTempId() => _nextTempTaskId--;
+
+        /// <summary>
+        /// Appends a newly-decided simulated task and updates all groupings in O(1).
+        /// Call this after each successful suggestion in the bulk loop.
+        /// </summary>
+        public void AppendSimulatedTask(TaskEntity task)
+        {
+            AllWeekTasks.Add(task);
+
+            if (!WorkloadCalculator.CountsTowardsWorkload(task.Status))
+                return;
+
+            var key = (task.TechnicianId, task.StartAt.Date);
+
+            if (!WorkloadByTechnicianDay.TryGetValue(key, out var workloadList))
+            {
+                workloadList = new List<TaskEntity>();
+                WorkloadByTechnicianDay[key] = workloadList;
+            }
+
+            workloadList.Add(task);
+            // Keep sorted by StartAt; new tasks usually land at the end, but sort defensively
+            if (workloadList.Count > 1 && task.StartAt < workloadList[^2].StartAt)
+                workloadList.Sort((a, b) => a.StartAt.CompareTo(b.StartAt));
+
+            if (task.ServiceObject == null)
+                return;
+
+            KnownAddressIds.Add(task.ServiceObject.AddressId);
+
+            if (!SimulatedStopsByTechnicianDay.TryGetValue(key, out var stops))
+            {
+                stops = new List<ProposedRouteStop>();
+                SimulatedStopsByTechnicianDay[key] = stops;
+            }
+
+            stops.Add(new ProposedRouteStop
+            {
+                StartAt = task.StartAt,
+                EndAt = task.EndAt,
+                AddressId = task.ServiceObject.AddressId
+            });
+
+            if (stops.Count > 1 && task.StartAt < stops[^2].StartAt)
+                stops.Sort((a, b) => a.StartAt.CompareTo(b.StartAt));
+        }
+    }
+
     private readonly ScheduleDbContext _db;
     private readonly IScheduleTimeService _timeService;
     private readonly SchedulePlacementValidator _placementValidator;
@@ -73,6 +171,16 @@ internal sealed class PlanServiceAssignmentMatching
             .ToList();
         var batchAssignmentCounts = new Dictionary<long, int>();
         var accumulatedSimulatedAssignments = new List<SimulatedTaskAssignmentDto>();
+        var sharedContext = await BuildAssignmentMatchingContextAsync(
+            sortedIndexes
+                .Select(index => TryBuildAssignmentContextRequest(items[index]))
+                .Where(request => request != null)
+                .Select(request => request!)
+                .ToList(),
+            cancellationToken);
+        var bulkState = sharedContext != null
+            ? new BulkMatchingState(sharedContext.PersistedWeekTasks, sharedContext.Technicians)
+            : null;
 
         for (var si = 0; si < sortedIndexes.Count; si++)
         {
@@ -109,20 +217,25 @@ internal sealed class PlanServiceAssignmentMatching
 
             try
             {
-                var requestSimulatedAssignments = item.SimulatedAssignments ?? new List<SimulatedTaskAssignmentDto>();
-                var combinedSimulatedAssignments = requestSimulatedAssignments
-                    .Concat(accumulatedSimulatedAssignments)
-                    .ToList();
+                // When bulkState is active, accumulated assignments live there; only pass
+                // item-specific simulated assignments to avoid rebuilding the accumulated list.
+                var simulatedAssignmentsForCore = bulkState != null
+                    ? item.SimulatedAssignments
+                    : (item.SimulatedAssignments ?? new List<SimulatedTaskAssignmentDto>())
+                        .Concat(accumulatedSimulatedAssignments)
+                        .ToList();
 
-                var suggestion = await SuggestAutoAssignmentAsync(
+                var suggestion = await SuggestAutoAssignmentCoreAsync(
                     targetDate,
                     item.EndMinutes - item.StartMinutes,
                     item.ObjectName,
                     item.Priority,
                     item.TimezoneOffsetMinutes,
-                    combinedSimulatedAssignments,
+                    simulatedAssignmentsForCore,
                     batchAssignmentCounts,
-                    cancellationToken);
+                    cancellationToken,
+                    sharedContext,
+                    bulkState);
 
                 if (suggestion == null)
                 {
@@ -147,11 +260,34 @@ internal sealed class PlanServiceAssignmentMatching
                 batchAssignmentCounts[suggestion.TechnicianId] =
                     batchAssignmentCounts.GetValueOrDefault(suggestion.TechnicianId) + 1;
 
-                var resolvedServiceObject = await _db.ServiceObjects
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(so => so.Name == item.ObjectName, cancellationToken);
+                var resolvedServiceObject = TryResolveServiceObject(sharedContext, item.ObjectName);
 
-                if (resolvedServiceObject != null)
+                if (bulkState != null)
+                {
+                    var startAtUtc = _timeService.CreateUtcFromDateAndMinutes(
+                        suggestion.TargetDate.Date,
+                        suggestion.StartMinutes,
+                        item.TimezoneOffsetMinutes);
+                    var endAtUtc = _timeService.CreateUtcFromDateAndMinutes(
+                        suggestion.TargetDate.Date,
+                        suggestion.EndMinutes,
+                        item.TimezoneOffsetMinutes);
+                    bulkState.AppendSimulatedTask(new TaskEntity
+                    {
+                        Id = bulkState.AllocateTempId(),
+                        TechnicianId = suggestion.TechnicianId,
+                        ServiceObjectId = resolvedServiceObject?.Id ?? 0,
+                        ServiceObject = resolvedServiceObject!,
+                        Title = string.Empty,
+                        StartAt = startAtUtc,
+                        EndAt = endAtUtc,
+                        Priority = TaskPriority.Medium,
+                        Status = ScheduleTaskStatus.InProgress,
+                        CreatedAt = DateTime.UtcNow,
+                        SourceBacklogItemId = item.SourceBacklogItemId
+                    });
+                }
+                else if (resolvedServiceObject != null)
                 {
                     accumulatedSimulatedAssignments.Add(new SimulatedTaskAssignmentDto
                     {
@@ -175,6 +311,128 @@ internal sealed class PlanServiceAssignmentMatching
         _logger.LogInformation("svc.plan.auto-assign.done processed={Processed} skipped={Skipped}", itemsProcessed, itemsSkipped);
     }
 
+    public async Task<IReadOnlyList<AutoAssignmentSuggestionDto?>> SuggestBulkAutoAssignmentsAsync(
+        IReadOnlyList<CreateTaskRequestDto> items,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("svc.plan.auto-assign.bulk-suggest.start count={Count}", items.Count);
+        var suggestions = new AutoAssignmentSuggestionDto?[items.Count];
+        var sortedIndexes = Enumerable.Range(0, items.Count)
+            .OrderByDescending(idx => (int)items[idx].Priority)
+            .ToList();
+        var batchAssignmentCounts = new Dictionary<long, int>();
+        var accumulatedSimulatedAssignments = new List<SimulatedTaskAssignmentDto>();
+        var sharedContext = await BuildAssignmentMatchingContextAsync(
+            sortedIndexes
+                .Select(index => TryBuildAssignmentContextRequest(items[index]))
+                .Where(request => request != null)
+                .Select(request => request!)
+                .ToList(),
+            cancellationToken);
+        var bulkState = sharedContext != null
+            ? new BulkMatchingState(sharedContext.PersistedWeekTasks, sharedContext.Technicians)
+            : null;
+
+        for (var si = 0; si < sortedIndexes.Count; si++)
+        {
+            var i = sortedIndexes[si];
+            var item = items[i];
+
+            if (!DateTime.TryParseExact(
+                    item.TargetDate,
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var targetDate))
+            {
+                _logger.LogWarning("svc.plan.auto-assign.bulk-suggest.date-parse-failed index={Index} date={Date}", i, item.TargetDate);
+                continue;
+            }
+
+            try
+            {
+                var simulatedAssignmentsForCore = bulkState != null
+                    ? item.SimulatedAssignments
+                    : (item.SimulatedAssignments ?? new List<SimulatedTaskAssignmentDto>())
+                        .Concat(accumulatedSimulatedAssignments)
+                        .ToList();
+
+                var suggestion = await SuggestAutoAssignmentCoreAsync(
+                    targetDate,
+                    item.EndMinutes - item.StartMinutes,
+                    item.ObjectName,
+                    item.Priority,
+                    item.TimezoneOffsetMinutes,
+                    simulatedAssignmentsForCore,
+                    batchAssignmentCounts,
+                    cancellationToken,
+                    sharedContext,
+                    bulkState);
+
+                if (suggestion == null)
+                {
+                    _logger.LogWarning("svc.plan.auto-assign.bulk-suggest.no-suggestion index={Index}", i);
+                    continue;
+                }
+
+                suggestions[i] = suggestion;
+
+                batchAssignmentCounts[suggestion.TechnicianId] =
+                    batchAssignmentCounts.GetValueOrDefault(suggestion.TechnicianId) + 1;
+
+                var resolvedServiceObject = TryResolveServiceObject(sharedContext, item.ObjectName);
+
+                if (bulkState != null)
+                {
+                    var startAtUtc = _timeService.CreateUtcFromDateAndMinutes(
+                        suggestion.TargetDate.Date,
+                        suggestion.StartMinutes,
+                        item.TimezoneOffsetMinutes);
+                    var endAtUtc = _timeService.CreateUtcFromDateAndMinutes(
+                        suggestion.TargetDate.Date,
+                        suggestion.EndMinutes,
+                        item.TimezoneOffsetMinutes);
+                    bulkState.AppendSimulatedTask(new TaskEntity
+                    {
+                        Id = bulkState.AllocateTempId(),
+                        TechnicianId = suggestion.TechnicianId,
+                        ServiceObjectId = resolvedServiceObject?.Id ?? 0,
+                        ServiceObject = resolvedServiceObject!,
+                        Title = string.Empty,
+                        StartAt = startAtUtc,
+                        EndAt = endAtUtc,
+                        Priority = TaskPriority.Medium,
+                        Status = ScheduleTaskStatus.InProgress,
+                        CreatedAt = DateTime.UtcNow,
+                        SourceBacklogItemId = item.SourceBacklogItemId
+                    });
+                }
+                else if (resolvedServiceObject != null)
+                {
+                    accumulatedSimulatedAssignments.Add(new SimulatedTaskAssignmentDto
+                    {
+                        TechnicianId = suggestion.TechnicianId,
+                        StartAt = suggestion.TargetDate.Date.AddMinutes(suggestion.StartMinutes)
+                            .ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture),
+                        EndAt = suggestion.TargetDate.Date.AddMinutes(suggestion.EndMinutes)
+                            .ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture),
+                        AddressId = resolvedServiceObject.AddressId,
+                        ServiceObjectId = resolvedServiceObject.Id,
+                        SourceBacklogItemId = item.SourceBacklogItemId
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "svc.plan.auto-assign.bulk-suggest.exception index={Index}", i);
+            }
+        }
+
+        _logger.LogInformation("svc.plan.auto-assign.bulk-suggest.done found={Found} of={Total}",
+            suggestions.Count(s => s != null), items.Count);
+        return suggestions;
+    }
+
     public async Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentAsync(
         DateTime targetDate,
         int durationMinutes,
@@ -184,6 +442,28 @@ internal sealed class PlanServiceAssignmentMatching
         List<SimulatedTaskAssignmentDto>? simulatedAssignments,
         Dictionary<long, int>? batchAssignmentCounts,
         CancellationToken cancellationToken = default)
+        => await SuggestAutoAssignmentCoreAsync(
+            targetDate,
+            durationMinutes,
+            objectName,
+            priority,
+            timezoneOffsetMinutes,
+            simulatedAssignments,
+            batchAssignmentCounts,
+            cancellationToken,
+            sharedContext: null);
+
+    private async Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentCoreAsync(
+        DateTime targetDate,
+        int durationMinutes,
+        string objectName,
+        TaskPriority priority,
+        int timezoneOffsetMinutes,
+        List<SimulatedTaskAssignmentDto>? simulatedAssignments,
+        Dictionary<long, int>? batchAssignmentCounts,
+        CancellationToken cancellationToken,
+        AssignmentMatchingContext? sharedContext,
+        BulkMatchingState? bulkState = null)
     {
         if (durationMinutes <= 0 || string.IsNullOrWhiteSpace(objectName))
         {
@@ -207,12 +487,13 @@ internal sealed class PlanServiceAssignmentMatching
             durationMinutes,
             priority);
 
-        var technicians = await _db.Technicians
-            .AsNoTracking()
-            .Include(t => t.User)
-            .Include(t => t.WorkplaceAddress)
-            .OrderBy(t => t.Id)
-            .ToListAsync(cancellationToken);
+        var technicians = sharedContext?.Technicians
+            ?? await _db.Technicians
+                .AsNoTracking()
+                .Include(t => t.User)
+                .Include(t => t.WorkplaceAddress)
+                .OrderBy(t => t.Id)
+                .ToListAsync(cancellationToken);
 
         var eligibleTechnicians = _eligibilityEvaluator.GetEligibleTechnicians(technicians, requiredSkillLevel: string.Empty);
         if (eligibleTechnicians.Count == 0)
@@ -220,10 +501,11 @@ internal sealed class PlanServiceAssignmentMatching
             return null;
         }
 
-        var serviceObject = await _db.ServiceObjects
-            .AsNoTracking()
-            .Include(so => so.Address)
-            .FirstOrDefaultAsync(so => so.Name == objectName, cancellationToken);
+        var serviceObject = TryResolveServiceObject(sharedContext, objectName)
+            ?? await _db.ServiceObjects
+                .AsNoTracking()
+                .Include(so => so.Address)
+                .FirstOrDefaultAsync(so => so.Name == objectName, cancellationToken);
 
         if (serviceObject == null)
         {
@@ -251,34 +533,99 @@ internal sealed class PlanServiceAssignmentMatching
         var loadRangeStart = _timeService.GetWeekStart(firstCandidateDate);
         var loadRangeEndExclusive = _timeService.GetWeekEnd(lastCandidateDate).AddDays(1);
 
-        var persistedWeekTasks = await _db.Tasks
-            .AsNoTracking()
-            .Include(t => t.ServiceObject)
-            .Include(t => t.Technician)
-                .ThenInclude(t => t.User)
-            .Where(t => t.StartAt >= loadRangeStart &&
-                        t.StartAt < loadRangeEndExclusive)
-            .ToListAsync(cancellationToken);
+        // Fast path: when BulkMatchingState is available and the item has no item-specific
+        // simulated assignments, skip all per-item rebuilds. The accumulated state is already
+        // tracked incrementally in bulkState. Falls back to the original path for single-item
+        // calls (bulkState == null) and the rare case of item-specific SimulatedAssignments.
+        var useBulkState = bulkState != null && (simulatedAssignments == null || simulatedAssignments.Count == 0);
 
-        var simulatedTasks = await BuildSimulatedTasks(simulatedAssignments, timezoneOffsetMinutes, cancellationToken);
-        var allWeekTasks = persistedWeekTasks
-            .Concat(simulatedTasks)
-            .ToList();
+        IReadOnlyList<TaskEntity> allWeekTasks;
+        IReadOnlyDictionary<(long From, long To), int> routeLookup;
+        long nextTempTaskId;
+        Func<long, DateTime, List<TaskEntity>> getWorkloadTasks;
+        Func<long, DateTime, IReadOnlyList<ProposedRouteStop>> getSimulatedStops;
 
-        var addressIds = allWeekTasks
-            .Where(t => t.ServiceObject != null)
-            .Select(t => t.ServiceObject.AddressId)
-            .Concat(localityPool.Technicians.Select(t => t.WorkplaceAddressId))
-            .Append(serviceObject.AddressId)
-            .Where(id => id > 0)
-            .Distinct()
-            .ToList();
+        if (useBulkState)
+        {
+            allWeekTasks = bulkState!.AllWeekTasks;
+            var routeAddressIds = bulkState.KnownAddressIds
+                .Append(serviceObject.AddressId)
+                .Where(id => id > 0)
+                .ToList();
+            routeLookup = await BuildRouteLookupAsync(sharedContext, routeAddressIds, cancellationToken);
+            nextTempTaskId = bulkState.PeekNextTempId();
+            getWorkloadTasks = (techId, day) =>
+                bulkState.WorkloadByTechnicianDay.GetValueOrDefault((techId, day)) ?? new List<TaskEntity>();
+            getSimulatedStops = (techId, day) =>
+            {
+                return bulkState.SimulatedStopsByTechnicianDay.TryGetValue((techId, day), out var stops)
+                    ? (IReadOnlyList<ProposedRouteStop>)stops
+                    : Array.Empty<ProposedRouteStop>();
+            };
+        }
+        else
+        {
+            var persistedWeekTasks = sharedContext != null &&
+                                     sharedContext.LoadRangeStart <= loadRangeStart &&
+                                     sharedContext.LoadRangeEndExclusive >= loadRangeEndExclusive
+                ? sharedContext.PersistedWeekTasks
+                    .Where(t => t.StartAt >= loadRangeStart && t.StartAt < loadRangeEndExclusive)
+                    .ToList()
+                : await _db.Tasks
+                    .AsNoTracking()
+                    .Include(t => t.ServiceObject)
+                    .Include(t => t.Technician)
+                        .ThenInclude(t => t.User)
+                    .Where(t => t.StartAt >= loadRangeStart &&
+                                t.StartAt < loadRangeEndExclusive)
+                    .ToListAsync(cancellationToken);
 
-        var routeLookup = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken)
-            ?? new Dictionary<(long From, long To), int>();
-        var nextTempTaskId = NextTemporaryTaskId(allWeekTasks);
+            var simulatedTasks = await BuildSimulatedTasks(
+                simulatedAssignments,
+                timezoneOffsetMinutes,
+                cancellationToken,
+                sharedContext?.ServiceObjectsByName);
+            var builtAllWeekTasks = persistedWeekTasks.Concat(simulatedTasks).ToList();
+            allWeekTasks = builtAllWeekTasks;
+
+            var addressIds = builtAllWeekTasks
+                .Where(t => t.ServiceObject != null)
+                .Select(t => t.ServiceObject.AddressId)
+                .Concat(localityPool.Technicians.Select(t => t.WorkplaceAddressId))
+                .Append(serviceObject.AddressId)
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList();
+
+            routeLookup = await BuildRouteLookupAsync(sharedContext, addressIds, cancellationToken);
+            nextTempTaskId = NextTemporaryTaskId(builtAllWeekTasks);
+
+            var workloadTasksByTechnicianDay = builtAllWeekTasks
+                .Where(task => WorkloadCalculator.CountsTowardsWorkload(task.Status))
+                .GroupBy(task => (task.TechnicianId, Day: task.StartAt.Date))
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.OrderBy(task => task.StartAt).ToList());
+            var simulatedStopsByTechnicianDay = simulatedTasks
+                .Where(task => task.ServiceObject != null && WorkloadCalculator.CountsTowardsWorkload(task.Status))
+                .GroupBy(task => (task.TechnicianId, Day: task.StartAt.Date))
+                .ToDictionary(
+                    group => group.Key,
+                    group => BuildSimulatedStops(group));
+
+            getWorkloadTasks = (techId, day) =>
+                workloadTasksByTechnicianDay.GetValueOrDefault((techId, day)) ?? new List<TaskEntity>();
+            getSimulatedStops = (techId, day) =>
+                simulatedStopsByTechnicianDay.GetValueOrDefault((techId, day)) ?? Array.Empty<ProposedRouteStop>();
+        }
 
         var sameDayFeasibleCount = 0;
+        var weekTasksByTechnician = allWeekTasks
+            .Where(task => WorkloadCalculator.CountsTowardsWorkload(task.Status))
+            .GroupBy(task => task.TechnicianId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(task => task.StartAt).ToList());
 
         foreach (var candidateDate in candidateDates)
         {
@@ -287,13 +634,9 @@ internal sealed class PlanServiceAssignmentMatching
 
             foreach (var technician in localityPool.Technicians)
             {
-                var technicianDayTasks = allWeekTasks
-                    .Where(t => t.TechnicianId == technician.Id &&
-                                t.StartAt >= dayStart &&
-                                t.StartAt < dayStart.AddDays(1) &&
-                                WorkloadCalculator.CountsTowardsWorkload(t.Status))
-                    .OrderBy(t => t.StartAt)
-                    .ToList();
+                var technicianDayTasks = getWorkloadTasks(technician.Id, dayStart);
+                var technicianWeekTasks = weekTasksByTechnician.GetValueOrDefault(technician.Id)
+                    ?? new List<TaskEntity>();
 
                 var candidateStarts = _slotGenerator.GenerateCandidateStartMinutes(
                     technician,
@@ -304,7 +647,7 @@ internal sealed class PlanServiceAssignmentMatching
                     serviceObject,
                     routeLookup);
 
-                var simulatedStops = BuildSimulatedStops(simulatedTasks, technician.Id, dayStart);
+                var simulatedStops = getSimulatedStops(technician.Id, dayStart);
 
                 foreach (var candidateStartMinutes in candidateStarts)
                 {
@@ -332,8 +675,8 @@ internal sealed class PlanServiceAssignmentMatching
                         continue;
                     }
 
-                    var candidateTasks = allWeekTasks.ToList();
-                    candidateTasks.Add(new TaskEntity
+                    // Pass the candidate task directly instead of copying allWeekTasks
+                    var candidateTask = new TaskEntity
                     {
                         Id = nextTempTaskId--,
                         PlanId = 0,
@@ -347,14 +690,15 @@ internal sealed class PlanServiceAssignmentMatching
                         Priority = priority,
                         Status = ScheduleTaskStatus.InProgress,
                         CreatedAt = DateTime.UtcNow
-                    });
+                    };
 
                     rankedCandidates.Add(_scoreCalculator.BuildRankedCandidate(
                         technician,
                         requestedDate,
                         dayStart,
-                        dayStart,
-                        candidateTasks,
+                        technicianDayTasks,
+                        technicianWeekTasks,
+                        candidateTask,
                         routeLookup,
                         batchAssignmentCounts?.GetValueOrDefault(technician.Id) ?? 0,
                         localityPool.Tier,
@@ -423,7 +767,8 @@ internal sealed class PlanServiceAssignmentMatching
     private async Task<List<TaskEntity>> BuildSimulatedTasks(
         IEnumerable<SimulatedTaskAssignmentDto>? simulatedAssignments,
         int timezoneOffsetMinutes,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, ServiceObjectEntity>? serviceObjectsByName = null)
     {
         var tasks = new List<TaskEntity>();
         if (simulatedAssignments == null)
@@ -439,11 +784,15 @@ internal sealed class PlanServiceAssignmentMatching
             var addressId = assignment.AddressId;
             if (addressId <= 0 && assignment.ServiceObjectId.HasValue && assignment.ServiceObjectId.Value > 0)
             {
-                addressId = await _db.ServiceObjects
-                    .AsNoTracking()
-                    .Where(o => o.Id == assignment.ServiceObjectId.Value)
-                    .Select(o => o.AddressId)
-                    .FirstOrDefaultAsync(cancellationToken);
+                var cachedServiceObject = serviceObjectsByName?.Values
+                    .FirstOrDefault(o => o.Id == assignment.ServiceObjectId.Value);
+
+                addressId = cachedServiceObject?.AddressId
+                    ?? await _db.ServiceObjects
+                        .AsNoTracking()
+                        .Where(o => o.Id == assignment.ServiceObjectId.Value)
+                        .Select(o => o.AddressId)
+                        .FirstOrDefaultAsync(cancellationToken);
             }
 
             if (assignment.TechnicianId <= 0 ||
@@ -480,19 +829,173 @@ internal sealed class PlanServiceAssignmentMatching
         return tasks;
     }
 
-    private static IReadOnlyList<ProposedRouteStop> BuildSimulatedStops(
-        IEnumerable<TaskEntity> simulatedTasks,
-        long technicianId,
-        DateTime dayStartUtc)
+    private async Task<AssignmentMatchingContext?> BuildAssignmentMatchingContextAsync(
+        IReadOnlyList<AssignmentContextRequest> requests,
+        CancellationToken cancellationToken)
     {
-        var dayEndUtc = dayStartUtc.AddDays(1);
+        if (requests.Count == 0)
+        {
+            return null;
+        }
 
+        var technicians = await _db.Technicians
+            .AsNoTracking()
+            .Include(t => t.User)
+            .Include(t => t.WorkplaceAddress)
+            .OrderBy(t => t.Id)
+            .ToListAsync(cancellationToken);
+
+        var objectNames = requests
+            .Select(r => r.ObjectName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var serviceObjects = await _db.ServiceObjects
+            .AsNoTracking()
+            .Include(so => so.Address)
+            .Where(so => objectNames.Contains(so.Name))
+            .ToListAsync(cancellationToken);
+
+        var candidateDates = requests
+            .SelectMany(r =>
+            {
+                var earliestPlacement = _timeService.GetEarliestCreatablePlacement(
+                    r.TargetDate,
+                    r.TimezoneOffsetMinutes,
+                    ScheduleGrid.SlotSizeMinutes,
+                    ScheduleGrid.DayStartMinutes,
+                    ScheduleGrid.DayEndMinutes);
+
+                return _dateWindowGenerator.GenerateDates(
+                    earliestPlacement.TargetDate,
+                    earliestPlacement.TargetDate.AddDays(SearchHorizonDays - 1),
+                    SearchHorizonDays);
+            })
+            .Select(d => d.Date)
+            .Distinct()
+            .OrderBy(d => d)
+            .ToList();
+
+        if (candidateDates.Count == 0)
+        {
+            return new AssignmentMatchingContext
+            {
+                Technicians = technicians,
+                ServiceObjectsByName = serviceObjects
+                    .GroupBy(so => so.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase),
+                PersistedWeekTasks = new List<TaskEntity>(),
+                RouteLookup = new Dictionary<(long From, long To), int>(),
+                RouteLookupAddressIds = new HashSet<long>(),
+                LoadRangeStart = DateTime.MaxValue,
+                LoadRangeEndExclusive = DateTime.MinValue
+            };
+        }
+
+        var loadRangeStart = _timeService.GetWeekStart(candidateDates[0]);
+        var loadRangeEndExclusive = _timeService.GetWeekEnd(candidateDates[^1]).AddDays(1);
+
+        var persistedWeekTasks = await _db.Tasks
+            .AsNoTracking()
+            .Include(t => t.ServiceObject)
+            .Include(t => t.Technician)
+                .ThenInclude(t => t.User)
+            .Where(t => t.StartAt >= loadRangeStart && t.StartAt < loadRangeEndExclusive)
+            .ToListAsync(cancellationToken);
+
+        var addressIds = persistedWeekTasks
+            .Where(t => t.ServiceObject != null)
+            .Select(t => t.ServiceObject!.AddressId)
+            .Concat(technicians.Select(t => t.WorkplaceAddressId))
+            .Concat(serviceObjects.Select(so => so.AddressId))
+            .Where(id => id > 0)
+            .Distinct()
+            .ToList();
+
+        var routeLookup = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken)
+            ?? new Dictionary<(long From, long To), int>();
+
+        return new AssignmentMatchingContext
+        {
+            Technicians = technicians,
+            ServiceObjectsByName = serviceObjects
+                .GroupBy(so => so.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase),
+            PersistedWeekTasks = persistedWeekTasks,
+            RouteLookup = routeLookup,
+            RouteLookupAddressIds = addressIds.ToHashSet(),
+            LoadRangeStart = loadRangeStart,
+            LoadRangeEndExclusive = loadRangeEndExclusive
+        };
+    }
+
+    private async Task<IReadOnlyDictionary<(long From, long To), int>> BuildRouteLookupAsync(
+        AssignmentMatchingContext? sharedContext,
+        IReadOnlyCollection<long> addressIds,
+        CancellationToken cancellationToken)
+    {
+        var distinctAddressIds = addressIds.Where(id => id > 0).Distinct().ToList();
+        if (distinctAddressIds.Count == 0)
+        {
+            return new Dictionary<(long From, long To), int>();
+        }
+
+        if (sharedContext == null)
+        {
+            return await _travelResolver.GetTravelMinutesAsync(distinctAddressIds, cancellationToken)
+                ?? new Dictionary<(long From, long To), int>();
+        }
+
+        var missingAddressIds = distinctAddressIds
+            .Where(addressId => !sharedContext.RouteLookupAddressIds.Contains(addressId))
+            .ToList();
+
+        if (missingAddressIds.Count == 0)
+        {
+            return sharedContext.RouteLookup;
+        }
+
+        var routeLookup = new Dictionary<(long From, long To), int>(sharedContext.RouteLookup);
+        var additionalAddressIds = distinctAddressIds.Distinct().ToList();
+        var additionalRoutes = await _travelResolver.GetTravelMinutesAsync(additionalAddressIds, cancellationToken)
+            ?? new Dictionary<(long From, long To), int>();
+
+        foreach (var route in additionalRoutes)
+        {
+            routeLookup[route.Key] = route.Value;
+        }
+
+        return routeLookup;
+    }
+
+    private AssignmentContextRequest? TryBuildAssignmentContextRequest(CreateTaskRequestDto item)
+    {
+        if (string.IsNullOrWhiteSpace(item.ObjectName) ||
+            !DateTime.TryParseExact(item.TargetDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var targetDate))
+        {
+            return null;
+        }
+
+        return new AssignmentContextRequest(targetDate, item.ObjectName, item.TimezoneOffsetMinutes);
+    }
+
+    private ServiceObjectEntity? TryResolveServiceObject(AssignmentMatchingContext? context, string? objectName)
+    {
+        if (context == null || string.IsNullOrWhiteSpace(objectName))
+        {
+            return null;
+        }
+
+        context.ServiceObjectsByName.TryGetValue(objectName.Trim(), out var serviceObject);
+        return serviceObject;
+    }
+
+    private static IReadOnlyList<ProposedRouteStop> BuildSimulatedStops(
+        IEnumerable<TaskEntity> simulatedTasks)
+    {
         return simulatedTasks
-            .Where(t => t.TechnicianId == technicianId &&
-                        t.StartAt >= dayStartUtc &&
-                        t.StartAt < dayEndUtc &&
-                        t.ServiceObject != null &&
-                        WorkloadCalculator.CountsTowardsWorkload(t.Status))
+            .Where(t => t.ServiceObject != null)
             .OrderBy(t => t.StartAt)
             .Select(t => new ProposedRouteStop
             {

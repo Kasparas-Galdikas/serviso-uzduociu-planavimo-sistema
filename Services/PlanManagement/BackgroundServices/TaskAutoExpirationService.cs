@@ -7,9 +7,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Time;
 
-namespace ServiceTaskPlanningSystem.Services.PlanManagement
+namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
 {
     /// <summary>
     /// Background service that automatically expires tasks to Canceled status

@@ -890,6 +890,59 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         }
 
         /// <summary>
+        /// Suggests automatic technician and time assignment for all items in a bulk queue.
+        /// Fired once in the background when the user clicks "Planuoti" so the "Automatinis"
+        /// tab can display pre-computed results instantly without per-item API calls.
+        /// Returns an index-aligned array of suggestions (null entries where no match was found).
+        /// Zero writes.
+        /// </summary>
+        [HttpPost("suggest-auto-assignment/bulk")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> SuggestBulkAutoAssignment([FromBody] List<CreateTaskRequestDto> items, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return ValidationProblem(ModelState);
+
+            if (items == null || items.Count == 0)
+                return BadRequest(new { message = "Nenurodyti elementai." });
+
+            foreach (var item in items)
+            {
+                if (!TryParseDate(item.TargetDate, out _))
+                    return BadRequest(new { message = $"Netinkamas datos formatas elementui '{item.Title}'. Naudokite yyyy-MM-dd." });
+            }
+
+            try
+            {
+                var suggestions = await _planService.SuggestBulkAutoAssignmentsAsync(items, cancellationToken);
+
+                var pad = (int n) => n.ToString().PadLeft(2, '0');
+                var result = suggestions.Select(s =>
+                {
+                    if (s == null) return (object?)null;
+                    var dateStr = s.TargetDate.ToString("yyyy-MM-dd");
+                    return new
+                    {
+                        technicianId = s.TechnicianId,
+                        technicianName = s.TechnicianName,
+                        targetDate = dateStr,
+                        startAt = $"{dateStr}T{pad(s.StartMinutes / 60)}:{pad(s.StartMinutes % 60)}",
+                        endAt = $"{dateStr}T{pad(s.EndMinutes / 60)}:{pad(s.EndMinutes % 60)}",
+                        startMinutes = s.StartMinutes,
+                        endMinutes = s.EndMinutes
+                    };
+                }).ToList();
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error suggesting bulk automatic assignments");
+                return StatusCode(500, new { message = "Klaida sudarant automatinę užduočių priskyrimo sugestiją." });
+            }
+        }
+
+        /// <summary>
         /// Suggests automatic technician and time assignment for a single task.
         /// Used by the frontend to preview automatic assignment before bulk submission.
         /// </summary>

@@ -130,12 +130,24 @@ public sealed class AssignmentMatchingServicesTests
             }
         };
 
+        var candidateTask = new TaskEntity
+        {
+            Id = -1,
+            TechnicianId = 1,
+            ServiceObjectId = 10,
+            ServiceObject = serviceObject,
+            StartAt = day.AddHours(9),
+            EndAt = day.AddHours(10),
+            Status = ScheduleTaskStatus.InProgress
+        };
+
         var withoutPenalties = calculator.BuildRankedCandidate(
             technician,
             day,
             day,
-            day,
             tasks,
+            tasks,
+            candidateTask,
             new Dictionary<(long From, long To), int>(),
             0,
             CandidateLocalityTier.SameCity,
@@ -145,8 +157,9 @@ public sealed class AssignmentMatchingServicesTests
             technician,
             day,
             day,
-            day,
             tasks,
+            tasks,
+            candidateTask,
             new Dictionary<(long From, long To), int>
             {
                 [(100, 200)] = 120
@@ -174,12 +187,30 @@ public sealed class AssignmentMatchingServicesTests
         };
         var day = DateTime.UtcNow.Date.AddDays(1);
 
+        var todayExtra = new TaskEntity
+        {
+            Id = -1,
+            TechnicianId = 1,
+            StartAt = day.AddHours(8),
+            EndAt = day.AddHours(9),
+            Status = ScheduleTaskStatus.InProgress
+        };
+        var tomorrowExtra = new TaskEntity
+        {
+            Id = -2,
+            TechnicianId = 1,
+            StartAt = day.AddDays(1).AddHours(8),
+            EndAt = day.AddDays(1).AddHours(9),
+            Status = ScheduleTaskStatus.InProgress
+        };
+
         var todayCandidate = calculator.BuildRankedCandidate(
             technician,
             day,
             day,
-            day,
             new List<TaskEntity>(),
+            new List<TaskEntity>(),
+            todayExtra,
             new Dictionary<(long From, long To), int>(),
             0,
             CandidateLocalityTier.SameCity,
@@ -189,8 +220,9 @@ public sealed class AssignmentMatchingServicesTests
             technician,
             day,
             day.AddDays(1),
-            day.AddDays(1),
             new List<TaskEntity>(),
+            new List<TaskEntity>(),
+            tomorrowExtra,
             new Dictionary<(long From, long To), int>(),
             0,
             CandidateLocalityTier.SameCity,

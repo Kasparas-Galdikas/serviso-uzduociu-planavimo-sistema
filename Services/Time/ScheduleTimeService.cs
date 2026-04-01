@@ -117,6 +117,15 @@ namespace ServiceTaskPlanningSystem.Services.Time
             return weekStart.AddDays(6);
         }
 
+        public WeekBoundary GetCurrentWeekBoundary()
+        {
+            var localWeekStart = GetWeekStart(GetLocalToday()).Date;
+            var localWeekEndExclusive = localWeekStart.AddDays(7);
+            var utcWeekStart = DateTime.SpecifyKind(localWeekStart, DateTimeKind.Local).ToUniversalTime();
+            var utcWeekEndExclusive = DateTime.SpecifyKind(localWeekEndExclusive, DateTimeKind.Local).ToUniversalTime();
+            return new WeekBoundary(localWeekStart, localWeekEndExclusive, utcWeekStart, utcWeekEndExclusive);
+        }
+
         public DateTime GetUserLocalToday(int timezoneOffsetMinutes)
         {
             var userLocalNow = ConvertUtcToLocal(GetCurrentUtcTime(), timezoneOffsetMinutes);

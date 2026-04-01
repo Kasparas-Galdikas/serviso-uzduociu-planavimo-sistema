@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 namespace ServiceTaskPlanningSystem.Services.Time
 {
     public readonly record struct CreatablePlacement(DateTime TargetDate, int StartMinutes);
+    public readonly record struct WeekBoundary(DateTime LocalStart, DateTime LocalEndExclusive, DateTime UtcStart, DateTime UtcEndExclusive);
 
     /// <summary>
     /// Central service for all time-related operations.
@@ -89,6 +90,12 @@ namespace ServiceTaskPlanningSystem.Services.Time
         /// Gets the end of week (Sunday) for a given date.
         /// </summary>
         DateTime GetWeekEnd(DateTime date);
+
+        /// <summary>
+        /// Gets the current business-week boundaries using local week semantics
+        /// and UTC equivalents derived from the same local boundaries.
+        /// </summary>
+        WeekBoundary GetCurrentWeekBoundary();
 
         /// <summary>
         /// Gets the user's local "today" (current date in their timezone).

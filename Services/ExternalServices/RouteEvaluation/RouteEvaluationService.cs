@@ -129,6 +129,20 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
 
         public async Task EvaluateTechnicianDayAsync(long technicianId, DateTime dayUtc, CancellationToken cancellationToken = default)
         {
+            await EvaluateTechnicianDayCoreAsync(technicianId, dayUtc, recalculateEvaluations: true, cancellationToken);
+        }
+
+        public async Task EvaluateTechnicianDayRoutesOnlyAsync(long technicianId, DateTime dayUtc, CancellationToken cancellationToken = default)
+        {
+            await EvaluateTechnicianDayCoreAsync(technicianId, dayUtc, recalculateEvaluations: false, cancellationToken);
+        }
+
+        private async Task EvaluateTechnicianDayCoreAsync(
+            long technicianId,
+            DateTime dayUtc,
+            bool recalculateEvaluations,
+            CancellationToken cancellationToken)
+        {
             if (!IsConfigured())
             {
                 return;
@@ -202,24 +216,27 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 await UpsertSequentialRoutesAsync(routeAddresses, matrix, missingPairs, cancellationToken);
             }
 
-            var affectedPlanIds = planIds
-                .Where(id => id.HasValue)
-                .Select(id => id!.Value)
-                .Distinct()
-                .ToList();
-            foreach (var planId in affectedPlanIds)
+            if (recalculateEvaluations)
             {
-                await _evaluationEngine.RecalculatePlanAsync(planId, cancellationToken);
-            }
+                var affectedPlanIds = planIds
+                    .Where(id => id.HasValue)
+                    .Select(id => id!.Value)
+                    .Distinct()
+                    .ToList();
+                foreach (var planId in affectedPlanIds)
+                {
+                    await _evaluationEngine.RecalculatePlanAsync(planId, cancellationToken);
+                }
 
-            var unplannedTaskIds = dayTasks
-                .Where(t => !t.PlanId.HasValue)
-                .Select(t => t.Id)
-                .Distinct()
-                .ToList();
-            if (unplannedTaskIds.Count > 0)
-            {
-                await _evaluationEngine.RecalculateTasksAsync(unplannedTaskIds, cancellationToken);
+                var unplannedTaskIds = dayTasks
+                    .Where(t => !t.PlanId.HasValue)
+                    .Select(t => t.Id)
+                    .Distinct()
+                    .ToList();
+                if (unplannedTaskIds.Count > 0)
+                {
+                    await _evaluationEngine.RecalculateTasksAsync(unplannedTaskIds, cancellationToken);
+                }
             }
 
             _logger.LogInformation(

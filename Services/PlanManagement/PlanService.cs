@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
@@ -35,6 +36,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private readonly ITravelTimeResolver _travelResolver;
         private readonly ITaskHistoryWriter _historyWriter;
         private readonly ILogger<PlanService> _logger;
+        private readonly IPlanOperationInstrumentation _operationInstrumentation;
 
         // ── Orchestrator sub-services ────────────────────────────────────────
         private readonly ServiceLocationResolver _locationResolver;
@@ -111,7 +113,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             ILogger<PlanService> logger)
             : this(db, evaluationEngine, planningCalendar, taskPermissionService,
                    timeService, routeEvaluationService, travelFeasibilityService,
-                   new NoopScheduleRepairService(), travelResolver,
+                   new NoopScheduleRepairService(), travelResolver, null,
                    new NoopTaskHistoryWriter(), logger)
         { }
 
@@ -127,6 +129,34 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             ITravelTimeResolver travelResolver,
             ITaskHistoryWriter historyWriter,
             ILogger<PlanService> logger)
+            : this(
+                db,
+                evaluationEngine,
+                planningCalendar,
+                taskPermissionService,
+                timeService,
+                routeEvaluationService,
+                travelFeasibilityService,
+                scheduleRepairService,
+                travelResolver,
+                null,
+                historyWriter,
+                logger)
+        { }
+
+        public PlanService(
+            ScheduleDbContext db,
+            IEvaluationEngine evaluationEngine,
+            IPlanningCalendar planningCalendar,
+            ITaskPermissionService taskPermissionService,
+            IScheduleTimeService timeService,
+            IRouteEvaluationService routeEvaluationService,
+            ITaskTravelFeasibilityService travelFeasibilityService,
+            IScheduleRepairService scheduleRepairService,
+            ITravelTimeResolver travelResolver,
+            IServiceScopeFactory? scopeFactory,
+            ITaskHistoryWriter historyWriter,
+            ILogger<PlanService> logger)
         {
             _db                      = db;
             _evaluationEngine        = evaluationEngine;
@@ -139,23 +169,28 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _travelResolver          = travelResolver;
             _historyWriter           = historyWriter;
             _logger                  = logger;
+            _operationInstrumentation = new PlanOperationInstrumentation(
+                new ForwardingLogger<PlanOperationInstrumentation>(logger));
 
             _locationResolver = new ServiceLocationResolver(db);
+            var planScopeResolver = new PlanScopeResolver(db, timeService);
 
             _routeEvaluationCaller = new RouteEvaluationCaller(
                 routeEvaluationService,
+                scopeFactory,
                 new ForwardingLogger<RouteEvaluationCaller>(logger));
 
             _placementValidator = new SchedulePlacementValidator(
                 db, taskPermissionService, timeService,
                 travelFeasibilityService, scheduleRepairService,
+                planScopeResolver,
                 new ForwardingLogger<SchedulePlacementValidator>(logger));
 
             _planLifecycle = new PlanServicePlanLifecycle(
                 db, evaluationEngine, planningCalendar, timeService,
                 new ForwardingLogger<PlanServicePlanLifecycle>(logger));
 
-            _taskQuery = new PlanServiceTaskQuery(db, timeService, travelResolver, _placementValidator);
+            _taskQuery = new PlanServiceTaskQuery(db, timeService, travelResolver, _placementValidator, planScopeResolver);
 
             _assignmentMatching = new PlanServiceAssignmentMatching(
                 db,
@@ -172,7 +207,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             _taskCreation = new PlanServiceTaskCreation(
                 db, evaluationEngine, timeService, scheduleRepairService, historyWriter,
-                _placementValidator, _locationResolver, _routeEvaluationCaller, _planLifecycle, _assignmentMatching,
+                _placementValidator, _locationResolver, _routeEvaluationCaller, _planLifecycle,
+                _operationInstrumentation,
                 new ForwardingLogger<PlanServiceTaskCreation>(logger));
 
             _taskModification = new PlanServiceTaskModification(
@@ -419,6 +455,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             List<CreateTaskRequestDto> items,
             CancellationToken cancellationToken = default)
             => _assignmentMatching.ApplyAutomaticAssignmentsAsync(items, cancellationToken);
+
+        public Task<IReadOnlyList<AutoAssignmentSuggestionDto?>> SuggestBulkAutoAssignmentsAsync(
+            IReadOnlyList<CreateTaskRequestDto> items,
+            CancellationToken cancellationToken = default)
+            => _assignmentMatching.SuggestBulkAutoAssignmentsAsync(items, cancellationToken);
 
         public Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentAsync(
             DateTime targetDate,

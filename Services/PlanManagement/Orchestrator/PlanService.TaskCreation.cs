@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,7 @@ using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.History;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
+using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 {
@@ -30,7 +32,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         private readonly ServiceLocationResolver _locationResolver;
         private readonly RouteEvaluationCaller _routeEvaluationCaller;
         private readonly PlanServicePlanLifecycle _planLifecycle;
-        private readonly PlanServiceAssignmentMatching _assignmentMatching;
+        private readonly IPlanOperationInstrumentation _operationInstrumentation;
         private readonly ILogger<PlanServiceTaskCreation> _logger;
 
         public PlanServiceTaskCreation(
@@ -43,7 +45,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             ServiceLocationResolver locationResolver,
             RouteEvaluationCaller routeEvaluationCaller,
             PlanServicePlanLifecycle planLifecycle,
-            PlanServiceAssignmentMatching assignmentMatching,
+            IPlanOperationInstrumentation operationInstrumentation,
             ILogger<PlanServiceTaskCreation> logger)
         {
             _db = db;
@@ -55,11 +57,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             _locationResolver = locationResolver;
             _routeEvaluationCaller = routeEvaluationCaller;
             _planLifecycle = planLifecycle;
-            _assignmentMatching = assignmentMatching;
+            _operationInstrumentation = operationInstrumentation;
             _logger = logger;
         }
 
-        private async Task<List<CreateTaskRequestDto>> PrepareBulkItemsForModeAsync(
+        private Task<List<CreateTaskRequestDto>> PrepareBulkItemsForModeAsync(
             IReadOnlyList<CreateTaskRequestDto> items,
             string? planMode,
             CancellationToken cancellationToken)
@@ -68,18 +70,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
             if (!"automatinis".Equals(planMode, StringComparison.OrdinalIgnoreCase))
             {
-                return effectiveItems;
+                return Task.FromResult(effectiveItems);
             }
 
-            _logger.LogInformation("svc.plan.bulk.mode.automatinis.prepare itemCount={ItemCount}", effectiveItems.Count);
-
-            foreach (var item in effectiveItems)
-            {
-                item.TechnicianId = 0;
-            }
-
-            await _assignmentMatching.ApplyAutomaticAssignmentsAsync(effectiveItems, cancellationToken);
-            return effectiveItems;
+            _logger.LogInformation(
+                "svc.plan.bulk.mode.automatinis.prepare itemCount={ItemCount} action=use-client-assignments",
+                effectiveItems.Count);
+            return Task.FromResult(effectiveItems);
         }
 
         public async Task<TaskCreateResult> CreateTaskAsync(long technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, long? sourceBacklogItemId = null, CancellationToken cancellationToken = default)
@@ -250,6 +247,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             public required PlanEntity?[] TargetPlans { get; init; }
             public required SchedulePlacementValidator.PlacementValidationResult[] Placements { get; init; }
             public required long?[] KnownAddressIds { get; init; }
+            public required SchedulePlacementValidator.PlacementValidationContext PlacementContext { get; init; }
+            public required ServiceLocationResolver.ServiceAddressLookupCache AddressLookupCache { get; init; }
             public List<(long TechnicianId, long AddressId, DateTime StartAt, DateTime EndAt)> SimulatedBatchStops { get; } = new();
         }
 
@@ -265,10 +264,44 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             public BulkCreateTaskResponseDto? FailureResponse { get; init; }
         }
 
+        private sealed record BulkServiceObjectRequest(string ObjectName, string ObjectAddress, string City);
         private readonly record struct BulkServiceObjectResolution(long ServiceObjectId, long AddressId);
 
-        private async Task<BulkCreateContext> LoadBulkCreateContextAsync(int itemCount, CancellationToken cancellationToken)
+        private async Task<BulkCreateContext> LoadBulkCreateContextAsync(
+            IReadOnlyList<CreateTaskRequestDto> items,
+            CancellationToken cancellationToken)
         {
+            var itemCount = items.Count;
+            var parseableDates = items
+                .Select(item => DateTime.TryParseExact(
+                    item.TargetDate,
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal,
+                    out var parsed)
+                    ? (DateTime?)parsed.Date
+                    : null)
+                .Where(date => date.HasValue)
+                .Select(date => date!.Value)
+                .ToList();
+
+            var techIds = items
+                .Select(item => item.TechnicianId)
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList();
+
+            var placementContext = parseableDates.Count > 0 && techIds.Count > 0
+                ? await _placementValidator.BuildPlacementValidationContextAsync(
+                    techIds,
+                    parseableDates.Min(),
+                    parseableDates.Max().AddDays(1),
+                    cancellationToken)
+                : new SchedulePlacementValidator.PlacementValidationContext();
+            var addressLookupCache = await _locationResolver.BuildLookupCacheAsync(
+                items.Select(item => new ServiceLocationResolver.ServiceLocationLookupCandidate(item.ObjectName, item.ObjectAddress)),
+                cancellationToken);
+
             return new BulkCreateContext
             {
                 DraftPlan = await _db.Plans.AsNoTracking()
@@ -282,7 +315,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 ParsedDates = new DateTime[itemCount],
                 TargetPlans = new PlanEntity?[itemCount],
                 Placements = new SchedulePlacementValidator.PlacementValidationResult[itemCount],
-                KnownAddressIds = new long?[itemCount]
+                KnownAddressIds = new long?[itemCount],
+                PlacementContext = placementContext,
+                AddressLookupCache = addressLookupCache
             };
         }
 
@@ -367,7 +402,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     user: user,
                     timezoneOffsetMinutes: dto.TimezoneOffsetMinutes,
                     requireEndAligned: true,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken,
+                    context: context.PlacementContext);
 
                 if (!placement.IsValid)
                 {
@@ -388,6 +424,25 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                 if (hasOverlap)
                 {
+                    var conflictingSlot = reservedSlots.First(r =>
+                        r.TechId == dto.TechnicianId &&
+                        r.StartUtc < placement.EndAtUtc &&
+                        r.EndUtc > placement.StartAtUtc);
+
+                    _logger.LogWarning(
+                        "svc.plan.bulk.validate.reserved-overlap index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} timezoneOffsetMinutes={TimezoneOffsetMinutes} localDate={LocalDate} localStartMinutes={LocalStartMinutes} localEndMinutes={LocalEndMinutes} startAtUtc={StartAtUtc} endAtUtc={EndAtUtc} conflictingStartUtc={ConflictingStartUtc} conflictingEndUtc={ConflictingEndUtc}",
+                        i,
+                        dto.SourceBacklogItemId,
+                        dto.TechnicianId,
+                        dto.TimezoneOffsetMinutes,
+                        targetDate,
+                        dto.StartMinutes,
+                        dto.EndMinutes,
+                        placement.StartAtUtc,
+                        placement.EndAtUtc,
+                        conflictingSlot.StartUtc,
+                        conflictingSlot.EndUtc);
+
                     outcome.Errors.Add(new BulkCreateItemErrorDto { Index = i, Message = "Laiko langas persidengė su kita šio paketo užduotimi." });
                     continue;
                 }
@@ -401,7 +456,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     placement.EndAtUtc);
                 context.Placements[i] = placement;
 
-                var addressId = await _locationResolver.TryLookupServiceAddressIdAsync(dto.ObjectName, dto.ObjectAddress, cancellationToken);
+                var addressId = await _locationResolver.TryLookupServiceAddressIdAsync(
+                    dto.ObjectName,
+                    dto.ObjectAddress,
+                    cancellationToken,
+                    context.AddressLookupCache);
                 context.KnownAddressIds[i] = addressId;
 
                 if (!addressId.HasValue)
@@ -424,7 +483,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     endAtUtc: placement.EndAtUtc,
                     serviceAddressId: addressId.Value,
                     excludeTaskId: null,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken,
+                    simulatedStops: BuildBulkSimulatedStops(context.SimulatedBatchStops, dto.TechnicianId, targetDate));
 
                 if (!travelCheck.IsValid)
                 {
@@ -450,6 +510,23 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             return outcome;
         }
 
+        private static IReadOnlyList<ProposedRouteStop> BuildBulkSimulatedStops(
+            IReadOnlyCollection<(long TechnicianId, long AddressId, DateTime StartAt, DateTime EndAt)> simulatedBatchStops,
+            long technicianId,
+            DateTime targetDate)
+        {
+            return simulatedBatchStops
+                .Where(stop => stop.TechnicianId == technicianId && stop.StartAt.Date == targetDate.Date)
+                .OrderBy(stop => stop.StartAt)
+                .Select(stop => new ProposedRouteStop
+                {
+                    StartAt = stop.StartAt,
+                    EndAt = stop.EndAt,
+                    AddressId = stop.AddressId
+                })
+                .ToList();
+        }
+
         private async Task<BulkTaskBuildResult> BuildTaskEntitiesAsync(
             IReadOnlyList<CreateTaskRequestDto> items,
             BulkCreateContext context,
@@ -457,7 +534,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         {
             var createdTasks = new List<TaskEntity>(items.Count);
             var userLocalToday = _timeService.GetUserLocalToday(items[0].TimezoneOffsetMinutes);
-            var serviceObjectCache = new Dictionary<(string ObjectName, string ObjectAddress), BulkServiceObjectResolution>();
+            var serviceObjectResolutions = await BuildBulkServiceObjectResolutionsAsync(items, context, cancellationToken);
 
             _logger.LogInformation("svc.plan.bulk.build.start itemCount={ItemCount}", items.Count);
 
@@ -486,8 +563,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                 var targetPlanId = targetPlan.Id;
                 var placement = context.Placements[i];
-                var city = placement.City;
-                var serviceObject = await ResolveBulkServiceObjectAsync(dto, city, serviceObjectCache, cancellationToken);
+                var serviceObject = ResolveBulkServiceObject(dto, serviceObjectResolutions);
                 var technicianId = dto.TechnicianId;
 
                 if (!context.KnownAddressIds[i].HasValue)
@@ -501,7 +577,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                         endAtUtc: placement.EndAtUtc,
                         serviceAddressId: serviceObject.AddressId,
                         excludeTaskId: null,
-                        cancellationToken: cancellationToken);
+                        cancellationToken: cancellationToken,
+                        simulatedStops: BuildBulkSimulatedStops(context.SimulatedBatchStops, technicianId, targetDate));
 
                     if (!travelCheck.IsValid)
                     {
@@ -555,30 +632,154 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             return new BulkTaskBuildResult { Tasks = createdTasks };
         }
 
-        private async Task<BulkServiceObjectResolution> ResolveBulkServiceObjectAsync(
+        private BulkServiceObjectResolution ResolveBulkServiceObject(
             CreateTaskRequestDto dto,
-            string city,
-            Dictionary<(string ObjectName, string ObjectAddress), BulkServiceObjectResolution> cache,
-            CancellationToken cancellationToken)
+            IReadOnlyDictionary<(string ObjectName, string ObjectAddress), BulkServiceObjectResolution> resolutions)
         {
-            var objectName = dto.ObjectName?.Trim() ?? string.Empty;
-            var objectAddress = dto.ObjectAddress?.Trim() ?? string.Empty;
-            var cacheKey = (objectName, objectAddress);
+            var cacheKey = (
+                dto.ObjectName?.Trim() ?? string.Empty,
+                dto.ObjectAddress?.Trim() ?? string.Empty);
 
-            if (cache.TryGetValue(cacheKey, out var cached))
+            if (resolutions.TryGetValue(cacheKey, out var resolution))
             {
-                return cached;
+                return resolution;
             }
 
-            var serviceObjectId = await _locationResolver.FindOrCreateServiceObjectAsync(objectName, objectAddress, city, cancellationToken);
-            var addressId = await _db.ServiceObjects
-                .Where(o => o.Id == serviceObjectId)
-                .Select(o => o.AddressId)
-                .FirstAsync(cancellationToken);
+            throw new InvalidOperationException($"Bulk task build could not resolve service object for '{cacheKey.Item1}' at '{cacheKey.Item2}'.");
+        }
 
-            var resolved = new BulkServiceObjectResolution(serviceObjectId, addressId);
-            cache[cacheKey] = resolved;
-            return resolved;
+        private async Task<Dictionary<(string ObjectName, string ObjectAddress), BulkServiceObjectResolution>> BuildBulkServiceObjectResolutionsAsync(
+            IReadOnlyList<CreateTaskRequestDto> items,
+            BulkCreateContext context,
+            CancellationToken cancellationToken)
+        {
+            var requests = items
+                .Select((dto, index) => new BulkServiceObjectRequest(
+                    dto.ObjectName?.Trim() ?? string.Empty,
+                    dto.ObjectAddress?.Trim() ?? string.Empty,
+                    string.IsNullOrWhiteSpace(context.Placements[index].City)
+                        ? ServiceLocationResolver.ParseCity(dto.ObjectAddress?.Trim() ?? string.Empty)
+                        : context.Placements[index].City.Trim()))
+                .Where(request => !string.IsNullOrWhiteSpace(request.ObjectName) || !string.IsNullOrWhiteSpace(request.ObjectAddress))
+                .Distinct()
+                .ToList();
+
+            var resolutions = new Dictionary<(string ObjectName, string ObjectAddress), BulkServiceObjectResolution>();
+            if (requests.Count == 0)
+            {
+                return resolutions;
+            }
+
+            var addressesByFullAddress = await _db.Addresses
+                .Where(address => requests.Select(request => request.ObjectAddress).Contains(address.FullAddress))
+                .ToDictionaryAsync(address => address.FullAddress, cancellationToken);
+
+            var newAddresses = new List<AddressEntity>();
+            foreach (var request in requests)
+            {
+                if (addressesByFullAddress.ContainsKey(request.ObjectAddress))
+                {
+                    continue;
+                }
+
+                var normalizedCity = string.IsNullOrWhiteSpace(request.City)
+                    ? ServiceLocationResolver.ParseCity(request.ObjectAddress)
+                    : request.City.Trim();
+                if (string.IsNullOrWhiteSpace(normalizedCity))
+                {
+                    normalizedCity = "Nezinomas";
+                }
+
+                var newAddress = new AddressEntity
+                {
+                    City = normalizedCity,
+                    Street = ServiceLocationResolver.ParseStreet(request.ObjectAddress),
+                    FullAddress = request.ObjectAddress,
+                    CreatedAt = DateTime.UtcNow
+                };
+                addressesByFullAddress[request.ObjectAddress] = newAddress;
+                newAddresses.Add(newAddress);
+            }
+
+            var persistedAddressIds = addressesByFullAddress.Values
+                .Where(address => address.Id > 0)
+                .Select(address => address.Id)
+                .Distinct()
+                .ToList();
+            var objectNames = requests
+                .Select(request => request.ObjectName)
+                .Distinct()
+                .ToList();
+
+            var existingServiceObjects = persistedAddressIds.Count == 0 || objectNames.Count == 0
+                ? new List<ServiceObjectEntity>()
+                : await _db.ServiceObjects
+                    .Where(serviceObject => persistedAddressIds.Contains(serviceObject.AddressId))
+                    .Where(serviceObject => objectNames.Contains(serviceObject.Name))
+                    .ToListAsync(cancellationToken);
+
+            var serviceObjectsByKey = existingServiceObjects.ToDictionary(
+                serviceObject => (serviceObject.Name, AddressId: serviceObject.AddressId));
+
+            var newServiceObjects = new List<ServiceObjectEntity>();
+            foreach (var request in requests)
+            {
+                var address = addressesByFullAddress[request.ObjectAddress];
+                var addressId = address.Id;
+                var serviceObjectKey = (request.ObjectName, AddressId: addressId);
+                if (serviceObjectsByKey.ContainsKey(serviceObjectKey))
+                {
+                    continue;
+                }
+
+                var newServiceObject = new ServiceObjectEntity
+                {
+                    Name = request.ObjectName,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                if (addressId > 0)
+                {
+                    newServiceObject.AddressId = addressId;
+                    serviceObjectsByKey[serviceObjectKey] = newServiceObject;
+                }
+                else
+                {
+                    newServiceObject.Address = address;
+                }
+
+                newServiceObjects.Add(newServiceObject);
+            }
+
+            if (newAddresses.Count > 0 || newServiceObjects.Count > 0)
+            {
+                if (newAddresses.Count > 0)
+                {
+                    _db.Addresses.AddRange(newAddresses);
+                }
+
+                if (newServiceObjects.Count > 0)
+                {
+                    _db.ServiceObjects.AddRange(newServiceObjects);
+                }
+
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
+            foreach (var newServiceObject in newServiceObjects.Where(serviceObject => serviceObject.AddressId > 0))
+            {
+                serviceObjectsByKey[(newServiceObject.Name, newServiceObject.AddressId)] = newServiceObject;
+            }
+
+            foreach (var request in requests)
+            {
+                var addressId = addressesByFullAddress[request.ObjectAddress].Id;
+                var serviceObject = serviceObjectsByKey[(request.ObjectName, addressId)];
+                resolutions[(request.ObjectName, request.ObjectAddress)] =
+                    new BulkServiceObjectResolution(serviceObject.Id, addressId);
+            }
+
+            return resolutions;
         }
 
         private async Task SaveBulkTasksAsync(List<TaskEntity> tasks, CancellationToken cancellationToken)
@@ -589,6 +790,50 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             }
 
             _db.Tasks.AddRange(tasks);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        private async Task WriteBulkCreateHistoryAsync(
+            IReadOnlyList<TaskEntity> tasks,
+            UserContext user,
+            CancellationToken cancellationToken)
+        {
+            if (tasks.Count == 0)
+            {
+                return;
+            }
+
+            var occurredAtUtc = DateTime.UtcNow;
+            var logs = new List<TaskActionLogEntity>(tasks.Count);
+            foreach (var task in tasks)
+            {
+                var version = _db.Entry(task).Property<uint>("xmin").CurrentValue;
+                var resultForHistory = new TaskCreateResult(TaskCreateError.None, Task: task, CurrentVersion: version);
+                var (summary, outcome) = TaskHistoryMessages.ForCreate(resultForHistory, task.Title);
+                var detailsJson = JsonSerializer.Serialize(new
+                {
+                    technicianId = task.TechnicianId,
+                    startAt = task.StartAt,
+                    endAt = task.EndAt
+                });
+
+                logs.Add(new TaskActionLogEntity
+                {
+                    TaskId = task.Id,
+                    PlanId = task.PlanId,
+                    ActionType = "create",
+                    Outcome = outcome,
+                    Summary = summary,
+                    ActorUserId = user.UserId,
+                    ActorRole = user.Role.ToString().ToLower(),
+                    ActorName = string.Empty,
+                    OccurredAtUtc = occurredAtUtc,
+                    DetailsJson = detailsJson,
+                    Source = "user"
+                });
+            }
+
+            _db.AddRange(logs);
             await _db.SaveChangesAsync(cancellationToken);
         }
 
@@ -606,7 +851,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 user.UserId,
                 planMode ?? "rankinis");
 
-            var context = await LoadBulkCreateContextAsync(effectiveItems.Count, cancellationToken);
+            var context = await LoadBulkCreateContextAsync(effectiveItems, cancellationToken);
             var validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken);
             return new BulkCreateTaskResponseDto
             {
@@ -621,7 +866,21 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             UserContext user,
             CancellationToken cancellationToken = default)
         {
-            var effectiveItems = await PrepareBulkItemsForModeAsync(items, planMode, cancellationToken);
+            await using var operation = _operationInstrumentation.BeginOperation(
+                "svc.plan.bulk.create",
+                new Dictionary<string, object?>
+                {
+                    ["itemCount"] = items.Count,
+                    ["planMode"] = planMode ?? "rankinis",
+                    ["userId"] = user.UserId
+                });
+
+            List<CreateTaskRequestDto> effectiveItems;
+            await using (var preparePhase = operation.MeasurePhase("prepare"))
+            {
+                effectiveItems = await PrepareBulkItemsForModeAsync(items, planMode, cancellationToken);
+                preparePhase.Complete();
+            }
 
             _logger.LogInformation(
                 "svc.plan.bulk.create.start itemCount={ItemCount} userId={UserId} planMode={PlanMode}",
@@ -629,81 +888,149 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 user.UserId,
                 planMode ?? "rankinis");
 
+            var success = false;
+            var createdTaskCount = 0;
+            var errorCount = 0;
+            var affectedTechDateCount = 0;
+            var affectedPlanCount = 0;
+            var historyRecordCount = 0;
+
             {
-                var context = await LoadBulkCreateContextAsync(effectiveItems.Count, cancellationToken);
-                var validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken);
-                if (validationOutcome.HasErrors)
-                {
-                    _logger.LogWarning(
-                        "svc.plan.bulk.create.validation-failed itemCount={ItemCount} errorCount={ErrorCount} errors={Errors}",
-                        effectiveItems.Count,
-                        validationOutcome.Errors.Count,
-                        string.Join(" | ", validationOutcome.Errors.Select(e => $"index={e.Index};message={e.Message}")));
-                    return new BulkCreateTaskResponseDto { AllSucceeded = false, Errors = validationOutcome.Errors };
-                }
-
-                await using var bulkTx = await _placementValidator.BeginTransactionIfSupportedAsync(cancellationToken);
-
                 try
                 {
-                    var buildResult = await BuildTaskEntitiesAsync(effectiveItems, context, cancellationToken);
-                    if (buildResult.FailureResponse != null)
+                    var context = await LoadBulkCreateContextAsync(effectiveItems, cancellationToken);
+                    BulkValidationOutcome validationOutcome;
+                    await using (var validatePhase = operation.MeasurePhase("validate"))
                     {
-                        if (bulkTx != null)
+                        validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken);
+                        validatePhase.Complete();
+                    }
+
+                    if (validationOutcome.HasErrors)
+                    {
+                        errorCount = validationOutcome.Errors.Count;
+                        _logger.LogWarning(
+                            "svc.plan.bulk.create.validation-failed itemCount={ItemCount} errorCount={ErrorCount} errors={Errors}",
+                            effectiveItems.Count,
+                            validationOutcome.Errors.Count,
+                            string.Join(" | ", validationOutcome.Errors.Select(e => $"index={e.Index};message={e.Message}")));
+                        return new BulkCreateTaskResponseDto { AllSucceeded = false, Errors = validationOutcome.Errors };
+                    }
+
+                    await using var bulkTx = await _placementValidator.BeginTransactionIfSupportedAsync(cancellationToken);
+
+                    try
+                    {
+                        BulkTaskBuildResult buildResult;
+                        await using (var buildPhase = operation.MeasurePhase("build"))
                         {
-                            await bulkTx.RollbackAsync(cancellationToken);
+                            buildResult = await BuildTaskEntitiesAsync(effectiveItems, context, cancellationToken);
+                            buildPhase.Complete();
                         }
 
-                        _logger.LogWarning("svc.plan.bulk.create.build-failed");
-                        return buildResult.FailureResponse;
+                        if (buildResult.FailureResponse != null)
+                        {
+                            errorCount = buildResult.FailureResponse.Errors?.Count ?? 0;
+                            if (bulkTx != null)
+                            {
+                                await bulkTx.RollbackAsync(cancellationToken);
+                            }
+
+                            _logger.LogWarning("svc.plan.bulk.create.build-failed");
+                            return buildResult.FailureResponse;
+                        }
+
+                        var builtTasks = buildResult.Tasks;
+                        createdTaskCount = builtTasks.Count;
+
+                        await using (var savePhase = operation.MeasurePhase("save"))
+                        {
+                            await SaveBulkTasksAsync(builtTasks, cancellationToken);
+                            savePhase.Complete();
+                        }
+
+                        if (bulkTx != null)
+                        {
+                            await bulkTx.CommitAsync(cancellationToken);
+                        }
+
+                        var bulkAffectedTechDates = builtTasks
+                            .Select(t => (t.TechnicianId, t.StartAt.Date))
+                            .Distinct()
+                            .ToList();
+                        affectedTechDateCount = bulkAffectedTechDates.Count;
+                        await using (var routePhase = operation.MeasurePhase(
+                            "route-evaluation",
+                            new Dictionary<string, object?> { ["affectedTechDateCount"] = affectedTechDateCount }))
+                        {
+                            await _routeEvaluationCaller.TriggerRouteEvaluationBatchSafelyAsync(
+                                bulkAffectedTechDates,
+                                "create-bulk",
+                                recalculateEvaluations: false,
+                                cancellationToken);
+                            routePhase.Complete();
+                        }
+
+                        var affectedPlanIds = builtTasks
+                            .Select(t => t.PlanId)
+                            .Where(id => id.HasValue)
+                            .Select(id => id!.Value)
+                            .Distinct()
+                            .ToList();
+                        affectedPlanCount = affectedPlanIds.Count;
+                        await using (var recalcPhase = operation.MeasurePhase(
+                            "plan-recalculation",
+                            new Dictionary<string, object?> { ["affectedPlanCount"] = affectedPlanCount }))
+                        {
+                            foreach (var planId in affectedPlanIds)
+                            {
+                                await _evaluationEngine.RecalculatePlanAsync(planId, cancellationToken);
+                            }
+                            recalcPhase.Complete();
+                        }
+
+                        historyRecordCount = builtTasks.Count;
+                        await using (var historyPhase = operation.MeasurePhase(
+                            "history",
+                            new Dictionary<string, object?> { ["historyRecordCount"] = historyRecordCount }))
+                        {
+                            await WriteBulkCreateHistoryAsync(builtTasks, user, cancellationToken);
+                            historyPhase.Complete();
+                        }
+
+                        _logger.LogInformation(
+                            "svc.plan.bulk.create.completed createdTaskCount={CreatedTaskCount}",
+                            builtTasks.Count);
+
+                        success = true;
+                        return new BulkCreateTaskResponseDto
+                        {
+                            AllSucceeded = true,
+                            TaskIds = builtTasks.Select(t => t.Id).ToList()
+                        };
                     }
-
-                    var builtTasks = buildResult.Tasks;
-                    await SaveBulkTasksAsync(builtTasks, cancellationToken);
-
-                    if (bulkTx != null)
+                    catch (Exception ex)
                     {
-                        await bulkTx.CommitAsync(cancellationToken);
+                        _logger.LogError(ex, "svc.plan.bulk.create.failed itemCount={ItemCount}", effectiveItems.Count);
+                        if (bulkTx != null)
+                        {
+                            try { await bulkTx.RollbackAsync(cancellationToken); } catch { }
+                        }
+                        throw;
                     }
-
-                    var bulkAffectedTechDates = builtTasks
-                        .Select(t => (t.TechnicianId, t.StartAt.Date))
-                        .Distinct();
-                    foreach (var (techId, date) in bulkAffectedTechDates)
-                        await _routeEvaluationCaller.TriggerRouteEvaluationSafelyAsync(techId, date, "create-bulk", cancellationToken);
-
-                    foreach (var planId in builtTasks.Select(t => t.PlanId).Where(id => id.HasValue).Select(id => id!.Value).Distinct())
-                        await _evaluationEngine.RecalculatePlanAsync(planId, cancellationToken);
-
-                    foreach (var task in builtTasks)
-                    {
-                        var version = _db.Entry(task).Property<uint>("xmin").CurrentValue;
-                        var resultForHistory = new TaskCreateResult(TaskCreateError.None, Task: task, CurrentVersion: version);
-                        var (msg, outcome) = TaskHistoryMessages.ForCreate(resultForHistory, task.Title);
-                        await _historyWriter.RecordAsync(task.Id, task.PlanId, "create", outcome, msg,
-                            user.UserId, user.Role.ToString().ToLower(),
-                            new { technicianId = task.TechnicianId, startAt = task.StartAt, endAt = task.EndAt },
-                            cancellationToken: cancellationToken);
-                    }
-
-                    _logger.LogInformation(
-                        "svc.plan.bulk.create.completed createdTaskCount={CreatedTaskCount}",
-                        builtTasks.Count);
-
-                    return new BulkCreateTaskResponseDto
-                    {
-                        AllSucceeded = true,
-                        TaskIds = builtTasks.Select(t => t.Id).ToList()
-                    };
                 }
-                catch (Exception ex)
+                finally
                 {
-                    _logger.LogError(ex, "svc.plan.bulk.create.failed itemCount={ItemCount}", effectiveItems.Count);
-                    if (bulkTx != null)
-                    {
-                        try { await bulkTx.RollbackAsync(cancellationToken); } catch { }
-                    }
-                    throw;
+                    await operation.CompleteAsync(
+                        success,
+                        new Dictionary<string, object?>
+                        {
+                            ["createdTaskCount"] = createdTaskCount,
+                            ["errorCount"] = errorCount,
+                            ["affectedTechDateCount"] = affectedTechDateCount,
+                            ["affectedPlanCount"] = affectedPlanCount,
+                            ["historyRecordCount"] = historyRecordCount
+                        });
                 }
             }
         }

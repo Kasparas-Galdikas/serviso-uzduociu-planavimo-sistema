@@ -106,6 +106,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Returns one suggestion per input item (null where no assignment could be found).
+        /// Processes items in descending priority order with chained simulated assignments so
+        /// earlier high-priority items influence later ones — same logic as ApplyAutomaticAssignmentsAsync
+        /// but returns suggestions instead of mutating the list. Zero writes.
+        /// Result array is index-aligned with the input list.
+        /// </summary>
+        Task<IReadOnlyList<AutoAssignmentSuggestionDto?>> SuggestBulkAutoAssignmentsAsync(
+            IReadOnlyList<CreateTaskRequestDto> items,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Returns the next free start minute for a technician on a date, chained after
         /// afterEndMinutes (or earliest creatable if null), skipping over existing scheduled tasks.
         /// Used to prefill bulk scheduling forms with chain-aware, conflict-free suggested times.

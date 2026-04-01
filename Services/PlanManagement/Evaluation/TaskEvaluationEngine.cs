@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel;
 
@@ -13,9 +15,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
     public class TaskEvaluationEngine : IEvaluationEngine
     {
+        private static readonly ConcurrentDictionary<long, SemaphoreSlim> EvaluationWriteGates = new();
         private readonly ScheduleDbContext _db;
         private readonly IScheduleTimeService _timeService;
         private readonly ITravelTimeResolver _travelResolver;
+        private readonly PlanScopeResolver _planScopeResolver;
         private readonly ILogger<TaskEvaluationEngine> _logger;
 
         public TaskEvaluationEngine(ScheduleDbContext db, IScheduleTimeService timeService, ITravelTimeResolver travelResolver, ILogger<TaskEvaluationEngine> logger)
@@ -23,6 +27,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _db = db;
             _timeService = timeService;
             _travelResolver = travelResolver;
+            _planScopeResolver = new PlanScopeResolver(db, timeService);
             _logger = logger;
         }
 
@@ -37,11 +42,31 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             return RecalculateAsync(q => q.Where(t => ids.Contains(t.Id)), cancellationToken);
         }
 
-        public Task RecalculatePlanAsync(long planId, CancellationToken cancellationToken = default) =>
-            RecalculateAsync(q => q.Where(t => t.PlanId == planId), cancellationToken);
+        public async Task RecalculatePlanAsync(long planId, CancellationToken cancellationToken = default)
+        {
+            var scope = await _planScopeResolver.ResolveEvaluationScopeAsync(planId, cancellationToken);
+            if (scope == null)
+            {
+                return;
+            }
+
+            await RecalculateAsync(q => _planScopeResolver.ApplyEvaluationScope(q, scope), cancellationToken);
+        }
 
         private async Task RecalculateAsync(Func<IQueryable<TaskEntity>, IQueryable<TaskEntity>> scope, CancellationToken cancellationToken)
         {
+            var scopedTaskIds = await scope(_db.Tasks)
+                .Select(t => t.Id)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            if (scopedTaskIds.Count == 0)
+            {
+                return;
+            }
+
+            await using var evaluationWriteLease = await AcquireEvaluationWriteLeaseAsync(scopedTaskIds, cancellationToken);
+
             var tasks = await scope(_db.Tasks
                     .Include(t => t.Evaluation)
                     .Include(t => t.Technician)
@@ -62,8 +87,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 .GroupBy(t => t!.Id)
                 .ToDictionary(g => g.Key, g => g.First()!);
             var evaluations = new List<TaskEvaluationEntity>();
+            var taskIds = tasks.Select(t => t.Id).ToList();
             var tracked = await _db.TaskEvaluations
-                .Where(e => tasks.Select(t => t.Id).Contains(e.TaskId))
+                .Where(e => taskIds.Contains(e.TaskId))
                 .ToListAsync(cancellationToken);
             var trackedLookup = tracked.ToDictionary(e => e.TaskId);
 
@@ -142,6 +168,21 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             _logger.LogInformation("svc.eval.recalculate tasks={Tasks} techs={Techs} conflicts={Conflicts} overloadHours={OverloadHours}", tasks.Count, tasksByTech.Count, conflictCount, overloadTotal);
         }
 
+        private static async Task<IAsyncDisposable> AcquireEvaluationWriteLeaseAsync(
+            IEnumerable<long> taskIds,
+            CancellationToken cancellationToken)
+        {
+            var acquiredSemaphores = new List<SemaphoreSlim>();
+            foreach (var taskId in taskIds.Distinct().OrderBy(id => id))
+            {
+                var semaphore = EvaluationWriteGates.GetOrAdd(taskId, _ => new SemaphoreSlim(1, 1));
+                await semaphore.WaitAsync(cancellationToken);
+                acquiredSemaphores.Add(semaphore);
+            }
+
+            return new EvaluationWriteLease(acquiredSemaphores);
+        }
+
         private async Task<Dictionary<long, int>> BuildTravelMinutesByTaskIdAsync(
             List<TaskEntity> tasks,
             CancellationToken cancellationToken)
@@ -191,6 +232,26 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             }
 
             return result;
+        }
+
+        private sealed class EvaluationWriteLease : IAsyncDisposable
+        {
+            private readonly IReadOnlyList<SemaphoreSlim> _semaphores;
+
+            public EvaluationWriteLease(IReadOnlyList<SemaphoreSlim> semaphores)
+            {
+                _semaphores = semaphores;
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                for (var index = _semaphores.Count - 1; index >= 0; index--)
+                {
+                    _semaphores[index].Release();
+                }
+
+                return ValueTask.CompletedTask;
+            }
         }
     }
 }

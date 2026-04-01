@@ -23,17 +23,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         private readonly IScheduleTimeService _timeService;
         private readonly ITravelTimeResolver _travelResolver;
         private readonly SchedulePlacementValidator _placementValidator;
+        private readonly PlanScopeResolver _planScopeResolver;
 
         public PlanServiceTaskQuery(
             ScheduleDbContext db,
             IScheduleTimeService timeService,
             ITravelTimeResolver travelResolver,
-            SchedulePlacementValidator placementValidator)
+            SchedulePlacementValidator placementValidator,
+            PlanScopeResolver planScopeResolver)
         {
             _db = db;
             _timeService = timeService;
             _travelResolver = travelResolver;
             _placementValidator = placementValidator;
+            _planScopeResolver = planScopeResolver;
         }
 
         public async Task<LoadSnapshotDto> GetWorkloadSnapshotAsync(long technicianId, DateTime dayStartUtc, CancellationToken cancellationToken = default)
@@ -51,11 +54,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             var dayEnd = dayStartUtc.AddDays(1);
             var weekStart = _timeService.GetWeekStart(dayStartUtc);
             var weekEnd = weekStart.AddDays(7);
+            var constraintScope = await _planScopeResolver.ResolveConstraintScopeAsync(weekStart, weekEnd, cancellationToken);
 
-            var weekTasks = await _db.Tasks
+            var weekTasks = await _planScopeResolver.ApplyConstraintScope(
+                    _db.Tasks
+                        .AsNoTracking()
+                        .Include(t => t.ServiceObject)
+                            .ThenInclude(o => o.Address),
+                    constraintScope)
                 .AsNoTracking()
-                .Include(t => t.ServiceObject)
-                    .ThenInclude(o => o.Address)
                 .Where(t => t.TechnicianId == technicianId &&
                             t.StartAt >= weekStart &&
                             t.StartAt < weekEnd)
@@ -179,8 +186,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
         public async Task<bool> HasTaskOverlapAsync(long excludeTaskId, long technicianId, DateTime startUtc, DateTime endUtc, CancellationToken cancellationToken = default)
         {
-            return await _db.Tasks
-                .AsNoTracking()
+            var constraintScope = await _planScopeResolver.ResolveConstraintScopeAsync(startUtc, endUtc, cancellationToken);
+
+            return await _planScopeResolver.ApplyConstraintScope(
+                    _db.Tasks.AsNoTracking(),
+                    constraintScope)
                 .Where(t => t.Id != excludeTaskId)
                 .Where(t => t.TechnicianId == technicianId)
                 .Where(t => t.Status != ScheduleTaskStatus.Canceled)
@@ -221,6 +231,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
             var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, 0, timezoneOffsetMinutes);
             var dayEndUtc = dayStartUtc.AddDays(1);
+            var constraintScope = await _planScopeResolver.ResolveConstraintScopeAsync(dayStartUtc, dayEndUtc, cancellationToken);
 
             var technician = await _db.Technicians
                 .AsNoTracking()
@@ -233,9 +244,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 return (targetDate, candidate, candidate + slotSizeMinutes);
             }
 
-            var existingTasks = await _db.Tasks
-                .AsNoTracking()
-                .Include(t => t.ServiceObject)
+            var existingTasks = await _planScopeResolver.ApplyConstraintScope(
+                    _db.Tasks
+                        .AsNoTracking()
+                        .Include(t => t.ServiceObject),
+                    constraintScope)
                 .Where(t => t.TechnicianId == technicianId)
                 .Where(t => t.Status != ScheduleTaskStatus.Canceled)
                 .Where(t => t.StartAt >= dayStartUtc && t.StartAt < dayEndUtc)

@@ -554,6 +554,11 @@
   let _bulkConfirmPhase    = false; // true while confirm view is shown
   let _restoringSnapshot   = false; // suppresses reactive listeners during restoreSchedulingSnapshot
   let _autoPlanningInProgress = false;
+  // Pre-computed suggestions fired once in background on "Planuoti" click.
+  // null  = fetch not yet complete; array = results (index-aligned with _bulkQueue, entries may be null).
+  let _bulkPrecomputedSuggestions = null;
+  let _bulkPrecomputePromise      = null;
+  let _bulkPrecomputeAbortCtrl    = null;
 
   function clearSchedulingContext() {
     _schedulingFromBacklogId = null;
@@ -567,6 +572,9 @@
     _bulkPlanMode      = "rankinis";
     _bulkScheduledData = [];
     _bulkConfirmPhase  = false;
+    _bulkPrecomputedSuggestions = null;
+    _bulkPrecomputePromise      = null;
+    if (_bulkPrecomputeAbortCtrl) { _bulkPrecomputeAbortCtrl.abort(); _bulkPrecomputeAbortCtrl = null; }
     const panel = getPanelEl();
     if (!panel) return;
     delete panel.dataset.bulkMode;
@@ -760,7 +768,54 @@
     document.getElementById("taskBulkNext")?.classList.remove("d-none");
 
 	    await activateBulkQueueItem(0);
+	    // Fire background pre-computation — no await, runs silently while user fills item 1.
+	    prefetchBulkAutoAssignments();
 	  }
+
+  // Fires once when "Planuoti" is clicked. Calls the bulk suggestion endpoint for all
+  // queued items in one request and stores the index-aligned results so the "Automatinis"
+  // tab can populate forms instantly without making per-item API calls.
+  function prefetchBulkAutoAssignments() {
+    if (_bulkQueue.length === 0) return;
+
+    _bulkPrecomputeAbortCtrl = new AbortController();
+    const signal = _bulkPrecomputeAbortCtrl.signal;
+
+    const tzOffset = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+    const todayStr = new Date().toISOString().substring(0, 10);
+    // Use 30-minute default duration (8:00–8:30). The algorithm searches ahead for the
+    // actual best slot; the requested start/end here only supply the duration.
+    const defaultStart = 480;
+    const defaultEnd   = 510;
+
+    const items = _bulkQueue.map(item => ({
+      technicianId:          0,
+      targetDate:            item.dueDate || todayStr,
+      startMinutes:          defaultStart,
+      endMinutes:            defaultEnd,
+      title:                 item.title        || "",
+      priority:              item.priority      ?? 0,
+      status:                0,
+      skillLevel:            item.skillLevel    || "",
+      objectName:            item.objectName    || "",
+      objectAddress:         item.locationText  || "",
+      instructions:          item.instructions  || "",
+      timezoneOffsetMinutes: tzOffset,
+      sourceBacklogItemId:   item.id ? parseInt(item.id, 10) : null,
+      simulatedAssignments:  [],
+    }));
+
+    _bulkPrecomputePromise = fetch("/api/tasks/suggest-auto-assignment/bulk", {
+      method:      "POST",
+      credentials: "same-origin",
+      headers:     { "Content-Type": "application/json" },
+      body:        JSON.stringify(items),
+      signal,
+    })
+      .then(resp => resp.ok ? resp.json() : Promise.reject(resp.status))
+      .then(data  => { if (Array.isArray(data)) _bulkPrecomputedSuggestions = data; })
+      .catch(err  => { if (err?.name !== "AbortError") console.warn("bulk-precompute failed", err); });
+  }
 
     function getCurrentBulkItem() {
       return _bulkQueue[_bulkQueueIdx] ?? null;
@@ -785,46 +840,192 @@
       });
     }
 
-    function buildBulkSimulatedAssignments(currentIdx = _bulkQueueIdx) {
+    function getSortedBulkScheduledEntries(currentIdx = _bulkQueueIdx, allowedIndexes = null) {
       return _bulkScheduledData
-        .map((snap, idx) => ({ snap, idx }))
-        .filter(({ idx, snap }) =>
-          idx !== currentIdx &&
-          snap &&
-          parseInt(snap.technicianId || "0", 10) > 0 &&
-          snap.startAt &&
-          snap.endAt &&
-          (parseInt(snap.addressId || "0", 10) > 0 || parseInt(snap.objectId || "0", 10) > 0))
-        .map(({ idx, snap }) => ({
-          technicianId: parseInt(snap.technicianId, 10),
+        .map((snap, idx) => {
+          const technicianId = parseInt(snap?.technicianId || "0", 10) || 0;
+          const addressId = parseInt(snap?.addressId || "0", 10) || 0;
+          const objectId = parseInt(snap?.objectId || "0", 10) || 0;
+          const start = parseDatetimeComponents(snap?.startAt);
+          const end = parseDatetimeComponents(snap?.endAt);
+
+          return {
+            idx,
+            snap,
+            technicianId,
+            addressId,
+            objectId,
+            start,
+            end,
+          };
+        })
+        .filter((entry) =>
+          entry.idx !== currentIdx &&
+          (!allowedIndexes || allowedIndexes.has(entry.idx)) &&
+          entry.snap &&
+          entry.technicianId > 0 &&
+          entry.start &&
+          entry.end &&
+          (entry.addressId > 0 || entry.objectId > 0))
+        .sort((left, right) => {
+          if (left.technicianId !== right.technicianId) return left.technicianId - right.technicianId;
+          if (left.start.date !== right.start.date) return left.start.date.localeCompare(right.start.date);
+          if (left.start.minutes !== right.start.minutes) return left.start.minutes - right.start.minutes;
+          if (left.end.minutes !== right.end.minutes) return left.end.minutes - right.end.minutes;
+          return left.idx - right.idx;
+        });
+    }
+
+    function buildBulkSimulatedAssignments(currentIdx = _bulkQueueIdx, allowedIndexes = null) {
+      return getSortedBulkScheduledEntries(currentIdx, allowedIndexes)
+        .map(({ idx, technicianId, addressId, objectId, snap }) => ({
+          technicianId,
           startAt: snap.startAt,
           endAt: snap.endAt,
-          addressId: parseInt(snap.addressId || "0", 10),
-          serviceObjectId: parseInt(snap.objectId || "0", 10) || null,
+          addressId,
+          serviceObjectId: objectId || null,
           sourceBacklogItemId: _bulkQueue[idx]?.id ? parseInt(_bulkQueue[idx].id, 10) : null,
         }));
     }
 
-    function buildBulkChainContextForTechnician(technicianId, currentIdx = _bulkQueueIdx) {
+    function buildBulkChainContextForTechnician(technicianId, currentIdx = _bulkQueueIdx, currentStartValue = null) {
       const resolvedTechId = parseInt(technicianId || "0", 10) || 0;
-      if (!resolvedTechId || currentIdx <= 0) return null;
+      const currentStart = parseDatetimeComponents(currentStartValue);
+      const predecessor = getSortedBulkScheduledEntries(currentIdx)
+        .filter((entry) => entry.objectId > 0)
+        .filter((entry) => !resolvedTechId || entry.technicianId === resolvedTechId)
+        .filter((entry) => {
+          if (!currentStart) return true;
+          if (entry.end.date !== currentStart.date) return false;
+          return entry.end.minutes <= currentStart.minutes;
+        })
+        .sort((left, right) => {
+          if (left.end.date !== right.end.date) return right.end.date.localeCompare(left.end.date);
+          if (left.end.minutes !== right.end.minutes) return right.end.minutes - left.end.minutes;
+          return right.idx - left.idx;
+        })[0];
 
-      for (let j = currentIdx - 1; j >= 0; j--) {
-        const snap = _bulkScheduledData[j];
-        if (!snap?.endAt || !snap?.objectId) continue;
-        if ((parseInt(snap.technicianId || "0", 10) || 0) !== resolvedTechId) continue;
+      if (!predecessor?.end) return null;
 
-        const prevEnd = parseDatetimeComponents(snap.endAt);
-        if (!prevEnd) continue;
+      return {
+        afterEndMinutes: predecessor.end.minutes,
+        targetDate: predecessor.end.date,
+        previousObjectId: predecessor.objectId,
+        technicianId: predecessor.technicianId,
+      };
+    }
 
-        return {
-          afterEndMinutes: prevEnd.minutes,
-          targetDate: prevEnd.date,
-          previousObjectId: parseInt(snap.objectId || "0", 10) || 0,
-        };
+    function buildBulkAutoAssignmentRequest(idx, tzOffset, allowedIndexes = null) {
+      const item = _bulkQueue[idx];
+      const snap = _bulkScheduledData[idx] || {};
+      const start = parseDatetimeComponents(snap.startAt);
+      const end = parseDatetimeComponents(snap.endAt);
+      const objectName = snap.objectName || item?.objectName || "";
+      const objectAddress = snap.objectAddress || item?.locationText || "";
+
+      if (!item || !start?.date || !end || !objectName || !objectAddress) {
+        return null;
       }
 
-      return null;
+      return {
+        technicianId: 0,
+        targetDate: start.date,
+        startMinutes: start.minutes,
+        endMinutes: end.minutes,
+        title: snap.title || item.title || "",
+        priority: snap.priorityVal ?? item.priority ?? 0,
+        status: 0,
+        skillLevel: snap.skillLevel || item.skillLevel || "",
+        objectName,
+        objectAddress,
+        instructions: snap.instructions || item.instructions || "",
+        timezoneOffsetMinutes: tzOffset,
+        sourceBacklogItemId: item.id ? parseInt(item.id, 10) : null,
+        simulatedAssignments: buildBulkSimulatedAssignments(idx, allowedIndexes),
+      };
+    }
+
+    async function tryRepairAutomaticValidationFailures(errorsByIndex, tzOffset) {
+      const failedIndexes = Object.keys(errorsByIndex)
+        .map((idx) => parseInt(idx, 10))
+        .filter((idx) => Number.isInteger(idx))
+        .sort((left, right) => left - right);
+
+      if (!failedIndexes.length) return false;
+
+      const validIndexes = new Set(
+        _bulkQueue
+          .map((_, idx) => idx)
+          .filter((idx) => !Object.prototype.hasOwnProperty.call(errorsByIndex, idx))
+      );
+
+      let repairedAny = false;
+
+      for (const idx of failedIndexes) {
+        const requestDto = buildBulkAutoAssignmentRequest(idx, tzOffset, validIndexes);
+        if (!requestDto) continue;
+
+        try {
+          const resp = await fetch("/api/tasks/suggest-auto-assignment", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestDto),
+          });
+
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.technicianId || !data.startAt || !data.endAt) {
+            continue;
+          }
+
+          const current = _bulkScheduledData[idx] || {};
+          _bulkScheduledData[idx] = {
+            ...current,
+            technicianId: data.technicianId,
+            startAt: data.startAt,
+            endAt: data.endAt,
+          };
+
+          validIndexes.add(idx);
+          repairedAny = true;
+        } catch {
+          // keep current failed snapshot; validation UI will still show the error
+        }
+      }
+
+      return repairedAny;
+    }
+
+    // Applies a suggestion object (from either the precomputed batch or a single-item call)
+    // to the current form and saves a snapshot. Returns true on success.
+    async function applyAutoSuggestionToForm(panel, modal, data) {
+      _restoringSnapshot = true;
+      try {
+        const set = (selector, value) => {
+          const el = panel.querySelector(selector);
+          if (!el) return;
+          el.value = value ?? "";
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+        };
+
+        set("#taskDetailStart", data.startAt);
+        set("#taskDetailEnd", data.endAt);
+
+        const assigneeEl = panel.querySelector("#taskDetailAssignee");
+        if (assigneeEl) {
+          if (window.jQuery) {
+            window.jQuery(assigneeEl).val(String(data.technicianId)).trigger("change");
+          } else {
+            assigneeEl.value = String(data.technicianId);
+            assigneeEl.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        }
+      } finally {
+        _restoringSnapshot = false;
+      }
+
+      _bulkScheduledData[_bulkQueueIdx] = modal.collectFormData(panel);
+      return true;
     }
 
     async function maybeRunAutomaticPlanningForCurrentItem({ force = false } = {}) {
@@ -837,9 +1038,7 @@
       if (!item || !panel || !modal) return false;
 
       const existingSnapshot = _bulkScheduledData[_bulkQueueIdx] || {};
-      if (!force && existingSnapshot.technicianId) {
-        return true;
-      }
+      if (!force && existingSnapshot.technicianId) return true;
 
       const snapshot = modal.collectFormData(panel) || {};
       if (!force && snapshot.technicianId) {
@@ -847,6 +1046,23 @@
         return true;
       }
 
+      // ── Path 1: Use pre-computed batch suggestions ────────────────────────
+      // If the background fetch is still in flight, wait for it — by the time
+      // the user fills in item 1 and switches tabs it will usually be done.
+      if (_bulkPrecomputePromise && _bulkPrecomputedSuggestions === null) {
+        await _bulkPrecomputePromise;
+      }
+
+      if (_bulkPrecomputedSuggestions !== null) {
+        const suggestion = _bulkPrecomputedSuggestions[_bulkQueueIdx];
+        if (!suggestion?.technicianId || !suggestion.startAt || !suggestion.endAt) {
+          window.schedule?.ui?.toast?.showError?.("Nepavyko automatiškai parinkti darbuotojo.");
+          return false;
+        }
+        return applyAutoSuggestionToForm(panel, modal, suggestion);
+      }
+
+      // ── Path 2: Fallback — single-item API call (precompute fetch failed) ─
       const start = parseDatetimeComponents(snapshot.startAt || panel.querySelector("#taskDetailStart")?.value);
       const end = parseDatetimeComponents(snapshot.endAt || panel.querySelector("#taskDetailEnd")?.value);
       const tzOffset = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
@@ -854,9 +1070,7 @@
       const objectAddress = snapshot.objectAddress || item.locationText || "";
       const simulatedAssignments = buildBulkSimulatedAssignments();
 
-      if (!start?.date || !end || !objectName || !objectAddress) {
-        return false;
-      }
+      if (!start?.date || !end || !objectName || !objectAddress) return false;
 
       const requestDto = {
         technicianId: 0,
@@ -890,41 +1104,7 @@
           return false;
         }
 
-        _restoringSnapshot = true;
-        try {
-          const set = (selector, value) => {
-            const el = panel.querySelector(selector);
-            if (!el) return;
-            el.value = value ?? "";
-            el.dispatchEvent(new Event("input", { bubbles: true }));
-          };
-
-          set("#taskDetailStart", data.startAt);
-          set("#taskDetailEnd", data.endAt);
-
-          const assigneeEl = panel.querySelector("#taskDetailAssignee");
-          if (assigneeEl) {
-            if (window.jQuery) {
-              window.jQuery(assigneeEl).val(String(data.technicianId)).trigger("change");
-            } else {
-              assigneeEl.value = String(data.technicianId);
-              assigneeEl.dispatchEvent(new Event("change", { bubbles: true }));
-            }
-          }
-        } finally {
-          _restoringSnapshot = false;
-        }
-
-        const modalSchedule = window.schedule?.tasks?.modal;
-        const setFn = (selector, value) => {
-          const el = panel.querySelector(selector);
-          if (!el) return;
-          el.value = value ?? "";
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-        };
-        const chainContext = buildBulkChainContextForTechnician(data.technicianId);
-        await modalSchedule?.scheduleSuggestSlot?.(panel, data.technicianId, chainContext, setFn);
-
+        await applyAutoSuggestionToForm(panel, modal, data);
         _bulkScheduledData[_bulkQueueIdx] = modal.collectFormData(panel);
         return true;
       } catch {
@@ -954,13 +1134,14 @@
     if (!newObjectId) return;
     const simulatedAssignments = buildBulkSimulatedAssignments();
     const tz  = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+    const panel = getPanelEl();
+    const currentStartValue = panel?.querySelector("#taskDetailStart")?.value || null;
 
     // idx=0: no previous snapshot to chain travel from, but if a technician is
     // already selected we can still suggest the best standalone slot for the object.
     if (idx === 0) {
       const resolvedTechId = parseInt(techId, 10) || 0;
       if (!resolvedTechId) return;
-      const panel      = getPanelEl();
       const startVal   = panel?.querySelector("#taskDetailStart")?.value;
       const parsed     = parseDatetimeComponents(startVal);
       const targetDate = parsed?.date ?? (_localNow ? _localNow.split("T")[0] : "");
@@ -991,27 +1172,11 @@
       return;
     }
 
-    let prevSnap = null;
     const resolvedTechId = parseInt(techId, 10) || 0;
+    const chainContext = buildBulkChainContextForTechnician(resolvedTechId, idx, currentStartValue);
 
-    if (resolvedTechId) {
-      for (let j = idx - 1; j >= 0; j--) {
-        const s = _bulkScheduledData[j];
-        if (s?.technicianId === resolvedTechId && s?.objectId && s?.endAt) { prevSnap = s; break; }
-      }
-    } else {
-      for (let j = idx - 1; j >= 0; j--) {
-        const s = _bulkScheduledData[j];
-        if (s?.technicianId && s?.objectId && s?.endAt) { prevSnap = s; break; }
-      }
-    }
-
-    if (!prevSnap?.objectId || !prevSnap?.endAt) return;
-    if (String(newObjectId) === String(prevSnap.objectId)) return;
-
-    const chainTechId = resolvedTechId || prevSnap.technicianId;
-    const prevEnd = parseDatetimeComponents(prevSnap.endAt);
-    if (!prevEnd) return;
+    if (!chainContext?.previousObjectId || !chainContext?.targetDate) return;
+    if (String(newObjectId) === String(chainContext.previousObjectId)) return;
 
     try {
       const resp = await fetch("/api/tasks/suggest-start", {
@@ -1022,10 +1187,10 @@
           "X-Timezone-Offset": String(tz),
         },
         body: JSON.stringify({
-          technicianId: chainTechId,
-          targetDate: prevEnd.date,
-          afterEndMinutes: prevEnd.minutes,
-          previousServiceObjectId: prevSnap.objectId,
+          technicianId: chainContext.technicianId,
+          targetDate: chainContext.targetDate,
+          afterEndMinutes: chainContext.afterEndMinutes,
+          previousServiceObjectId: chainContext.previousObjectId,
           newServiceObjectId: newObjectId,
           timezoneOffsetMinutes: tz,
           simulatedAssignments,
@@ -1243,45 +1408,60 @@
 	    const tzOffset = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
 	    const planModeRadio = document.querySelector('input[name="taskPlanModeRadio"]:checked');
 	    const planMode = planModeRadio?.value || "rankinis";
-	    const items = _bulkQueue.map((item, idx) => {
-	      const snap = _bulkScheduledData[idx] || {};
-	      const start = parseDatetimeComponents(snap.startAt);
-	      const end   = parseDatetimeComponents(snap.endAt);
-	      return {
-	        technicianId:          snap.technicianId || 0,
-	        targetDate:            start?.date || "",
-	        startMinutes:          start?.minutes ?? 0,
-	        endMinutes:            end?.minutes ?? 0,
-        title:                 item.title || "",
-        priority:              item.priority ?? 0,
-        status:                0,
-        skillLevel:            snap.skillLevel || item.skillLevel || "",
-        objectName:            snap.objectName || item.objectName || "",
-        objectAddress:         snap.objectAddress || item.locationText || "",
-        instructions:          snap.instructions || item.instructions || "",
-        timezoneOffsetMinutes: tzOffset,
-        sourceBacklogItemId:   item.id ? parseInt(item.id, 10) : null,
-      };
-    });
-
-    let data;
-    try {
-      const resp = await fetch("/api/tasks/bulk/validate", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planMode, items }),
+      const buildValidationItems = () => _bulkQueue.map((item, idx) => {
+        const snap = _bulkScheduledData[idx] || {};
+        const start = parseDatetimeComponents(snap.startAt);
+        const end = parseDatetimeComponents(snap.endAt);
+        return {
+          technicianId:          snap.technicianId || 0,
+          targetDate:            start?.date || "",
+          startMinutes:          start?.minutes ?? 0,
+          endMinutes:            end?.minutes ?? 0,
+          title:                 item.title || "",
+          priority:              item.priority ?? 0,
+          status:                0,
+          skillLevel:            snap.skillLevel || item.skillLevel || "",
+          objectName:            snap.objectName || item.objectName || "",
+          objectAddress:         snap.objectAddress || item.locationText || "",
+          instructions:          snap.instructions || item.instructions || "",
+          timezoneOffsetMinutes: tzOffset,
+          sourceBacklogItemId:   item.id ? parseInt(item.id, 10) : null,
+        };
       });
-      data = await resp.json().catch(() => ({}));
-    } catch {
-      data = {};
-    }
+
+      const validateItems = async () => {
+        try {
+          const resp = await fetch("/api/tasks/bulk/validate", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ planMode, items: buildValidationItems() }),
+          });
+          return await resp.json().catch(() => ({}));
+        } catch {
+          return {};
+        }
+      };
+
+      let data = await validateItems();
 
     // If confirm view was closed before validation returned, do nothing
     if (!_bulkConfirmPhase) return;
 
-    const errorsByIndex = {};
+    let errorsByIndex = {};
     (data.errors || []).forEach(e => { errorsByIndex[e.index] = e.message; });
+
+    if (planMode === "automatinis" && Object.keys(errorsByIndex).length) {
+      const repaired = await tryRepairAutomaticValidationFailures(errorsByIndex, tzOffset);
+      if (repaired) {
+        renderBulkConfirmCards();
+        data = await validateItems();
+        if (!_bulkConfirmPhase) return;
+        errorsByIndex = {};
+        (data.errors || []).forEach(e => { errorsByIndex[e.index] = e.message; });
+      }
+    }
+
     applyBulkValidationResults(errorsByIndex);
   }
 
@@ -1831,9 +2011,16 @@
         }),
       });
 
+      // Re-check guards after the async gap: auto-planning may have taken over or
+      // the snapshot may be mid-restore. If either is true, discard this stale result.
+      if (!_isBulkMode || _restoringSnapshot || _autoPlanningInProgress) return;
+      if (getBulkPlanMode() === "automatinis") return;
       if (!resp.ok) return;
 
       const data = await resp.json().catch(() => ({}));
+      // Re-check after the second await for the same reasons.
+      if (!_isBulkMode || _restoringSnapshot || _autoPlanningInProgress) return;
+      if (getBulkPlanMode() === "automatinis") return;
       if (data.startAt) setFn("#taskDetailStart", data.startAt);
       if (data.endAt) setFn("#taskDetailEnd", data.endAt);
     };

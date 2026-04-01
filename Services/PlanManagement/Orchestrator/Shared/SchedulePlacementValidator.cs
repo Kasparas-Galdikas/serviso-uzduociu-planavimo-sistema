@@ -27,6 +27,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
         private readonly IScheduleTimeService _timeService;
         private readonly ITaskTravelFeasibilityService _travelFeasibilityService;
         private readonly IScheduleRepairService _scheduleRepairService;
+        private readonly PlanScopeResolver _planScopeResolver;
         private readonly ILogger<SchedulePlacementValidator> _logger;
 
         public SchedulePlacementValidator(
@@ -35,6 +36,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             IScheduleTimeService timeService,
             ITaskTravelFeasibilityService travelFeasibilityService,
             IScheduleRepairService scheduleRepairService,
+            PlanScopeResolver planScopeResolver,
             ILogger<SchedulePlacementValidator> logger)
         {
             _db = db;
@@ -42,10 +44,18 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             _timeService = timeService;
             _travelFeasibilityService = travelFeasibilityService;
             _scheduleRepairService = scheduleRepairService;
+            _planScopeResolver = planScopeResolver;
             _logger = logger;
         }
 
         internal sealed record WorkingWindow(int StartMinutes, int EndMinutes);
+        internal sealed record PlacementTaskSlot(long TaskId, DateTime StartAt, DateTime EndAt);
+
+        internal sealed class PlacementValidationContext
+        {
+            public Dictionary<long, string> TechnicianCityById { get; } = new();
+            public Dictionary<long, List<PlacementTaskSlot>> ExistingTaskSlotsByTechnician { get; } = new();
+        }
 
         internal static string FormatDurationLabel(int totalMinutes)
         {
@@ -281,7 +291,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             UserContext user,
             int timezoneOffsetMinutes,
             bool requireEndAligned,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            PlacementValidationContext? context = null)
         {
             var validation = await ValidatePlacementAsync(
                 ignoreTaskIds,
@@ -294,7 +305,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                 user,
                 timezoneOffsetMinutes,
                 requireEndAligned,
-                cancellationToken);
+                cancellationToken,
+                context);
 
             return validation.Error == PlacementError.None
                 ? PlacementValidationResult.Success(validation.StartAt, validation.EndAt, validation.City)
@@ -360,7 +372,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             UserContext user,
             int timezoneOffsetMinutes,
             bool requireEndAligned,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            PlacementValidationContext? context = null)
         {
             if (startMinutes < 0 || startMinutes >= 24 * 60 || endMinutes <= 0 || endMinutes > 24 * 60 || endMinutes <= startMinutes)
             {
@@ -392,15 +405,26 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             var startAt = _timeService.CreateUtcFromDateAndMinutes(targetDate, startMinutes, timezoneOffsetMinutes);
             var endAt = _timeService.CreateUtcFromDateAndMinutes(targetDate, endMinutes, timezoneOffsetMinutes);
 
-            var targetTech = await _db.Technicians
-                .AsNoTracking()
-                .Include(t => t.WorkplaceAddress)
-                .Select(t => new { t.Id, City = t.WorkplaceAddress.City })
-                .FirstOrDefaultAsync(t => t.Id == targetTechnicianId, cancellationToken);
-
-            if (targetTech == null)
+            string city;
+            if (context != null && context.TechnicianCityById.TryGetValue(targetTechnicianId, out var cachedCity))
             {
-                return (PlacementError.TechnicianNotFound, "Technikas nerastas.", default, default, string.Empty);
+                city = cachedCity;
+            }
+            else
+            {
+                var targetTech = await _db.Technicians
+                    .AsNoTracking()
+                    .Include(t => t.WorkplaceAddress)
+                    .Select(t => new { t.Id, City = t.WorkplaceAddress.City })
+                    .FirstOrDefaultAsync(t => t.Id == targetTechnicianId, cancellationToken);
+
+                if (targetTech == null)
+                {
+                    return (PlacementError.TechnicianNotFound, "Technikas nerastas.", default, default, string.Empty);
+                }
+
+                city = targetTech.City ?? string.Empty;
+                context?.TechnicianCityById.TryAdd(targetTechnicianId, city);
             }
 
             var permissionProbe = new TaskEntity
@@ -408,7 +432,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                 Id = ignoreTaskIds?.FirstOrDefault() ?? 0,
                 PlanId = plan?.Id,
                 Plan = plan,
-                TechnicianId = targetTech.Id,
+                TechnicianId = targetTechnicianId,
                 StartAt = startAt,
                 EndAt = endAt,
                 Status = status
@@ -430,20 +454,92 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                 return (PlacementError.Forbidden, "Neturite teisių atlikti šio veiksmo.", default, default, string.Empty);
             }
 
-            var hasOverlap = await _db.Tasks
-                .AsNoTracking()
-                .Where(t => ignoreTaskIds == null || !ignoreTaskIds.Contains(t.Id))
-                .Where(t => t.TechnicianId == targetTech.Id)
-                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
-                .Where(t => t.StartAt < endAt && t.EndAt > startAt)
-                .AnyAsync(cancellationToken);
+            bool hasOverlap;
+            if (context != null && context.ExistingTaskSlotsByTechnician.TryGetValue(targetTechnicianId, out var slots))
+            {
+                hasOverlap = slots.Any(t =>
+                    (ignoreTaskIds == null || !ignoreTaskIds.Contains(t.TaskId)) &&
+                    t.StartAt < endAt &&
+                    t.EndAt > startAt);
+            }
+            else
+            {
+                var constraintScope = await _planScopeResolver.ResolveConstraintScopeAsync(startAt, endAt, cancellationToken);
+                hasOverlap = await _planScopeResolver.ApplyConstraintScope(
+                        _db.Tasks.AsNoTracking(),
+                        constraintScope)
+                    .Where(t => ignoreTaskIds == null || !ignoreTaskIds.Contains(t.Id))
+                    .Where(t => t.TechnicianId == targetTechnicianId)
+                    .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                    .Where(t => t.StartAt < endAt && t.EndAt > startAt)
+                    .AnyAsync(cancellationToken);
+            }
 
             if (hasOverlap)
             {
                 return (PlacementError.Overlap, "Laiko langas užimtas (persidengia užduotys).", default, default, string.Empty);
             }
 
-            return (PlacementError.None, string.Empty, startAt, endAt, targetTech.City ?? string.Empty);
+            return (PlacementError.None, string.Empty, startAt, endAt, city);
+        }
+
+        internal async Task<PlacementValidationContext> BuildPlacementValidationContextAsync(
+            IReadOnlyCollection<long> technicianIds,
+            DateTime rangeStartUtc,
+            DateTime rangeEndUtc,
+            CancellationToken cancellationToken)
+        {
+            var context = new PlacementValidationContext();
+            if (rangeEndUtc <= rangeStartUtc)
+            {
+                return context;
+            }
+
+            var normalizedTechIds = technicianIds
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList();
+
+            if (normalizedTechIds.Count == 0)
+            {
+                return context;
+            }
+
+            var technicians = await _db.Technicians
+                .AsNoTracking()
+                .Include(t => t.WorkplaceAddress)
+                .Where(t => normalizedTechIds.Contains(t.Id))
+                .Select(t => new { t.Id, City = t.WorkplaceAddress.City })
+                .ToListAsync(cancellationToken);
+
+            foreach (var technician in technicians)
+            {
+                context.TechnicianCityById[technician.Id] = technician.City ?? string.Empty;
+            }
+
+            var constraintScope = await _planScopeResolver.ResolveConstraintScopeAsync(rangeStartUtc, rangeEndUtc, cancellationToken);
+
+            var existingTasks = await _planScopeResolver.ApplyConstraintScope(
+                    _db.Tasks.AsNoTracking(),
+                    constraintScope)
+                .Where(t => normalizedTechIds.Contains(t.TechnicianId))
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                .Where(t => t.StartAt < rangeEndUtc && t.EndAt > rangeStartUtc)
+                .Select(t => new { t.Id, t.TechnicianId, t.StartAt, t.EndAt })
+                .ToListAsync(cancellationToken);
+
+            foreach (var task in existingTasks)
+            {
+                if (!context.ExistingTaskSlotsByTechnician.TryGetValue(task.TechnicianId, out var slots))
+                {
+                    slots = new List<PlacementTaskSlot>();
+                    context.ExistingTaskSlotsByTechnician[task.TechnicianId] = slots;
+                }
+
+                slots.Add(new PlacementTaskSlot(task.Id, task.StartAt, task.EndAt));
+            }
+
+            return context;
         }
 
         internal async Task<IDbContextTransaction?> BeginTransactionIfSupportedAsync(CancellationToken cancellationToken)
