@@ -134,7 +134,9 @@
   const getMinStartMinutes = (dateStr) => {
     const { dayStartMinutes } = getConfig();
     if (isToday(dateStr)) {
-      return roundToNextSlot(getCurrentTimeMinutes());
+      const tables = document.getElementById("scheduleTables");
+      const server = tables ? parseIntSafe(tables.dataset.earliestStartMinutes) : null;
+      return server ?? roundToNextSlot(getCurrentTimeMinutes());
     }
     return dayStartMinutes;
   };

@@ -59,18 +59,50 @@ namespace ServiceTaskPlanningSystem.Services.Time
             return ((minutesSinceMidnight + slotSizeMinutes - 1) / slotSizeMinutes) * slotSizeMinutes;
         }
 
-        public int GetEarliestCreatableStartMinutes(DateTime targetDate, int timezoneOffsetMinutes, int slotSizeMinutes, int dayStartMinutes)
+        public CreatablePlacement GetEarliestCreatablePlacement(
+            DateTime targetDate,
+            int timezoneOffsetMinutes,
+            int slotSizeMinutes,
+            int dayStartMinutes,
+            int dayEndMinutes)
         {
             var userLocalNow = ConvertUtcToLocal(GetCurrentUtcTime(), timezoneOffsetMinutes);
-            if (targetDate.Date != userLocalNow.Date)
+            var localToday = userLocalNow.Date;
+            var requestedDate = targetDate.Date;
+
+            if (requestedDate != localToday)
             {
-                return dayStartMinutes;
+                return new CreatablePlacement(requestedDate, dayStartMinutes);
             }
 
-            var nowMinutes = (int)Math.Ceiling(userLocalNow.TimeOfDay.TotalMinutes);
+            var nowMinutes = (int)userLocalNow.TimeOfDay.TotalMinutes;
             var roundedNow = CeilingToSlot(nowMinutes, slotSizeMinutes);
-            return Math.Max(dayStartMinutes, roundedNow);
+            var earliestToday = Math.Max(dayStartMinutes, roundedNow);
+            if (earliestToday <= dayEndMinutes)
+            {
+                return new CreatablePlacement(localToday, earliestToday);
+            }
+
+            return new CreatablePlacement(localToday.AddDays(1), dayStartMinutes);
         }
+
+        public int GetEarliestCreatableStartMinutes(DateTime targetDate, int timezoneOffsetMinutes, int slotSizeMinutes, int dayStartMinutes)
+        {
+            return GetEarliestCreatablePlacement(
+                targetDate,
+                timezoneOffsetMinutes,
+                slotSizeMinutes,
+                dayStartMinutes,
+                int.MaxValue).StartMinutes;
+        }
+
+        public int GetNextCreatableStartMinutes(DateTime targetDate, int timezoneOffsetMinutes, int slotSizeMinutes, int dayStartMinutes, int? afterEndMinutes = null)
+        {
+            var earliest = GetEarliestCreatableStartMinutes(targetDate, timezoneOffsetMinutes, slotSizeMinutes, dayStartMinutes);
+            var candidate = afterEndMinutes.HasValue ? Math.Max(earliest, afterEndMinutes.Value) : earliest;
+            return CeilingToSlot(candidate, slotSizeMinutes);
+        }
+
         public DateTime GetWeekStart(DateTime date)
         {
             var dayOfWeek = (int)date.DayOfWeek;
@@ -83,6 +115,15 @@ namespace ServiceTaskPlanningSystem.Services.Time
         {
             var weekStart = GetWeekStart(date);
             return weekStart.AddDays(6);
+        }
+
+        public WeekBoundary GetCurrentWeekBoundary()
+        {
+            var localWeekStart = GetWeekStart(GetLocalToday()).Date;
+            var localWeekEndExclusive = localWeekStart.AddDays(7);
+            var utcWeekStart = DateTime.SpecifyKind(localWeekStart, DateTimeKind.Local).ToUniversalTime();
+            var utcWeekEndExclusive = DateTime.SpecifyKind(localWeekEndExclusive, DateTimeKind.Local).ToUniversalTime();
+            return new WeekBoundary(localWeekStart, localWeekEndExclusive, utcWeekStart, utcWeekEndExclusive);
         }
 
         public DateTime GetUserLocalToday(int timezoneOffsetMinutes)

@@ -54,7 +54,10 @@ public class PlanServiceAuthorizationTests
                 Arg.Any<int>(),
                 Arg.Any<int>())
             .Returns(ScheduleGrid.DayStartMinutes);
+        _time.IsTaskStillEditable(Arg.Any<DateTime>()).Returns(true);
         _time.IsTravelStartFeasible(Arg.Any<DateTime>(), Arg.Any<int>()).Returns(true);
+        _time.GetCurrentUtcTime()
+            .Returns(DateTime.SpecifyKind(DateTime.Today.AddHours(11), DateTimeKind.Utc));
         _travelFeasibility.EvaluatePlacementAsync(
                 Arg.Any<long>(),
                 Arg.Any<DateTime>(),
@@ -75,8 +78,6 @@ public class PlanServiceAuthorizationTests
         _time.GetUserLocalToday(0).Returns(DateTime.Today);
         _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
             .Returns(Task.FromResult(true));
-        _time.CreateUtcFromDateAndMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>())
-            .Returns(DateTime.UtcNow);
         _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
             .Returns(Task.FromResult(false));
 
@@ -96,8 +97,6 @@ public class PlanServiceAuthorizationTests
         _time.GetUserLocalToday(0).Returns(DateTime.Today);
         _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
             .Returns(Task.FromResult(true));
-        _time.CreateUtcFromDateAndMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>())
-            .Returns(DateTime.UtcNow);
         _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
             .Returns(Task.FromResult(true));
 
@@ -119,8 +118,6 @@ public class PlanServiceAuthorizationTests
         SetVersion(db, task, 1);
         _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
             .Returns(Task.FromResult(false));
-        _time.CreateUtcFromDateAndMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>())
-            .Returns(DateTime.UtcNow);
 
         var service = CreateService(db);
         var result = await service.MoveTaskAsync(task.Id, 1, DateTime.Today.AddDays(1), 480, expectedVersion: 1,
@@ -311,7 +308,7 @@ public class PlanServiceAuthorizationTests
             cancellationToken: CancellationToken.None);
 
         result.Error.Should().Be(TaskUpdateError.InvalidWindow);
-        result.Message.Should().Be("Negalima planuoti ankstesniame nei artimiausias galimas 30 min. laiko langas.");
+        result.Message.Should().Be("Per ankstyvas planavimo laikas: galima nuo 11:30.");
     }
 
     [Fact]
@@ -353,7 +350,7 @@ public class PlanServiceAuthorizationTests
             cancellationToken: CancellationToken.None);
 
         result.Error.Should().Be(TaskUpdateError.TravelInfeasible);
-        result.Message.Should().Be("Nepakanka laiko kelionei nuo dabartinio laiko.");
+        result.Message.Should().StartWith("Nepakanka laiko kelionei:");
     }
 
     [Fact]
@@ -384,7 +381,7 @@ public class PlanServiceAuthorizationTests
             cancellationToken: CancellationToken.None);
 
         result.Error.Should().Be(TaskMoveError.InvalidWindow);
-        result.Message.Should().Be("Negalima planuoti ankstesniame nei artimiausias galimas 30 min. laiko langas.");
+        result.Message.Should().Be("Per ankstyvas planavimo laikas: galima nuo 11:30.");
     }
 
     [Fact]
@@ -428,7 +425,7 @@ public class PlanServiceAuthorizationTests
             cancellationToken: CancellationToken.None);
 
         result.Error.Should().Be(TaskMoveError.TravelInfeasible);
-        result.Message.Should().Be("Nepakanka laiko kelionei nuo dabartinio laiko.");
+        result.Message.Should().StartWith("Nepakanka laiko kelionei:");
     }
 
     [Fact]
@@ -458,7 +455,7 @@ public class PlanServiceAuthorizationTests
             cancellationToken: CancellationToken.None);
 
         result.Error.Should().Be(TaskTimeUpdateError.InvalidWindow);
-        result.Message.Should().Be("Negalima planuoti ankstesniame nei artimiausias galimas 30 min. laiko langas.");
+        result.Message.Should().Be("Per ankstyvas planavimo laikas: galima nuo 11:30.");
     }
 
     [Fact]
@@ -501,7 +498,7 @@ public class PlanServiceAuthorizationTests
             cancellationToken: CancellationToken.None);
 
         result.Error.Should().Be(TaskTimeUpdateError.TravelInfeasible);
-        result.Message.Should().Be("Nepakanka laiko kelionei nuo dabartinio laiko.");
+        result.Message.Should().StartWith("Nepakanka laiko kelionei:");
     }
     private PlanService CreateService(ScheduleDbContext db) =>
         new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _travelResolver, _logger);

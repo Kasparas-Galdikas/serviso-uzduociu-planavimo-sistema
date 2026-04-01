@@ -3,6 +3,7 @@ using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Data.Seed;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Authorization;
@@ -15,6 +16,8 @@ using ServiceTaskPlanningSystem.Services.ExternalServices.Common;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.History;
 using ServiceTaskPlanningSystem.Services.Backlog;
+using ServiceTaskPlanningSystem.Services.ServiceObjects;
+using ServiceTaskPlanningSystem.Services.Technicians;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -103,6 +106,7 @@ builder.Services.AddScoped<ITravelTimeResolver, TravelTimeResolver>();
 builder.Services.AddScoped<IRouteChainBuilder, RouteChainBuilder>();
 builder.Services.AddScoped<IEvaluationEngine, TaskEvaluationEngine>();
 builder.Services.AddScoped<IPlanningCalendar, PlanningCalendar>();
+builder.Services.AddPlanManagementInfrastructure();
 builder.Services.AddScoped<ITaskPermissionService, TaskPermissionService>();
 builder.Services.AddScoped<IScheduleTimeService, ScheduleTimeService>();
 builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
@@ -134,9 +138,13 @@ builder.Services.AddTransient<DatabaseSeeder>();
 builder.Services.AddScoped<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 builder.Services.AddHostedService<EvaluationRepairService>();
 builder.Services.AddHostedService<TaskAutoExpirationService>();
+builder.Services.AddHostedService<PlanScopeSegregationBackgroundService>();
 builder.Services.AddHostedService<TaskHistoryCleanupService>();
 builder.Services.AddScoped<ITaskHistoryWriter, TaskHistoryService>();
+builder.Services.AddScoped<ITaskHistoryReader, TaskHistoryService>();
 builder.Services.AddScoped<IBacklogService, BacklogService>();
+builder.Services.AddScoped<IServiceObjectService, ServiceObjectService>();
+builder.Services.AddScoped<ITechnicianLookupService, TechnicianLookupService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>

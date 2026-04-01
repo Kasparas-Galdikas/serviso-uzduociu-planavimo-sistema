@@ -50,12 +50,14 @@
     const dayStart = parseInt(tables.dataset.dayStartMinutes || "480", 10);
     const dayEnd = parseInt(tables.dataset.dayEndMinutes || "1200", 10);
 
-    // Calculate minimum start time based on current local time
+    // Calculate minimum start time — use server-provided value when available
     const now = new Date();
     const taskDate = new Date(date + "T00:00:00");
     const isToday = now.toDateString() === taskDate.toDateString();
-    const currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
-    const minStartMinutes = isToday ? Math.ceil(currentTimeMinutes / slotSize) * slotSize : dayStart;
+    const serverEarliest = parseInt(tables.dataset.earliestStartMinutes || "", 10);
+    const minStartMinutes = isToday
+      ? (Number.isFinite(serverEarliest) ? serverEarliest : Math.ceil((now.getHours() * 60 + now.getMinutes()) / slotSize) * slotSize)
+      : dayStart;
 
     let currentStart = startMinutes;
     let currentEnd = startMinutes + durationMinutes;

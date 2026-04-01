@@ -3,8 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
+using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 
@@ -15,6 +19,8 @@ namespace ServiceTaskPlanningSystem.Services.Travel
         private readonly IRouteChainBuilder _routeChainBuilder;
         private readonly ITravelTimeResolver _travelResolver;
         private readonly IRouteEvaluationService _routeEvalService;
+        private readonly ScheduleDbContext _db;
+        private readonly IScheduleTimeService _timeService;
         private readonly ILogger<TaskTravelFeasibilityService> _logger;
 
         private static string FormatDurationLabel(int totalMinutes)
@@ -24,16 +30,81 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             var remainder = minutes % 60;
             return $"{hours:00}:{remainder:00}";
         }
+
         public TaskTravelFeasibilityService(
             IRouteChainBuilder routeChainBuilder,
             ITravelTimeResolver travelResolver,
             IRouteEvaluationService routeEvalService,
+            ScheduleDbContext db,
+            IScheduleTimeService timeService,
             ILogger<TaskTravelFeasibilityService> logger)
         {
             _routeChainBuilder = routeChainBuilder;
             _travelResolver = travelResolver;
             _routeEvalService = routeEvalService;
+            _db = db;
+            _timeService = timeService;
             _logger = logger;
+        }
+
+        public async Task<AssigneeTravelPreviewResponseDto> BuildAssigneeTravelPreviewAsync(
+            DateTime targetDate,
+            string objectAddress,
+            int startMinutes,
+            int endMinutes,
+            int timezoneOffsetMinutes,
+            long? excludeTaskId,
+            CancellationToken cancellationToken = default)
+        {
+            var normalizedAddress = objectAddress.Trim();
+            var targetAddressId = await _db.Addresses
+                .AsNoTracking()
+                .Where(a => a.FullAddress == normalizedAddress)
+                .Select(a => (long?)a.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            var technicians = await _db.Technicians
+                .AsNoTracking()
+                .Select(t => new { t.Id, t.WorkplaceAddressId })
+                .ToListAsync(cancellationToken);
+
+            var response = new AssigneeTravelPreviewResponseDto();
+
+            if (!targetAddressId.HasValue || technicians.Count == 0)
+            {
+                response.Items.AddRange(technicians.Select(t => new AssigneeTravelPreviewItemDto
+                {
+                    TechnicianId = t.Id,
+                    TravelMinutes = null,
+                    IsSelectable = true
+                }));
+                return response;
+            }
+
+            var startAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, startMinutes, timezoneOffsetMinutes);
+            var endAtUtc   = _timeService.CreateUtcFromDateAndMinutes(targetDate, endMinutes,   timezoneOffsetMinutes);
+
+            foreach (var tech in technicians)
+            {
+                var feasibility = await EvaluatePlacementAsync(
+                    tech.Id,
+                    startAtUtc,
+                    endAtUtc,
+                    targetAddressId.Value,
+                    startMinutes,
+                    excludeTaskId,
+                    checkOverlap: true,
+                    cancellationToken);
+
+                response.Items.Add(new AssigneeTravelPreviewItemDto
+                {
+                    TechnicianId   = tech.Id,
+                    TravelMinutes  = feasibility.InboundTravelMinutes,
+                    IsSelectable   = feasibility.IsFeasible
+                });
+            }
+
+            return response;
         }
 
         public async Task<TravelFeasibilityResult> EvaluatePlacementAsync(
@@ -44,7 +115,8 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             int proposedStartMinutesLocal,
             long? excludeTaskId,
             bool checkOverlap,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyList<ProposedRouteStop>? simulatedStops = null)
         {
             var localOffsetMinutes = proposedStartMinutesLocal - (int)proposedStartAt.TimeOfDay.TotalMinutes;
             var proposedStartLocal = proposedStartAt.AddMinutes(localOffsetMinutes);
@@ -63,7 +135,8 @@ namespace ServiceTaskPlanningSystem.Services.Travel
                         StartAt = proposedStartAt,
                         EndAt = proposedEndAt,
                         AddressId = serviceAddressId
-                    }
+                    },
+                    SimulatedStops = simulatedStops
                 },
                 cancellationToken);
 

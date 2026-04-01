@@ -9,6 +9,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
     {
         Task EvaluateTaskRouteImpactAsync(long taskId, CancellationToken cancellationToken = default);
         Task EvaluateTechnicianDayAsync(long technicianId, DateTime dayUtc, CancellationToken cancellationToken = default);
+        Task EvaluateTechnicianDayRoutesOnlyAsync(long technicianId, DateTime dayUtc, CancellationToken cancellationToken = default);
         Task EvaluatePlanDayAsync(long planId, DateTime dayUtc, CancellationToken cancellationToken = default);
         Task EnsureAllPairwiseRoutesAsync(IEnumerable<long> addressIds, CancellationToken cancellationToken = default);
     }

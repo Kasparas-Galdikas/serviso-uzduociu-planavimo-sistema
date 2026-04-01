@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Http;
 
 namespace ServiceTaskPlanningSystem.Services.Time
 {
+    public readonly record struct CreatablePlacement(DateTime TargetDate, int StartMinutes);
+    public readonly record struct WeekBoundary(DateTime LocalStart, DateTime LocalEndExclusive, DateTime UtcStart, DateTime UtcEndExclusive);
+
     /// <summary>
     /// Central service for all time-related operations.
     /// Handles conversions between UTC (storage) and local time (display/user input).
@@ -52,11 +55,31 @@ namespace ServiceTaskPlanningSystem.Services.Time
         int CeilingToSlot(int minutesSinceMidnight, int slotSizeMinutes);
 
         /// <summary>
+        /// Returns the earliest creatable placement from the selected date.
+        /// If the selected date is today and the current time is already beyond the
+        /// day's plannable window, the placement rolls forward to the next day at dayStartMinutes.
+        /// </summary>
+        CreatablePlacement GetEarliestCreatablePlacement(
+            DateTime targetDate,
+            int timezoneOffsetMinutes,
+            int slotSizeMinutes,
+            int dayStartMinutes,
+            int dayEndMinutes);
+
+        /// <summary>
         /// Returns the earliest local start-minute allowed for task creation on the selected date.
         /// For today (in user's timezone), this is "now" rounded up to the slot boundary.
         /// For future dates, returns dayStartMinutes.
+        /// Obsolete for cross-day callers; prefer GetEarliestCreatablePlacement.
         /// </summary>
         int GetEarliestCreatableStartMinutes(DateTime targetDate, int timezoneOffsetMinutes, int slotSizeMinutes, int dayStartMinutes);
+
+        /// <summary>
+        /// Returns the next creatable start minute, optionally chained after a previous task's end.
+        /// Computes max(GetEarliestCreatableStartMinutes, afterEndMinutes ?? 0), slot-aligned.
+        /// Used for bulk scheduling prefill to chain items sequentially.
+        /// </summary>
+        int GetNextCreatableStartMinutes(DateTime targetDate, int timezoneOffsetMinutes, int slotSizeMinutes, int dayStartMinutes, int? afterEndMinutes = null);
 
         /// <summary>
         /// Gets the start of week (Monday) for a given date.
@@ -67,6 +90,12 @@ namespace ServiceTaskPlanningSystem.Services.Time
         /// Gets the end of week (Sunday) for a given date.
         /// </summary>
         DateTime GetWeekEnd(DateTime date);
+
+        /// <summary>
+        /// Gets the current business-week boundaries using local week semantics
+        /// and UTC equivalents derived from the same local boundaries.
+        /// </summary>
+        WeekBoundary GetCurrentWeekBoundary();
 
         /// <summary>
         /// Gets the user's local "today" (current date in their timezone).

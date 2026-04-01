@@ -44,6 +44,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
         public long? ExcludeTaskId { get; init; }
         public ScheduleRepairPlacement? ProposedPlacement { get; init; }
         public IReadOnlySet<long>? FixedTaskIds { get; init; }
+        public IReadOnlyList<ScheduleRepairTaskSnapshot>? SimulatedSnapshots { get; init; }
     }
 
     public sealed record ScheduleRepairPlan(
@@ -439,6 +440,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 request.ExcludeTaskId,
                 cancellationToken);
 
+            HashSet<long>? simulatedImmovableIds = null;
+            if (request.SimulatedSnapshots != null && request.SimulatedSnapshots.Count > 0)
+            {
+                simulatedImmovableIds = new HashSet<long>(request.SimulatedSnapshots.Select(s => s.TaskId));
+                tasks.AddRange(request.SimulatedSnapshots);
+            }
+
             tasks.Add(new ScheduleRepairTaskSnapshot(
                 ProposedTaskId,
                 request.ProposedPlacement.ServiceAddressId,
@@ -457,7 +465,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 request.TimezoneOffsetMinutes,
                 workplaceAddressId,
                 new[] { new ScheduleRepairAnchor(ProposedTaskId, request.ProposedPlacement.StartAt) },
-                cancellationToken);
+                cancellationToken,
+                immovableTaskIds: simulatedImmovableIds);
 
             var fitResult = await _fitCore.FitAsync(fitRequest, cancellationToken);
             return MapFitResult(fitResult, ProposedTaskId, request.ProposedPlacement.ServiceAddressId);

@@ -19,10 +19,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public double WeeklyOverHoursPenalty { get; init; } = -30.0;
 
         // Soft constraint penalties (utilization-based)
-        public double LowUtilizationPenalty { get; init; } = -10.0;  // < 30%
-        public double MediumUtilizationPenalty { get; init; } = -10.0; // 50-75%
-        public double HighUtilizationPenalty { get; init; } = -25.0;   // 75-90%
-        public double VeryHighUtilizationPenalty { get; init; } = -50.0; // 90-100%
+        public double LowUtilizationPenalty { get; init; } = 0.0;   // < 30% — no penalty for idle technicians
+        public double MediumUtilizationPenalty { get; init; } = 10.0; // 50-75%
+        public double HighUtilizationPenalty { get; init; } = 25.0;   // 75-90%
+        public double VeryHighUtilizationPenalty { get; init; } = 50.0; // 90-100%
 
         // Weighting for multi-objective optimization
         public double DailyLoadWeight { get; init; } = 1.5;

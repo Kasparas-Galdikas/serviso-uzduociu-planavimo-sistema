@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="**\*.cs" Exclude="bin\**;obj\**;tests\**" />
+    <Compile Include="**\*.cs" Exclude="bin\**;obj\**;tests\**;.claude\**" />
   </ItemGroup>
 
   <ItemGroup>

@@ -44,6 +44,7 @@ public sealed class PlanServiceScheduleRepairTests
         _time.GetUserLocalToday(Arg.Any<int>()).Returns(DateTime.Today);
         _time.GetEarliestCreatableStartMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>())
             .Returns(ScheduleGrid.DayStartMinutes);
+        _time.IsTaskStillEditable(Arg.Any<DateTime>()).Returns(true);
         _time.IsTravelStartFeasible(Arg.Any<DateTime>(), Arg.Any<int>()).Returns(true);
         _time.CreateUtcFromDateAndMinutes(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<int>())
             .Returns(call =>

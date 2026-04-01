@@ -35,7 +35,7 @@ public class ScheduleTimeServiceTests
     [Fact]
     public void GetEarliestCreatableStartMinutes_FutureDate_UsesDayStart()
     {
-        var sut = new FakeScheduleTimeService(new DateTime(2026, 3, 10, 19, 59, 0, DateTimeKind.Utc));
+        var sut = new FakeScheduleTimeService(new DateTime(2026, 3, 10, 20, 1, 0, DateTimeKind.Utc));
 
         var result = sut.GetEarliestCreatableStartMinutes(
             targetDate: new DateTime(2026, 3, 11),
@@ -44,6 +44,22 @@ public class ScheduleTimeServiceTests
             dayStartMinutes: ScheduleGrid.DayStartMinutes);
 
         result.Should().Be(ScheduleGrid.DayStartMinutes);
+    }
+
+    [Fact]
+    public void GetEarliestCreatablePlacement_TodayAfterDayEnd_RollsToTomorrowDayStart()
+    {
+        var sut = new FakeScheduleTimeService(new DateTime(2026, 3, 10, 20, 1, 0, DateTimeKind.Utc));
+
+        var result = sut.GetEarliestCreatablePlacement(
+            targetDate: new DateTime(2026, 3, 10),
+            timezoneOffsetMinutes: 0,
+            slotSizeMinutes: 30,
+            dayStartMinutes: ScheduleGrid.DayStartMinutes,
+            dayEndMinutes: ScheduleGrid.DayEndMinutes);
+
+        result.TargetDate.Should().Be(new DateTime(2026, 3, 11));
+        result.StartMinutes.Should().Be(ScheduleGrid.DayStartMinutes);
     }
 
     private sealed class FakeScheduleTimeService : ScheduleTimeService

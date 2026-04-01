@@ -9,8 +9,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
+using ServiceTaskPlanningSystem.Services.PlanManagement;
 
-namespace ServiceTaskPlanningSystem.Services.PlanManagement
+namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
 {
     public class EvaluationRepairService : BackgroundService
     {

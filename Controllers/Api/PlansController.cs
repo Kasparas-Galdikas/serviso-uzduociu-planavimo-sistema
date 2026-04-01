@@ -1,13 +1,10 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using ServiceTaskPlanningSystem.Data;
-using ServiceTaskPlanningSystem.Models.DTOs.Responses;
+using ServiceTaskPlanningSystem.Services.History;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
 using ServiceTaskPlanningSystem.Services.Authorization;
 
@@ -18,17 +15,15 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
     public class PlansController : ControllerBase
     {
         private readonly IPlanService _planService;
-        private readonly IEvaluationEngine _evaluationEngine;
         private readonly ILogger<PlansController> _logger;
-        private readonly ScheduleDbContext _db;
+        private readonly ITaskHistoryReader _historyReader;
         private readonly IUserContextResolver _userContextResolver;
 
-        public PlansController(IPlanService planService, IEvaluationEngine evaluationEngine, ILogger<PlansController> logger, ScheduleDbContext db, IUserContextResolver userContextResolver)
+        public PlansController(IPlanService planService, ILogger<PlansController> logger, ITaskHistoryReader historyReader, IUserContextResolver userContextResolver)
         {
             _planService = planService;
-            _evaluationEngine = evaluationEngine;
             _logger = logger;
-            _db = db;
+            _historyReader = historyReader;
             _userContextResolver = userContextResolver;
         }
 
@@ -105,102 +100,26 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         public async Task<IActionResult> GetPlanHistory(long planId, [FromQuery] int limit = 50, [FromQuery] bool includeBacklog = false, CancellationToken cancellationToken = default)
         {
             var clampedLimit = Math.Clamp(limit, 1, 200);
-
-            var planLogs = await _db.TaskActionLogs
-                .AsNoTracking()
-                .Where(l => l.PlanId == planId)
-                .Select(l => new TaskHistoryItemDto
-                {
-                    Id = l.Id,
-                    TaskId = l.TaskId,
-                    ActionType = l.ActionType,
-                    Outcome = l.Outcome,
-                    Summary = l.Summary,
-                    OccurredAt = l.OccurredAtUtc,
-                    ActorDisplayName = l.ActorName,
-                    ActorRole = l.ActorRole,
-                    Source = l.Source,
-                    DetailsJson = l.DetailsJson
-                })
-                .ToListAsync(cancellationToken);
-
-            if (includeBacklog)
-            {
-                var userId = _userContextResolver.GetCurrentUser().UserId;
-                if (userId != null)
-                {
-                    var cutoff = DateTime.UtcNow.AddDays(-7);
-                    var backlogLogs = await _db.TaskActionLogs
-                        .AsNoTracking()
-                        .Where(l => l.PlanId == null
-                            && l.ActorUserId == userId
-                            && l.OccurredAtUtc >= cutoff)
-                        .Select(l => new TaskHistoryItemDto
-                        {
-                            Id = l.Id,
-                            TaskId = l.TaskId,
-                            ActionType = l.ActionType,
-                            Outcome = l.Outcome,
-                            Summary = l.Summary,
-                            OccurredAt = l.OccurredAtUtc,
-                            ActorDisplayName = l.ActorName,
-                            ActorRole = l.ActorRole,
-                            Source = l.Source,
-                            DetailsJson = l.DetailsJson
-                        })
-                        .ToListAsync(cancellationToken);
-
-                    planLogs = planLogs
-                        .Concat(backlogLogs)
-                        .OrderByDescending(l => l.OccurredAt)
-                        .Take(clampedLimit)
-                        .ToList();
-                }
-                else
-                {
-                    planLogs = planLogs
-                        .OrderByDescending(l => l.OccurredAt)
-                        .Take(clampedLimit)
-                        .ToList();
-                }
-            }
-            else
-            {
-                planLogs = planLogs
-                    .OrderByDescending(l => l.OccurredAt)
-                    .Take(clampedLimit)
-                    .ToList();
-            }
-
-            return Ok(planLogs);
+            var userId = _userContextResolver.GetCurrentUser().UserId;
+            var logs = await _historyReader.GetPlanHistoryAsync(planId, clampedLimit, includeBacklog, userId, cancellationToken);
+            return Ok(logs);
         }
 
         [HttpPost("recalculate-evaluations")]
         [Authorize(Policy = "RequireManager")]
         public async Task<IActionResult> RecalculateEvaluations(CancellationToken cancellationToken)
         {
-            var active = await _planService.GetActivePlanAsync(cancellationToken);
-            var draft = await _planService.GetDraftPlanAsync(cancellationToken);
+            var (activePlanId, draftPlanId) = await _planService.RecalculateCurrentPlansAsync(cancellationToken);
 
-            if (active == null && draft == null)
+            if (activePlanId == null && draftPlanId == null)
             {
                 return Ok(new { message = "No active or draft plans to recalculate." });
             }
 
-            if (active != null)
-            {
-                await _evaluationEngine.RecalculatePlanAsync(active.Id, cancellationToken);
-            }
-
-            if (draft != null)
-            {
-                await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
-            }
-
             return Ok(new
             {
-                recalculatedActive = active?.Id,
-                recalculatedDraft = draft?.Id
+                recalculatedActive = activePlanId,
+                recalculatedDraft = draftPlanId
             });
         }
     }
