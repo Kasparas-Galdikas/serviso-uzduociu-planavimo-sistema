@@ -14,15 +14,16 @@ namespace Tests.Integration.Fixtures;
 /// </summary>
 public sealed class TestWebApplicationFactoryFixture : IAsyncLifetime
 {
-    public PostgresContainerFixture Postgres { get; } = new();
+    public IntegrationDatabaseFixture Database { get; } = new();
+    public IntegrationDatabaseFixture Postgres => Database;
     public TestWebApplicationFactory Factory { get; private set; } = default!;
     public RespawnCheckpoint Respawn { get; } = new();
 
     public async Task InitializeAsync()
     {
-        await Postgres.InitializeAsync();
+        await Database.InitializeAsync();
         Factory = new TestWebApplicationFactory(
-            Postgres,
+            Database,
             configureTestServices: services =>
             {
                 services.RemoveAll<ILocationApiClient>();
@@ -44,7 +45,7 @@ public sealed class TestWebApplicationFactoryFixture : IAsyncLifetime
     public async Task DisposeAsync()
     {
         Factory.Dispose();
-        await Postgres.DisposeAsync();
+        await Database.DisposeAsync();
     }
 
     private sealed class NoNetworkLocationApiClient : ILocationApiClient

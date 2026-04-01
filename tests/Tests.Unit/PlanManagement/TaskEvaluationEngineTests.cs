@@ -240,7 +240,20 @@ public sealed class TaskEvaluationEngineTests
 
         public int MaxConcurrentCalls { get; private set; }
 
-        public async Task<Dictionary<(long From, long To), int>> GetTravelMinutesAsync(IEnumerable<long> addressIds, CancellationToken cancellationToken)
+        public Task<int?> GetTravelMinutesAsync(long fromAddressId, long toAddressId, CancellationToken cancellationToken = default)
+        {
+            if (fromAddressId == toAddressId)
+            {
+                return Task.FromResult<int?>(0);
+            }
+
+            return Task.FromResult(
+                _travelMinutes.TryGetValue((fromAddressId, toAddressId), out var minutes)
+                    ? (int?)minutes
+                    : null);
+        }
+
+        public async Task<Dictionary<(long From, long To), int>> GetTravelMinutesAsync(IEnumerable<long> addressIds, CancellationToken cancellationToken = default)
         {
             var activeCalls = Interlocked.Increment(ref _activeCalls);
             MaxConcurrentCalls = Math.Max(MaxConcurrentCalls, activeCalls);

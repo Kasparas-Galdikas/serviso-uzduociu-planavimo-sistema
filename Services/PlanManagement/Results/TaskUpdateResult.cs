@@ -8,6 +8,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         NotFound,
         NotEditable,
         TechnicianNotFound,
+        Overlap,
         InvalidWindow,
         TravelInfeasible
     }

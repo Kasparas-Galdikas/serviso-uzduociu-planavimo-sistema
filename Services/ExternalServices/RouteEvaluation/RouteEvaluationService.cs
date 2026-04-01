@@ -92,6 +92,11 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 string.Join(" -> ", routeAddresses.Select(a => a.FullAddress)));
 
             await EnsureCoordinatesAsync(routeAddresses, cancellationToken);
+            if (HasMissingCoordinates(routeAddresses))
+            {
+                _logger.LogInformation("route.evaluation.task-impact.skipped taskId={TaskId} reason=missing-coordinates", taskId);
+                return;
+            }
 
             var missingPairs = await GetMissingSequentialPairsAsync(routeAddresses, cancellationToken);
             if (missingPairs.Count == 0)
@@ -202,6 +207,15 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 var routeAddresses = await LoadAddressPathAsync(chain, cancellationToken);
 
                 await EnsureCoordinatesAsync(routeAddresses, cancellationToken);
+                if (HasMissingCoordinates(routeAddresses))
+                {
+                    _logger.LogInformation(
+                        "route.evaluation.technician-day.skipped technicianId={TechnicianId} day={Day} planId={PlanId} reason=missing-coordinates",
+                        technicianId,
+                        dayUtc.Date,
+                        planId);
+                    continue;
+                }
 
                 var missingPairs = await GetMissingSequentialPairsAsync(routeAddresses, cancellationToken);
                 if (missingPairs.Count == 0)
@@ -315,12 +329,28 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                     continue;
                 }
 
-                var coords = await _locationApiClient.GeocodeAsync(address.FullAddress, cancellationToken);
-                address.Latitude = coords.Latitude;
-                address.Longitude = coords.Longitude;
+                try
+                {
+                    var coords = await _locationApiClient.GeocodeAsync(address.FullAddress, cancellationToken);
+                    address.Latitude = coords.Latitude;
+                    address.Longitude = coords.Longitude;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "route.evaluation.geocode.failed addressId={AddressId} address={Address}",
+                        address.Id,
+                        address.FullAddress);
+                }
             }
 
             await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        private static bool HasMissingCoordinates(IEnumerable<AddressEntity> addresses)
+        {
+            return addresses.Any(address => !address.Latitude.HasValue || !address.Longitude.HasValue);
         }
 
         private async Task UpsertSequentialRoutesAsync(
@@ -402,6 +432,13 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 return;
 
             await EnsureCoordinatesAsync(addresses, cancellationToken);
+            if (HasMissingCoordinates(addresses))
+            {
+                _logger.LogInformation(
+                    "[route.ensure] skipped addresses={Count} reason=missing-coordinates",
+                    addresses.Count);
+                return;
+            }
 
             var missingPairs = await GetMissingAllPairwiseAsync(addresses, cancellationToken);
 
