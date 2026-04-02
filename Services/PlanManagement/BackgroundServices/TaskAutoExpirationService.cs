@@ -28,11 +28,19 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<TaskAutoExpirationService> _logger;
 
-        // Run every 5 minutes to catch expired tasks reasonably quickly
-        private static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
+        // Poll every minute. The partial index ix_tasks_inprogress_end_at makes each
+        // tick an index scan over a tiny set (only active tasks), so the DB cost is
+        // negligible even at 1-minute frequency.
+        private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
 
-        // Grace period after task end time before auto-expiring (gives technician time to update)
-        private static readonly TimeSpan GracePeriod = TimeSpan.FromMinutes(30);
+        // No grace period — the edit-lock (IsTaskStillEditable) already prevents any
+        // status change after EndAt, so a grace window only creates a gap where the
+        // task is locked in the UI but still shows InProgress.
+        private static readonly TimeSpan GracePeriod = TimeSpan.Zero;
+
+        // How far back to look. Prevents the query from scanning unbounded history.
+        // Any InProgress task older than this was either already expired or is a data anomaly.
+        private static readonly TimeSpan LookbackWindow = TimeSpan.FromDays(2);
 
         public TaskAutoExpirationService(IServiceScopeFactory scopeFactory, ILogger<TaskAutoExpirationService> logger)
         {
@@ -71,41 +79,40 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
             var timeService = scope.ServiceProvider.GetRequiredService<IScheduleTimeService>();
 
             var cutoffTime = timeService.GetCurrentUtcTime() - GracePeriod;
+            var windowStart = cutoffTime - LookbackWindow;
 
-            // Find all InProgress tasks that have ended (with grace period)
-            var expiredTasks = await db.Tasks
-                .Where(t => t.Status == ScheduleTaskStatus.InProgress && t.EndAt < cutoffTime)
+            // Step 1: collect distinct plan IDs before mutating — lean projection, no tracking.
+            // The partial index ix_tasks_inprogress_end_at covers this predicate directly.
+            var planIds = await db.Tasks
+                .Where(t => t.Status == ScheduleTaskStatus.InProgress
+                         && t.EndAt > windowStart
+                         && t.EndAt < cutoffTime)
+                .Select(t => t.PlanId)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .Distinct()
                 .ToListAsync(cancellationToken);
 
-            if (expiredTasks.Count == 0)
+            // Step 2: single-statement bulk UPDATE — bypasses the change tracker entirely.
+            // Returns the number of rows actually updated.
+            var expired = await db.Tasks
+                .Where(t => t.Status == ScheduleTaskStatus.InProgress
+                         && t.EndAt > windowStart
+                         && t.EndAt < cutoffTime)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(t => t.Status, ScheduleTaskStatus.Canceled),
+                    cancellationToken);
+
+            if (expired == 0)
             {
                 return;
             }
 
             _logger.LogInformation(
-                "svc.task.auto-expire.found count={Count} cutoff={Cutoff:O}",
-                expiredTasks.Count, cutoffTime);
+                "svc.task.auto-expire.complete expired={Count} plans={PlanCount} cutoff={Cutoff:O}",
+                expired, planIds.Count, cutoffTime);
 
-            // Group by plan for batch evaluation recalculation
-            var planIds = expiredTasks
-                .Where(t => t.PlanId.HasValue)
-                .Select(t => t.PlanId!.Value)
-                .Distinct()
-                .ToList();
-
-            // Update status to Canceled
-            foreach (var task in expiredTasks)
-            {
-                task.Status = ScheduleTaskStatus.Canceled;
-
-                _logger.LogInformation(
-                    "svc.task.auto-expire.task taskId={TaskId} endAt={EndAt:O} planId={PlanId}",
-                    task.Id, task.EndAt, task.PlanId);
-            }
-
-            await db.SaveChangesAsync(cancellationToken);
-
-            // Recalculate evaluations for affected plans
+            // Step 3: recalculate evaluations for affected plans
             foreach (var planId in planIds)
             {
                 try
@@ -118,10 +125,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
                     _logger.LogWarning(ex, "Failed to recalculate evaluations for plan {PlanId} after auto-expiration.", planId);
                 }
             }
-
-            _logger.LogInformation(
-                "svc.task.auto-expire.complete expired={Count} plans={PlanCount}",
-                expiredTasks.Count, planIds.Count);
         }
     }
 }

@@ -444,6 +444,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.HasKey("Id")
                         .HasName("pk_tasks");
 
+                    b.HasIndex("EndAt")
+                        .HasDatabaseName("ix_tasks_inprogress_end_at")
+                        .HasFilter("status = 'in_progress'");
+
                     b.HasIndex("PlanId", "StartAt")
                         .HasDatabaseName("ix_tasks_plan_id_start_at");
 

@@ -245,6 +245,11 @@ namespace ServiceTaskPlanningSystem.Data
             entity.HasIndex(e => new { e.PlanId, e.StartAt });
             entity.HasIndex(e => new { e.TechnicianId, e.StartAt });
             entity.HasIndex(e => new { e.ServiceObjectId, e.StartAt });
+            // Partial index used exclusively by TaskAutoExpirationService.
+            // Only covers InProgress rows — stays small as tasks expire and never revert.
+            entity.HasIndex(e => e.EndAt)
+                .HasFilter("status = 'in_progress'")
+                .HasDatabaseName("ix_tasks_inprogress_end_at");
         }
 
         private static void ConfigureTaskEvaluations(ModelBuilder modelBuilder)
