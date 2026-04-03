@@ -10,6 +10,7 @@ using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
+using ServiceTaskPlanningSystem.Services.Unavailability;
 using Xunit;
 
 namespace Tests.Unit.Travel;
@@ -180,7 +181,7 @@ public sealed class TaskTravelFeasibilityServiceTests
     }
 
     private static TaskTravelFeasibilityService CreateService(ScheduleDbContext db) =>
-        new(new RouteChainBuilder(db), new TravelTimeResolver(db, Substitute.For<ILogger<TravelTimeResolver>>()), Substitute.For<IRouteEvaluationService>(), db, Substitute.For<IScheduleTimeService>(), Substitute.For<ILogger<TaskTravelFeasibilityService>>());
+        new(new RouteChainBuilder(db), new TravelTimeResolver(db, Substitute.For<ILogger<TravelTimeResolver>>()), Substitute.For<IRouteEvaluationService>(), db, Substitute.For<IScheduleTimeService>(), new TechnicianUnavailabilityReader(db), Substitute.For<ILogger<TaskTravelFeasibilityService>>());
 
     private static ScheduleDbContext CreateContext()
     {

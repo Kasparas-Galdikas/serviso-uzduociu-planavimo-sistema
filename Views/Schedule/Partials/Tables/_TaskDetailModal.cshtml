@@ -316,7 +316,7 @@
             </div>
             <div id="backlogListEmpty" class="text-center text-muted py-4 d-none">
                 <i class="bi bi-inbox fs-3 d-block mb-2" aria-hidden="true"></i>
-                <div class="small">Eilė tuščia. Sukurkite naują įrašą.</div>
+                <div class="small">sąrašas tuščias. Sukurkite naują įrašą.</div>
             </div>
             <div id="backlogItemsList"></div>
             <div id="backlogBulkBar" class="backlog-bulk-bar">
@@ -328,6 +328,11 @@
                     <i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Planuoti
                 </button>
             </div>
+        </div>
+
+        <!-- Technician unavailability panel — shown when a technician name is clicked -->
+        <div id="technicianPanelContent" style="display: none;">
+            @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TechnicianPanel.cshtml")
         </div>
 
         <!-- Bulk confirm view — shown instead of form sections during confirm phase -->
@@ -349,7 +354,7 @@
                     Išsaugoti
                 </button>
                 <button type="button" class="btn btn-primary d-none" id="backlogSaveBtn">
-                    <i class="bi bi-inbox me-1" aria-hidden="true"></i>Įtraukti į eilę
+                    <i class="bi bi-inbox me-1" aria-hidden="true"></i>Įtraukti į sąrašą
                 </button>
                 <button type="button" class="btn btn-primary d-none" id="taskBulkNext">
                     Kitas <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>

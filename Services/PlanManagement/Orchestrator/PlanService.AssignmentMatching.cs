@@ -16,6 +16,7 @@ using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
+using ServiceTaskPlanningSystem.Services.Unavailability;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator;
 
@@ -34,6 +35,7 @@ internal sealed class PlanServiceAssignmentMatching
         public required HashSet<long> RouteLookupAddressIds { get; init; }
         public required DateTime LoadRangeStart { get; init; }
         public required DateTime LoadRangeEndExclusive { get; init; }
+        public required Dictionary<long, List<TechnicianBlockedInterval>> BlockedIntervalsByTechnician { get; init; }
     }
 
     /// <summary>
@@ -131,6 +133,7 @@ internal sealed class PlanServiceAssignmentMatching
     private readonly CandidateSlotGenerator _slotGenerator;
     private readonly CandidateScoreCalculator _scoreCalculator;
     private readonly CandidateRankingService _rankingService;
+    private readonly TechnicianUnavailabilityReader _unavailabilityReader;
     private readonly ILogger<PlanServiceAssignmentMatching> _logger;
 
     public PlanServiceAssignmentMatching(
@@ -144,6 +147,7 @@ internal sealed class PlanServiceAssignmentMatching
         CandidateSlotGenerator slotGenerator,
         CandidateScoreCalculator scoreCalculator,
         CandidateRankingService rankingService,
+        TechnicianUnavailabilityReader unavailabilityReader,
         ILogger<PlanServiceAssignmentMatching> logger)
     {
         _db = db;
@@ -156,6 +160,7 @@ internal sealed class PlanServiceAssignmentMatching
         _slotGenerator = slotGenerator;
         _scoreCalculator = scoreCalculator;
         _rankingService = rankingService;
+        _unavailabilityReader = unavailabilityReader;
         _logger = logger;
     }
 
@@ -638,6 +643,12 @@ internal sealed class PlanServiceAssignmentMatching
                 var technicianWeekTasks = weekTasksByTechnician.GetValueOrDefault(technician.Id)
                     ?? new List<TaskEntity>();
 
+                var dayBlockedWindows = BuildDayBlockedWindows(
+                    sharedContext?.BlockedIntervalsByTechnician ?? new Dictionary<long, List<TechnicianBlockedInterval>>(),
+                    technician.Id,
+                    dayStart,
+                    timezoneOffsetMinutes);
+
                 var candidateStarts = _slotGenerator.GenerateCandidateStartMinutes(
                     technician,
                     technicianDayTasks,
@@ -645,7 +656,8 @@ internal sealed class PlanServiceAssignmentMatching
                     timezoneOffsetMinutes,
                     durationMinutes,
                     serviceObject,
-                    routeLookup);
+                    routeLookup,
+                    dayBlockedWindows);
 
                 var simulatedStops = getSimulatedStops(technician.Id, dayStart);
 
@@ -889,7 +901,8 @@ internal sealed class PlanServiceAssignmentMatching
                 RouteLookup = new Dictionary<(long From, long To), int>(),
                 RouteLookupAddressIds = new HashSet<long>(),
                 LoadRangeStart = DateTime.MaxValue,
-                LoadRangeEndExclusive = DateTime.MinValue
+                LoadRangeEndExclusive = DateTime.MinValue,
+                BlockedIntervalsByTechnician = new Dictionary<long, List<TechnicianBlockedInterval>>()
             };
         }
 
@@ -916,6 +929,13 @@ internal sealed class PlanServiceAssignmentMatching
         var routeLookup = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken)
             ?? new Dictionary<(long From, long To), int>();
 
+        var allTechnicianIds = technicians.Select(t => t.Id).ToList();
+        var blockedIntervalsByTechnician = await _unavailabilityReader.GetBlockedIntervalsByTechnicianAsync(
+            allTechnicianIds,
+            loadRangeStart,
+            loadRangeEndExclusive,
+            cancellationToken);
+
         return new AssignmentMatchingContext
         {
             Technicians = technicians,
@@ -926,8 +946,57 @@ internal sealed class PlanServiceAssignmentMatching
             RouteLookup = routeLookup,
             RouteLookupAddressIds = addressIds.ToHashSet(),
             LoadRangeStart = loadRangeStart,
-            LoadRangeEndExclusive = loadRangeEndExclusive
+            LoadRangeEndExclusive = loadRangeEndExclusive,
+            BlockedIntervalsByTechnician = blockedIntervalsByTechnician
         };
+    }
+
+    /// <summary>
+    /// Converts technician unavailability intervals that overlap <paramref name="localDay"/>
+    /// into (StartMinutes, EndMinutes) tuples in local time, ready for the slot generator.
+    /// </summary>
+    private IReadOnlyList<(int StartMinutes, int EndMinutes)> BuildDayBlockedWindows(
+        Dictionary<long, List<TechnicianBlockedInterval>> blockedByTechnician,
+        long technicianId,
+        DateTime localDay,
+        int timezoneOffsetMinutes)
+    {
+        if (!blockedByTechnician.TryGetValue(technicianId, out var intervals) || intervals.Count == 0)
+        {
+            return Array.Empty<(int, int)>();
+        }
+
+        // Convert the local day boundaries to UTC for overlap filtering
+        var localDayStartUtc = localDay.AddMinutes(-timezoneOffsetMinutes);
+        var localDayEndUtc   = localDayStartUtc.AddDays(1);
+
+        var result = new List<(int StartMinutes, int EndMinutes)>();
+        foreach (var interval in intervals)
+        {
+            if (interval.StartAtUtc >= localDayEndUtc || interval.EndAtUtc <= localDayStartUtc)
+            {
+                continue;
+            }
+
+            var startLocal = _timeService.ConvertUtcToLocal(interval.StartAtUtc, timezoneOffsetMinutes);
+            var endLocal   = _timeService.ConvertUtcToLocal(interval.EndAtUtc,   timezoneOffsetMinutes);
+
+            // Express as minutes from midnight of the local day so values align
+            // with the slot-generator's working-window minute arithmetic.
+            var startMinutes = (int)(startLocal - localDay).TotalMinutes;
+            var endMinutes   = (int)(endLocal   - localDay).TotalMinutes;
+
+            // Clamp to the representable range (cross-midnight edge cases)
+            startMinutes = Math.Max(0, startMinutes);
+            endMinutes   = Math.Min(1440, endMinutes);
+
+            if (startMinutes < endMinutes)
+            {
+                result.Add((startMinutes, endMinutes));
+            }
+        }
+
+        return result;
     }
 
     private async Task<IReadOnlyDictionary<(long From, long To), int>> BuildRouteLookupAsync(

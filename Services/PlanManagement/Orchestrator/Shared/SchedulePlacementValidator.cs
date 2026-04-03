@@ -17,6 +17,7 @@ using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
+using ServiceTaskPlanningSystem.Services.Unavailability;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
 {
@@ -28,6 +29,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
         private readonly ITaskTravelFeasibilityService _travelFeasibilityService;
         private readonly IScheduleRepairService _scheduleRepairService;
         private readonly PlanScopeResolver _planScopeResolver;
+        private readonly TechnicianUnavailabilityReader _technicianAvailabilityPolicy;
         private readonly ILogger<SchedulePlacementValidator> _logger;
 
         public SchedulePlacementValidator(
@@ -37,6 +39,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             ITaskTravelFeasibilityService travelFeasibilityService,
             IScheduleRepairService scheduleRepairService,
             PlanScopeResolver planScopeResolver,
+            TechnicianUnavailabilityReader technicianAvailabilityPolicy,
             ILogger<SchedulePlacementValidator> logger)
         {
             _db = db;
@@ -45,16 +48,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             _travelFeasibilityService = travelFeasibilityService;
             _scheduleRepairService = scheduleRepairService;
             _planScopeResolver = planScopeResolver;
+            _technicianAvailabilityPolicy = technicianAvailabilityPolicy;
             _logger = logger;
         }
 
         internal sealed record WorkingWindow(int StartMinutes, int EndMinutes);
         internal sealed record PlacementTaskSlot(long TaskId, DateTime StartAt, DateTime EndAt);
-
         internal sealed class PlacementValidationContext
         {
             public Dictionary<long, string> TechnicianCityById { get; } = new();
             public Dictionary<long, List<PlacementTaskSlot>> ExistingTaskSlotsByTechnician { get; } = new();
+            public Dictionary<long, List<TechnicianBlockedInterval>> ExistingBlockedSlotsByTechnician { get; } = new();
         }
 
         internal static string FormatDurationLabel(int totalMinutes)
@@ -201,7 +205,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             long serviceAddressId,
             int timezoneOffsetMinutes,
             long? excludeTaskId,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool allowBlockedIntervalShift = false,
+            DateTime? simulatedBlockedIntervalStart = null,
+            DateTime? simulatedBlockedIntervalEnd = null)
         {
             return _scheduleRepairService.BuildPlanAsync(
                 new ScheduleRepairRequest
@@ -211,6 +218,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                     DayUtc = startAtUtc.Date,
                     TimezoneOffsetMinutes = timezoneOffsetMinutes,
                     ExcludeTaskId = excludeTaskId,
+                    AllowBlockedIntervalShift = allowBlockedIntervalShift,
+                    SimulatedBlockedIntervalStart = simulatedBlockedIntervalStart,
+                    SimulatedBlockedIntervalEnd = simulatedBlockedIntervalEnd,
                     ProposedPlacement = new ScheduleRepairPlacement(
                         0,
                         serviceAddressId,
@@ -218,6 +228,56 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                         endAtUtc)
                 },
                 cancellationToken);
+        }
+
+        internal async Task<ScheduleRepairPlan> TryBuildUnavailabilityRepairPlanAsync(
+            long technicianId,
+            DateTime taskStartAtUtc,
+            DateTime taskEndAtUtc,
+            DateTime effectiveStartAtUtc,
+            DateTime blockingPeriodEndUtc,
+            long serviceAddressId,
+            int timezoneOffsetMinutes,
+            long? excludeTaskId,
+            CancellationToken cancellationToken,
+            DateTime? blockingPeriodStartUtc = null)
+        {
+            var duration = taskEndAtUtc - taskStartAtUtc;
+            if (duration <= TimeSpan.Zero)
+            {
+                return ScheduleRepairPlan.Fail("Netinkama uzduoties trukme.");
+            }
+
+            var overlapShift = blockingPeriodEndUtc > effectiveStartAtUtc
+                ? blockingPeriodEndUtc - effectiveStartAtUtc
+                : TimeSpan.Zero;
+
+            var shiftedLocalStart = _timeService.ConvertUtcToLocal(taskStartAtUtc.Add(overlapShift), timezoneOffsetMinutes);
+            var alignedStartMinutes = _timeService.CeilingToSlot((int)shiftedLocalStart.TimeOfDay.TotalMinutes, ScheduleGrid.SlotSizeMinutes);
+            var candidateStartAtUtc = _timeService.CreateUtcFromDateAndMinutes(
+                shiftedLocalStart.Date,
+                alignedStartMinutes,
+                timezoneOffsetMinutes);
+            var candidateEndAtUtc = candidateStartAtUtc.Add(duration);
+
+            var workingWindow = GetWorkingWindow(technicianId, shiftedLocalStart.Date);
+            var candidateEndLocal = _timeService.ConvertUtcToLocal(candidateEndAtUtc, timezoneOffsetMinutes);
+            if ((int)candidateEndLocal.TimeOfDay.TotalMinutes > workingWindow.EndMinutes)
+            {
+                return ScheduleRepairPlan.Fail("Po techniko neaktyvumo nerasta tinkamo laiko tame paciame darbo lange.");
+            }
+
+            return await TryBuildPlacementRepairPlanAsync(
+                technicianId,
+                candidateStartAtUtc,
+                candidateEndAtUtc,
+                serviceAddressId,
+                timezoneOffsetMinutes,
+                excludeTaskId,
+                cancellationToken,
+                allowBlockedIntervalShift: true,
+                simulatedBlockedIntervalStart: blockingPeriodStartUtc,
+                simulatedBlockedIntervalEnd: blockingPeriodEndUtc);
         }
 
         internal async Task<bool> TryApplyTimingTravelRepairAsync(
@@ -231,6 +291,26 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             }
 
             var applyResult = await _scheduleRepairService.ApplyPlanAsync(validation.RepairPlan, task.Id, cancellationToken);
+            if (!applyResult.Success)
+            {
+                _logger.LogWarning("repair.apply-fail taskId={TaskId} reason={Reason}", task.Id, applyResult.Message ?? string.Empty);
+                return false;
+            }
+
+            return true;
+        }
+
+        internal async Task<bool> TryApplyPlacementRepairAsync(
+            TaskEntity task,
+            PlacementValidationResult validation,
+            CancellationToken cancellationToken)
+        {
+            if (!validation.HasRepairPlan)
+            {
+                return false;
+            }
+
+            var applyResult = await _scheduleRepairService.ApplyPlanAsync(validation.RepairPlan!, task.Id, cancellationToken);
             if (!applyResult.Success)
             {
                 _logger.LogWarning("repair.apply-fail taskId={TaskId} reason={Reason}", task.Id, applyResult.Message ?? string.Empty);
@@ -271,13 +351,23 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             string Message,
             DateTime StartAtUtc,
             DateTime EndAtUtc,
-            string City)
+            string City,
+            ScheduleRepairPlan? RepairPlan,
+            bool IsBlockedByUnavailability)
         {
             public bool IsValid => Error == PlacementError.None;
+            public bool HasRepairPlan => RepairPlan != null && RepairPlan.Success;
             public static PlacementValidationResult Success(DateTime startAtUtc, DateTime endAtUtc, string city) =>
-                new(PlacementError.None, string.Empty, startAtUtc, endAtUtc, city);
-            public static PlacementValidationResult Failure(PlacementError error, string message) =>
-                new(error, message, default, default, string.Empty);
+                new(PlacementError.None, string.Empty, startAtUtc, endAtUtc, city, null, false);
+            public static PlacementValidationResult Failure(
+                PlacementError error,
+                string message,
+                DateTime startAtUtc = default,
+                DateTime endAtUtc = default,
+                string city = "",
+                ScheduleRepairPlan? repairPlan = null,
+                bool isBlockedByUnavailability = false) =>
+                new(error, message, startAtUtc, endAtUtc, city, repairPlan, isBlockedByUnavailability);
         }
 
         internal async Task<PlacementValidationResult> ValidatePlacementForActionAsync(
@@ -490,6 +580,27 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                 return (PlacementError.Overlap, "Laiko langas užimtas (persidengia užduotys).", default, default, string.Empty);
             }
 
+            bool hasBlockedOverlap;
+            if (context != null && context.ExistingBlockedSlotsByTechnician.TryGetValue(targetTechnicianId, out var blockedSlots))
+            {
+                hasBlockedOverlap = _technicianAvailabilityPolicy.HasBlockedOverlap(blockedSlots, startAt, endAt);
+            }
+            else
+            {
+                var blockedPeriods = await _technicianAvailabilityPolicy.GetBlockedIntervalsAsync(
+                    targetTechnicianId,
+                    startAt.Date.AddDays(-1),
+                    endAt.AddDays(1),
+                    cancellationToken);
+
+                hasBlockedOverlap = _technicianAvailabilityPolicy.HasBlockedOverlap(blockedPeriods, startAt, endAt);
+            }
+
+            if (hasBlockedOverlap)
+            {
+                return (PlacementError.Overlap, "Pasirinktas laikas pažymėtas kaip techniko neaktyvumas.", default, default, string.Empty);
+            }
+
             return (PlacementError.None, string.Empty, startAt, endAt, city);
         }
 
@@ -549,6 +660,17 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                 slots.Add(new PlacementTaskSlot(task.Id, task.StartAt, task.EndAt));
             }
 
+            var blockedSlotsByTechnician = await _technicianAvailabilityPolicy.GetBlockedIntervalsByTechnicianAsync(
+                normalizedTechIds,
+                rangeStartUtc,
+                rangeEndUtc,
+                cancellationToken);
+
+            foreach (var blockedSlot in blockedSlotsByTechnician)
+            {
+                context.ExistingBlockedSlotsByTechnician[blockedSlot.Key] = blockedSlot.Value;
+            }
+
             return context;
         }
 
@@ -561,5 +683,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
 
             return await _db.Database.BeginTransactionAsync(cancellationToken);
         }
+
     }
 }

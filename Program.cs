@@ -16,6 +16,7 @@ using ServiceTaskPlanningSystem.Services.ExternalServices.Common;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.History;
 using ServiceTaskPlanningSystem.Services.Backlog;
+using ServiceTaskPlanningSystem.Services.Unavailability;
 using ServiceTaskPlanningSystem.Services.ServiceObjects;
 using ServiceTaskPlanningSystem.Services.Technicians;
 using ServiceTaskPlanningSystem.Services.Travel;
@@ -99,6 +100,7 @@ builder.Services.AddControllersWithViews(options =>
 
 builder.Services.AddScoped<IScheduleProvider, ScheduleProvider>();
 builder.Services.AddScoped<IPlanService, PlanService>();
+builder.Services.AddScoped<TechnicianUnavailabilityReader>();
 builder.Services.AddScoped<IDayScheduleFitCore, DayScheduleFitCore>();
 builder.Services.AddScoped<IScheduleRepairService, ScheduleRepairService>();
 builder.Services.AddScoped<ITaskTravelFeasibilityService, TaskTravelFeasibilityService>();
@@ -143,6 +145,7 @@ builder.Services.AddHostedService<TaskHistoryCleanupService>();
 builder.Services.AddScoped<ITaskHistoryWriter, TaskHistoryService>();
 builder.Services.AddScoped<ITaskHistoryReader, TaskHistoryService>();
 builder.Services.AddScoped<IBacklogService, BacklogService>();
+builder.Services.AddScoped<IUnavailabilityService, UnavailabilityService>();
 builder.Services.AddScoped<IServiceObjectService, ServiceObjectService>();
 builder.Services.AddScoped<ITechnicianLookupService, TechnicianLookupService>();
 

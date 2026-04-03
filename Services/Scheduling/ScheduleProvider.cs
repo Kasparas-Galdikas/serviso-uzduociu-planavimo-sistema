@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.Unavailability;
 using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
 
@@ -87,6 +88,11 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                     .ThenInclude(o => o.Address)
                 .ToListAsync();
 
+            var unavailabilityPeriods = await _db.TechnicianUnavailabilities
+                .AsNoTracking()
+                .Where(u => u.PeriodStart < weekEndUtcExclusive && u.PeriodEnd > weekStartUtc)
+                .ToListAsync();
+
             var taskVersions = await taskBaseQuery
                 .Select(t => new { t.Id, Version = EF.Property<uint>(t, "xmin") })
                 .ToDictionaryAsync(x => x.Id, x => x.Version);
@@ -153,13 +159,24 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
             if (string.Equals(viewMode, "day", StringComparison.OrdinalIgnoreCase))
             {
+                var unavailabilityBlocks = BuildUnavailabilityBlocks(unavailabilityPeriods, timezoneOffsetMinutes, weekStart, weekEnd);
+                if (unavailabilityBlocks.Count > 0)
+                {
+                    tasks.AddRange(unavailabilityBlocks);
+                    tasks = tasks
+                        .OrderBy(t => t.Start)
+                        .ThenBy(t => t.IsUnavailabilityBlock ? 0 : t.IsTravelBlock ? 1 : 2)
+                        .ThenBy(t => t.Source == TaskPlanSource.Active ? 0 : t.Source == TaskPlanSource.Draft ? 1 : 2)
+                        .ToList();
+                }
+
                 var travelBlocks = BuildTravelDisplayBlocks(tasks);
                 if (travelBlocks.Count > 0)
                 {
                     tasks.AddRange(travelBlocks);
                     tasks = tasks
                         .OrderBy(t => t.Start)
-                        .ThenBy(t => t.IsTravelBlock ? 0 : 1)
+                        .ThenBy(t => t.IsUnavailabilityBlock ? 0 : t.IsTravelBlock ? 1 : 2)
                         .ThenBy(t => t.Source == TaskPlanSource.Active ? 0 : t.Source == TaskPlanSource.Draft ? 1 : 2)
                         .ToList();
                 }
@@ -171,7 +188,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(l => l)
                 .ToList();
-            var nonTravelTasks = tasks.Where(t => !t.IsTravelBlock).ToList();
+            var nonTravelTasks = tasks.Where(t => !t.IsTravelBlock && !t.IsUnavailabilityBlock).ToList();
             var availableWorkloadLevels = BuildAvailableWorkloadLevels(nonTravelTasks);
 
             var summaryTasks = includeCanceled
@@ -279,6 +296,75 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
         private static string NormalizeView(string view) =>
             string.Equals(view, "week", StringComparison.OrdinalIgnoreCase) ? "week" : "day";
 
+        private List<TaskItem> BuildUnavailabilityBlocks(
+            IReadOnlyCollection<TechnicianUnavailabilityEntity> unavailabilityPeriods,
+            int timezoneOffsetMinutes,
+            DateTime rangeStart,
+            DateTime rangeEnd)
+        {
+            var blocks = new List<TaskItem>();
+            foreach (var period in unavailabilityPeriods)
+            {
+                var localStart = _timeService.ConvertUtcToLocal(period.PeriodStart, timezoneOffsetMinutes);
+                var localEnd = _timeService.ConvertUtcToLocal(period.PeriodEnd, timezoneOffsetMinutes);
+                if (localEnd <= localStart)
+                {
+                    continue;
+                }
+
+                var dayCursor = localStart.Date;
+                var lastDay = localEnd.Date;
+                while (dayCursor <= lastDay)
+                {
+                    if (dayCursor < rangeStart.Date || dayCursor > rangeEnd.Date)
+                    {
+                        dayCursor = dayCursor.AddDays(1);
+                        continue;
+                    }
+
+                    var segmentStart = dayCursor == localStart.Date ? localStart : dayCursor.Date;
+                    var segmentEnd = dayCursor == localEnd.Date ? localEnd : dayCursor.Date.AddDays(1);
+                    var windowStart = dayCursor.Date.AddMinutes(ScheduleGrid.DayStartMinutes);
+                    var windowEnd = dayCursor.Date.AddMinutes(ScheduleGrid.DayEndMinutes);
+                    if (segmentStart < windowStart)
+                    {
+                        segmentStart = windowStart;
+                    }
+                    if (segmentEnd > windowEnd)
+                    {
+                        segmentEnd = windowEnd;
+                    }
+                    if (segmentEnd <= segmentStart)
+                    {
+                        dayCursor = dayCursor.AddDays(1);
+                        continue;
+                    }
+
+                    blocks.Add(new TaskItem
+                    {
+                        Id = unchecked((int)(-period.Id)),
+                        TechnicianId = (int)period.TechnicianId,
+                        Title = "Neaktyvumas",
+                        Location = "Laikas rezervuotas techniko nebuvimui",
+                        Start = segmentStart,
+                        End = segmentEnd,
+                        PlanStatus = PlanStatus.Active,
+                        Priority = string.Empty,
+                        Status = "unavailability",
+                        IsEditable = false,
+                        CanDelete = false,
+                        IsTimeExpired = false,
+                        IsUnavailabilityBlock = true,
+                        UnavailabilityId = period.Id
+                    });
+
+                    dayCursor = dayCursor.AddDays(1);
+                }
+            }
+
+            return blocks;
+        }
+
         private static string NormalizeInformationType(string? informationType) =>
             string.Equals(informationType, "darbo-statusas", StringComparison.OrdinalIgnoreCase)
                 ? "darbo-statusas"
@@ -345,8 +431,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
 
             // For weekly view: consider whole week window. For daily view: consider only the selected day.
             var tasksForMatching = isDayView
-                ? tasks.Where(t => !t.IsTravelBlock && t.Start.Date == selectedDate.Date).ToList()
-                : tasks.Where(t => !t.IsTravelBlock).ToList();
+                ? tasks.Where(t => !t.IsTravelBlock && !t.IsUnavailabilityBlock && t.Start.Date == selectedDate.Date).ToList()
+                : tasks.Where(t => !t.IsTravelBlock && !t.IsUnavailabilityBlock).ToList();
 
             // Show technicians who have at least one task in the selected workload bucket (keep their tasks intact).
             var techIdsByWorkload = tasksForMatching
@@ -593,7 +679,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             }
 
             var grouped = tasks
-                .Where(t => !t.IsTravelBlock)
+                .Where(t => !t.IsTravelBlock && !t.IsUnavailabilityBlock)
                 .GroupBy(t => new { t.TechnicianId, Day = t.Start.Date });
 
             var syntheticId = -1;

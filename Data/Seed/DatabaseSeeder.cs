@@ -32,6 +32,28 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             _logger = logger;
         }
 
+        /// <summary>
+        /// Seeds only reference data (users, technicians, addresses, service objects).
+        /// No plans or tasks are created. Use this in tests that need a clean task slate.
+        /// </summary>
+        public async Task SeedReferenceDataOnlyAsync()
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                var addressLookup = new Dictionary<string, AddressEntity>(StringComparer.OrdinalIgnoreCase);
+                var userLookup = await SeedUsersAsync();
+                await SeedTechniciansAsync(userLookup, addressLookup);
+                await SeedServiceObjectsAsync(addressLookup);
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
         public async Task SeedAsync()
         {
             if (await _db.Plans.AnyAsync())

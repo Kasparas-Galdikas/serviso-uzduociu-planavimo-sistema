@@ -5,7 +5,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
 using ServiceTaskPlanningSystem.Services.Scheduling;
+using ServiceTaskPlanningSystem.Services.Unavailability;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.Travel;
@@ -45,6 +47,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
         public ScheduleRepairPlacement? ProposedPlacement { get; init; }
         public IReadOnlySet<long>? FixedTaskIds { get; init; }
         public IReadOnlyList<ScheduleRepairTaskSnapshot>? SimulatedSnapshots { get; init; }
+        public bool AllowBlockedIntervalShift { get; init; }
+        public DateTime? SimulatedBlockedIntervalStart { get; init; }
+        public DateTime? SimulatedBlockedIntervalEnd { get; init; }
     }
 
     public sealed record ScheduleRepairPlan(
@@ -86,6 +91,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
         private readonly IDayScheduleFitCore _fitCore;
         private readonly ITravelTimeResolver _travelResolver;
         private readonly IRouteEvaluationService _routeEvalService;
+        private readonly TechnicianUnavailabilityReader _technicianAvailabilityPolicy;
 
         public ScheduleRepairService(
             ScheduleDbContext db,
@@ -93,7 +99,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             IRouteChainBuilder routeChainBuilder,
             IDayScheduleFitCore fitCore,
             ITravelTimeResolver travelResolver,
-            IRouteEvaluationService routeEvalService)
+            IRouteEvaluationService routeEvalService,
+            TechnicianUnavailabilityReader technicianAvailabilityPolicy)
         {
             _db = db;
             _timeService = timeService;
@@ -101,6 +108,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             _fitCore = fitCore;
             _travelResolver = travelResolver;
             _routeEvalService = routeEvalService;
+            _technicianAvailabilityPolicy = technicianAvailabilityPolicy;
         }
 
         public async Task<ScheduleRepairPlan> BuildPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken = default)
@@ -420,7 +428,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 workplaceAddressId,
                 anchors,
                 cancellationToken,
-                immovableTaskIds: fixedIds.Count > 0 ? fixedIds : null);
+                immovableTaskIds: fixedIds.Count > 0 ? fixedIds : null,
+                technicianId: request.TechnicianId);
 
             var fitResult = await _fitCore.FitAsync(fitRequest, cancellationToken);
             return MapFitResult(fitResult, null);
@@ -466,10 +475,22 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 workplaceAddressId,
                 new[] { new ScheduleRepairAnchor(ProposedTaskId, request.ProposedPlacement.StartAt) },
                 cancellationToken,
-                immovableTaskIds: simulatedImmovableIds);
+                immovableTaskIds: simulatedImmovableIds,
+                allowBlockedIntervalShift: request.AllowBlockedIntervalShift,
+                technicianId: request.TechnicianId,
+                simulatedBlockedIntervalStart: request.SimulatedBlockedIntervalStart,
+                simulatedBlockedIntervalEnd: request.SimulatedBlockedIntervalEnd);
 
             var fitResult = await _fitCore.FitAsync(fitRequest, cancellationToken);
-            return MapFitResult(fitResult, ProposedTaskId, request.ProposedPlacement.ServiceAddressId);
+            return MapFitResult(
+                fitResult,
+                ProposedTaskId,
+                request.ProposedPlacement.ServiceAddressId,
+                fallbackPrimaryPlacement: new ScheduleRepairPlacement(
+                    ProposedTaskId,
+                    request.ProposedPlacement.ServiceAddressId,
+                    request.ProposedPlacement.StartAt,
+                    request.ProposedPlacement.EndAt));
         }
 
         private async Task<DayScheduleFitRequest> BuildFitRequestAsync(
@@ -479,12 +500,29 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             long workplaceAddressId,
             IReadOnlyList<ScheduleRepairAnchor> anchors,
             CancellationToken cancellationToken,
-            IReadOnlySet<long>? immovableTaskIds = null)
+            IReadOnlySet<long>? immovableTaskIds = null,
+            bool allowBlockedIntervalShift = false,
+            long technicianId = 0,
+            DateTime? simulatedBlockedIntervalStart = null,
+            DateTime? simulatedBlockedIntervalEnd = null)
         {
             var routeLookup = await BuildRouteLookupAsync(tasks, workplaceAddressId, cancellationToken);
             var localDay = utcDay.AddMinutes(timezoneOffsetMinutes).Date;
             var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, ScheduleGrid.DayStartMinutes, timezoneOffsetMinutes);
             var dayEndUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, ScheduleGrid.DayEndMinutes, timezoneOffsetMinutes);
+            var blockedIntervals = technicianId > 0
+                ? await LoadBlockedIntervalsAsync(technicianId, dayStartUtc, dayEndUtc, cancellationToken)
+                : Array.Empty<DayScheduleBlockedInterval>();
+
+            // Add simulated blocked interval if provided (used during unavailability preview)
+            if (simulatedBlockedIntervalStart.HasValue && simulatedBlockedIntervalEnd.HasValue)
+            {
+                var simulatedIntervals = new List<DayScheduleBlockedInterval>(blockedIntervals)
+                {
+                    new DayScheduleBlockedInterval(simulatedBlockedIntervalStart.Value, simulatedBlockedIntervalEnd.Value)
+                };
+                blockedIntervals = simulatedIntervals;
+            }
 
             return new DayScheduleFitRequest(
                 tasks,
@@ -495,10 +533,34 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 dayEndUtc,
                 timezoneOffsetMinutes,
                 NowUtc: _timeService.GetCurrentUtcTime(),
-                ImmovableTaskIds: immovableTaskIds);
+                ImmovableTaskIds: immovableTaskIds,
+                BlockedIntervals: blockedIntervals,
+                AllowBlockedIntervalShift: allowBlockedIntervalShift);
         }
 
-        private static ScheduleRepairPlan MapFitResult(DayScheduleFitResult fitResult, long? primaryTaskId, long? primaryAddressId = null)
+        private async Task<IReadOnlyList<DayScheduleBlockedInterval>> LoadBlockedIntervalsAsync(
+            long technicianId,
+            DateTime dayStartUtc,
+            DateTime dayEndUtc,
+            CancellationToken cancellationToken)
+        {
+            var blockedPeriods = await _technicianAvailabilityPolicy.GetBlockedIntervalsAsync(
+                technicianId,
+                dayStartUtc,
+                dayEndUtc,
+                cancellationToken);
+
+            return blockedPeriods
+                .Select(period => new DayScheduleBlockedInterval(period.StartAtUtc, period.EndAtUtc))
+                .OrderBy(interval => interval.StartAt)
+                .ToList();
+        }
+
+        private static ScheduleRepairPlan MapFitResult(
+            DayScheduleFitResult fitResult,
+            long? primaryTaskId,
+            long? primaryAddressId = null,
+            ScheduleRepairPlacement? fallbackPrimaryPlacement = null)
         {
             if (!fitResult.Success)
             {
@@ -516,6 +578,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                         primaryAddressId.Value,
                         adjustment.StartAt,
                         adjustment.EndAt);
+                }
+                else
+                {
+                    primaryPlacement = fallbackPrimaryPlacement;
                 }
             }
 

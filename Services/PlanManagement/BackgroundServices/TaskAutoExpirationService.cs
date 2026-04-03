@@ -59,6 +59,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
                 try
                 {
                     await ExpireTasksAsync(stoppingToken);
+                    await CleanupExpiredUnavailabilityAsync(stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -124,6 +125,47 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
                 {
                     _logger.LogWarning(ex, "Failed to recalculate evaluations for plan {PlanId} after auto-expiration.", planId);
                 }
+            }
+        }
+
+        private async Task CleanupExpiredUnavailabilityAsync(CancellationToken cancellationToken)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+            var timeService = scope.ServiceProvider.GetRequiredService<IScheduleTimeService>();
+
+            var cutoffTime = timeService.GetCurrentUtcTime();
+
+            // Include records whose stored end might still need legacy normalization.
+            var candidates = await db.TechnicianUnavailabilities
+                .Where(u => u.PeriodEnd < cutoffTime.AddDays(1))
+                .ToListAsync(cancellationToken);
+
+            if (candidates.Count == 0)
+            {
+                return;
+            }
+
+            var expiredIds = candidates
+                .Where(u => u.PeriodEnd < cutoffTime)
+                .Select(u => u.Id)
+                .ToList();
+
+            if (expiredIds.Count == 0)
+            {
+                return;
+            }
+
+            var deleted = await db.TechnicianUnavailabilities
+                .Where(u => expiredIds.Contains(u.Id))
+                .ExecuteDeleteAsync(cancellationToken);
+
+            if (deleted > 0)
+            {
+                _logger.LogInformation(
+                    "svc.unavailability.auto-cleanup.complete deleted={Count} cutoff={Cutoff:O}",
+                    deleted,
+                    cutoffTime);
             }
         }
     }

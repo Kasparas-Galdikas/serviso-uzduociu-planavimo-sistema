@@ -38,11 +38,206 @@
 .schedule-history-item__action,
 .schedule-history-item__message,
 .schedule-history-item__meta,
-.schedule-history-item__details > div {
+.schedule-history-item__details > div,
+#technicianPanelName {
   display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Unavailability period rows */
+.unavail-period-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  margin-bottom: 0.3rem;
+  border: 1px solid #e9ecef;
+  border-left: 3px solid #f2c879;
+  border-radius: 0.5rem;
+  background: #fff;
+  font-size: 0.8rem;
+  color: #495057;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.unavail-period-row__content {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.unavail-period-row__editor {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.unavail-period-row__input {
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.unavail-period-row__separator {
+  flex-shrink: 0;
+  color: #8a94a3;
+}
+
+.unavail-period-row__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+
+.unavail-period-row span,
+.unavail-period-row__range {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unavail-edit-btn,
+.unavail-remove-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 0.8rem;
+  line-height: 1;
+  color: #adb5bd;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.unavail-inline-btn {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 0.55rem;
+  font-size: 0.72rem;
+  line-height: 1;
+  border: 1px solid #d6dde5;
+  border-radius: 999px;
+  background: #fff;
+  color: #5a6573;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.unavail-inline-btn--confirm {
+  color: #214b75;
+  border-color: #b8cbe0;
+}
+
+.unavail-inline-btn--confirm:hover {
+  color: #173754;
+  border-color: #92abc4;
+  background: #f4f8fc;
+}
+
+.unavail-inline-btn--cancel:hover {
+  color: #495463;
+  border-color: #c4ccd5;
+  background: #f8fafc;
+}
+
+.unavail-edit-btn {
+  color: #738396;
+}
+
+.unavail-edit-btn:hover {
+  color: #0f3057;
+  background: rgba(15, 48, 87, 0.08);
+}
+
+.unavail-remove-btn:hover {
+  color: #dc3545;
+  background: rgba(220, 53, 69, 0.08);
+}
+
+.unavail-period-row.is-editing {
+  border-color: #b9c7d8;
+  background: #f8fafc;
+  box-shadow: 0 0 0 1px rgba(15, 48, 87, 0.12);
+}
+
+.unavail-period-row--preview {
+  border-left-color: #d6dde5;
+  box-shadow: none;
+}
+
+.unavail-period-row--preview .unavail-period-row__range {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.unavail-period-row__meta {
+  margin-top: 0.12rem;
+  font-size: 0.76rem;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unavail-period-row--empty .unavail-period-row__range {
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.unavail-empty-state {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.5rem;
+  border: 1px dashed #d9e1ea;
+  border-radius: 0.875rem;
+  background: #fff;
+  color: #7a8699;
+  padding: 1.5rem;
+}
+
+.unavail-empty-state i {
+  font-size: 1.9rem;
+  color: #aeb9c6;
+}
+
+.unavail-empty-state__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #4b5c71;
+}
+
+.unavail-empty-state__text {
+  font-size: 0.8rem;
+  line-height: 1.45;
+  max-width: 18rem;
+}
+
+#unavailPreviewHeading {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#unavailPreviewHeading,
+#unavailPreviewList {
+  padding-left: 0 !important;
+}
+
+#unavailPreviewList {
+  white-space: normal;
 }
 
 /* Flex parents of truncating titles need min-width:0 to allow shrinking */
@@ -93,7 +288,8 @@
 /* Panel content containers */
 
 #taskPanelContent,
-#historyPanelContent {
+#historyPanelContent,
+#technicianPanelContent {
   animation: fadeIn 0.2s ease-in;
 }
 

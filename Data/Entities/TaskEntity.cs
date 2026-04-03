@@ -19,6 +19,18 @@ namespace ServiceTaskPlanningSystem.Data
         public string Instructions { get; set; } = string.Empty;
         public long? SourceBacklogItemId { get; set; }
 
+        /// <summary>
+        /// Set when this task was pushed forward by a repair during unavailability creation.
+        /// Cleared when the unavailability is deleted and the task is moved back to its original slot.
+        /// </summary>
+        public long? SourceUnavailabilityId { get; set; }
+
+        /// <summary>Pre-repair start time. Populated alongside SourceUnavailabilityId.</summary>
+        public DateTime? OriginalStartAt { get; set; }
+
+        /// <summary>Pre-repair end time. Populated alongside SourceUnavailabilityId.</summary>
+        public DateTime? OriginalEndAt { get; set; }
+
         public PlanEntity? Plan { get; set; }
         public TechnicianEntity Technician { get; set; } = default!;
         public ServiceObjectEntity ServiceObject { get; set; } = default!;

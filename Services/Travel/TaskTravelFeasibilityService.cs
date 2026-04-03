@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
+using ServiceTaskPlanningSystem.Services.Unavailability;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using ServiceTaskPlanningSystem.Services.Scheduling;
@@ -21,6 +22,7 @@ namespace ServiceTaskPlanningSystem.Services.Travel
         private readonly IRouteEvaluationService _routeEvalService;
         private readonly ScheduleDbContext _db;
         private readonly IScheduleTimeService _timeService;
+        private readonly TechnicianUnavailabilityReader _availabilityPolicy;
         private readonly ILogger<TaskTravelFeasibilityService> _logger;
 
         private static string FormatDurationLabel(int totalMinutes)
@@ -37,6 +39,7 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             IRouteEvaluationService routeEvalService,
             ScheduleDbContext db,
             IScheduleTimeService timeService,
+            TechnicianUnavailabilityReader availabilityPolicy,
             ILogger<TaskTravelFeasibilityService> logger)
         {
             _routeChainBuilder = routeChainBuilder;
@@ -44,6 +47,7 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             _routeEvalService = routeEvalService;
             _db = db;
             _timeService = timeService;
+            _availabilityPolicy = availabilityPolicy;
             _logger = logger;
         }
 
@@ -183,7 +187,14 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             var pairsToCheck = new List<(long From, long To, int Available, bool IsInbound, bool IsOutbound)>();
             if (idx == 0)
             {
-                var available = proposedStartMinutesLocal - ScheduleGrid.DayStartMinutes;
+                var dayStartUtc = proposedStartLocal.Date.AddMinutes(ScheduleGrid.DayStartMinutes - localOffsetMinutes);
+                var blockedIntervals = await _availabilityPolicy.GetBlockedIntervalsAsync(
+                    technicianId, dayStartUtc, proposedStartAt, cancellationToken);
+                var effectiveFloorUtc = blockedIntervals.Count > 0
+                    ? blockedIntervals.Max(b => b.EndAtUtc)
+                    : dayStartUtc;
+                if (effectiveFloorUtc < dayStartUtc) effectiveFloorUtc = dayStartUtc;
+                var available = (int)(proposedStartAt - effectiveFloorUtc).TotalMinutes;
                 pairsToCheck.Add((chain.WorkplaceAddressId, serviceAddressId, available, true, false));
             }
             else
@@ -196,8 +207,13 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             if (idx < sequence.Count - 1)
             {
                 var next = sequence[idx + 1];
-                var available = (int)(next.StartAt - proposedEndAt).TotalMinutes;
-                pairsToCheck.Add((serviceAddressId, next.AddressId, available, false, true));
+                var blockedInOutboundGap = await _availabilityPolicy.GetBlockedIntervalsAsync(
+                    technicianId, proposedEndAt, next.StartAt, cancellationToken);
+                if (blockedInOutboundGap.Count == 0)
+                {
+                    var available = (int)(next.StartAt - proposedEndAt).TotalMinutes;
+                    pairsToCheck.Add((serviceAddressId, next.AddressId, available, false, true));
+                }
             }
 
             var addressIds = pairsToCheck

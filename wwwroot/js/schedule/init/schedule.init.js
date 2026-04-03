@@ -17,6 +17,7 @@
   schedule.selection?.initOnce?.();
   schedule.filters?.initOnce?.();
   schedule.nowLine?.initOnce?.();
+  schedule.unavailability?.initOnce?.();
 
   schedule.state?.emitViewChanged?.(schedule.state?.getQuery?.());
 })();

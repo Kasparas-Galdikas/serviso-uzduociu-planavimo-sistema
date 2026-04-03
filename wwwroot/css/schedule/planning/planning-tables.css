@@ -14,6 +14,29 @@
 .tech-cell .fw-semibold { font-size: 0.85rem; }
 .tech-cell .text-muted.small { font-size: 0.70rem; }
 
+/* Technician name clickable button — looks like plain text, not a link */
+.tech-name-btn {
+  font-size: 0.85rem;
+  color: inherit;
+  text-decoration: none;
+  background: none;
+  border: none;
+  padding: 0;
+  line-height: 1.2;
+  max-width: 100%;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.tech-name-btn:hover {
+  color: var(--accent-600, #0d6efd);
+  text-decoration: none;
+}
+
 .schedule-table th.tech-cell,
 .schedule-table td.tech-cell {
   background: linear-gradient(
@@ -419,6 +442,55 @@ td.is-drag-origin .task-card.is-dragging {
 
 .task-card.task-travel::before {
   background: #7f8892;
+}
+
+.task-unavailability-slot {
+  width: 100%;
+  min-width: 100px;
+  min-height: 64px;
+  height: 100%;
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, rgba(111, 119, 128, 0.16), rgba(111, 119, 128, 0.22));
+  border: 1px solid rgba(111, 119, 128, 0.28);
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.task-unavailability-slot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.04) 0 10px,
+      rgba(0, 0, 0, 0.02) 10px 20px
+    );
+  pointer-events: none;
+}
+
+.task-unavailability-slot__badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-width: max-content;
+  max-width: calc(100% - 0.75rem);
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #58616b;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 /* Drag preview state colors - override task state during drag */
@@ -992,6 +1064,10 @@ td.is-drag-origin .task-card.is-dragging {
   }
 
   .travel-slot-card {
+    min-width: 100px;
+  }
+
+  .task-unavailability-slot {
     min-width: 100px;
   }
 }

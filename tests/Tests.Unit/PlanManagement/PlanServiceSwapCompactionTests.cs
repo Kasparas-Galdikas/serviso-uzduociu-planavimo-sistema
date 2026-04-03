@@ -13,6 +13,8 @@ using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.History;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
+using ServiceTaskPlanningSystem.Services.Unavailability;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
@@ -134,9 +136,10 @@ public class PlanServiceSwapCompactionTests
             new RouteChainBuilder(db),
             new DayScheduleFitCore(),
             new TravelTimeResolver(db, Substitute.For<ILogger<TravelTimeResolver>>()),
-            Substitute.For<IRouteEvaluationService>());
+            Substitute.For<IRouteEvaluationService>(),
+            new TechnicianUnavailabilityReader(db));
 
-        return new PlanService(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, repairService, _travelResolver, Substitute.For<ITaskHistoryWriter>(), _logger);
+        return new PlanService(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, repairService, _travelResolver, new TechnicianUnavailabilityReader(db), Substitute.For<ITaskHistoryWriter>(), _logger);
     }
 
     private static ScheduleDbContext CreateContext()
