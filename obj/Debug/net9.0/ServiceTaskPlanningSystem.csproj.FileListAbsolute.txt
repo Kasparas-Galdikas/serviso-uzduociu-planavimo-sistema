@@ -434,7 +434,6 @@ C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\vtbvp0gqgj-kvu2t19rvz.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\birbnqzcg8-vceeq7r2d3.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\dvi6cdeowx-958c5jsv79.gz
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\koe3jdumsb-blplnfwzjy.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\4s2dy8ui6k-6io45v0a5m.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\hkn9a4xx9d-gsrnz1fmsi.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\4cmh4r4pcx-16sqqk6mqt.gz
@@ -443,7 +442,6 @@ C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\we7wwwuon7-hjtdn40l6m.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\9ohonzqz3s-mbpe71e0bp.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\uhmleqi5tn-61n19gt1b8.gz
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\u4ws5a1tii-w197cjzc44.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\77hodnbqyp-zjxt07wac1.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\vkrh11d980-cwdq0z4rsu.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\j7a6dww4nq-pzrim9h2gs.gz
@@ -455,14 +453,12 @@ C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\razn20t3de-qcvk81cagv.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\azq1tgs6se-pf6z8ckfwh.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\nbz77c7wgs-ntvo2q669r.gz
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\40osd9gaxe-sbrw4hq07k.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\v431qbo6e6-meqm5469o7.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\qj10olxub8-zwilowz8pm.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\30eo0kct4n-dt0o0wwdle.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\5dosgar47o-vrhdaarxsu.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\fn2ryxs3a4-54qzt78936.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\u4e5f8f19y-uy320mqd3e.gz
-C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\5gwbcx8y5e-ttp7vq2r9i.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\davj9wrwfo-a0n7r1cg8d.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\7c81zs9al4-h98qo26qhz.gz
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\smaavf0ob1-89il511aqg.gz
@@ -542,3 +538,9 @@ C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\ServiceTaskPlanningSystem.pdb
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\ServiceTaskPlanningSystem.genruntimeconfig.cache
 C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\ref\ServiceTaskPlanningSystem.dll
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\40osd9gaxe-ryfdp3jh5g.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\t6in27a0dc-xslbsnqs0x.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\5gwbcx8y5e-oseksfxja7.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\koe3jdumsb-7a9vi8m65u.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\u4ws5a1tii-zbe3rotae2.gz
+C:\Users\Kasparas\OneDrive\Desktop\serviso-uzduociu-planavimo-sistema\obj\Debug\net9.0\compressed\cv1dyi6slj-jp9b9597em.gz

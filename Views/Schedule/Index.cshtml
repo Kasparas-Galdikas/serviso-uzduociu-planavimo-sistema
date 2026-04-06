@@ -82,7 +82,7 @@
     @await Html.PartialAsync("~/Views/Schedule/Partials/Filters/_FilterConsole.cshtml", Model)
     @await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_CreateScheduleModal.cshtml", Model)
     @await Html.PartialAsync("~/Views/Schedule/Partials/ScheduleCreate/_SummaryScheduleModal.cshtml", Model)
-    @await Html.PartialAsync("~/Views/Schedule/Partials/Tables/_TaskDetailModal.cshtml")
+    @await Html.PartialAsync("~/Views/Schedule/Partials/Panel/_PanelShell.cshtml")
     @await Html.PartialAsync("~/Views/Schedule/Partials/Modals/_TaskDeleteModal.cshtml")
     @await Html.PartialAsync("~/Views/Shared/_ScheduleDebugDrawer.cshtml")
 }
@@ -130,7 +130,9 @@
     {
         <script src="~/js/schedule/debug/schedule.debug.js" asp-append-version="true"></script>
     }
+    <script src="~/js/schedule/infra/schedule.pagination.js" asp-append-version="true"></script>
     <script src="~/js/schedule/backlog/schedule.backlog.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/tasks-panel/schedule.tasks-panel.js" asp-append-version="true"></script>
     <script src="~/js/schedule/unavailability/schedule.unavailability.js" asp-append-version="true"></script>
     <script src="~/js/schedule/init/schedule.init.js" asp-append-version="true"></script>
     <script>

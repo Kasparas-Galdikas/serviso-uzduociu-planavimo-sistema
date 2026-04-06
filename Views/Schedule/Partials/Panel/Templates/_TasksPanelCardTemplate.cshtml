@@ -1,0 +1,46 @@
+<template id="tasksPanelCardTpl">
+  <div class="backlog-card tasks-panel-card">
+    <div class="backlog-card__row">
+      <input type="checkbox" class="backlog-card__checkbox" aria-label="Pasirinkti" tabindex="-1">
+      <div class="backlog-card__title tasks-panel-card__title"></div>
+      <div class="backlog-card__badges">
+        <span class="backlog-card__badge-priority"></span>
+        <span class="backlog-card__badge-startdate"></span>
+      </div>
+      <span class="backlog-card__date"></span>
+      <button type="button" class="backlog-card__toggle" aria-label="Rodyti detales" aria-expanded="false">
+        <i class="bi bi-chevron-right" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="backlog-card__edit" aria-label="Redaguoti">
+        <i class="bi bi-pencil" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="backlog-card__delete" aria-label="Ištrinti">
+        <i class="bi bi-x-lg" aria-hidden="true"></i>
+      </button>
+    </div>
+    <div class="backlog-card__details" hidden>
+      <div class="backlog-card__detail-block backlog-card__detail--technician" hidden>
+        <span class="backlog-card__detail-label">Technikas</span>
+        <div class="backlog-card__skill">
+          <i class="bi bi-person me-1" aria-hidden="true"></i>
+          <span class="backlog-card__technician-value"></span>
+        </div>
+      </div>
+      <div class="backlog-card__detail-block backlog-card__detail--object" hidden>
+        <span class="backlog-card__detail-label">Objektas</span>
+        <div class="backlog-card__location">
+          <i class="bi bi-geo-alt me-1" aria-hidden="true"></i>
+          <span class="backlog-card__object-value"></span>
+        </div>
+      </div>
+      <div class="backlog-card__detail-block backlog-card__detail--time" hidden>
+        <span class="backlog-card__detail-label">Laikas</span>
+        <div class="backlog-card__skill">
+          <i class="bi bi-clock me-1" aria-hidden="true"></i>
+          <span class="backlog-card__time-value"></span>
+        </div>
+      </div>
+    </div>
+    <div class="backlog-card__footer"></div>
+  </div>
+</template>

@@ -50,18 +50,23 @@
   let _activeTypeTab = ITEM_TYPE.Permanent;
   let _selectionMode = false;
   let _selectedIds = new Set();
+  let _page = 1;
+  let _hasMore = false;
+  let _scroll = null;
+  let _totalCounts = { [ITEM_TYPE.Temporary]: 0, [ITEM_TYPE.Permanent]: 0 };
+  let _priority = null;
 
-  function getItems() { return _items; }
+  function priorityParam() {
+    return _priority !== null ? `&priority=${_priority}` : "";
+  }
 
-  async function loadItemsFromApi() {
+  async function loadItemsFromApi(itemType, page) {
     try {
-      const resp = await fetch("/api/backlog", { credentials: "same-origin" });
-      if (!resp.ok) return;
-      const data = await resp.json();
-      _items = data.items.map(normalizeServerItem);
-      _localNow = data.localNow ?? null;
+      const resp = await fetch(`/api/backlog?itemType=${itemType}&page=${page}${priorityParam()}`, { credentials: "same-origin" });
+      if (!resp.ok) return null;
+      return await resp.json();
     } catch {
-      // keep existing cache on network error
+      return null;
     }
   }
 
@@ -238,9 +243,8 @@
   // ── Badge ────────────────────────────────────────────────────────────────
 
   function updateBadge() {
-    const items = getItems();
-    const tempCount = items.filter((i) => i.itemType === ITEM_TYPE.Temporary).length;
-    const permCount = items.filter((i) => i.itemType === ITEM_TYPE.Permanent).length;
+    const tempCount = _totalCounts[ITEM_TYPE.Temporary];
+    const permCount = _totalCounts[ITEM_TYPE.Permanent];
 
     const badgeDesktop = document.getElementById("navBacklogBadge");
     const badgeMobile = document.getElementById("navBacklogBadgeMobile");
@@ -288,20 +292,26 @@
   const SKILL_LABELS = { Basic: "Bazinis", Advanced: "Pažengęs", Certified: "Sertifikuotas" };
 
   function buildDueDateBadge(dueDate) {
-    if (!dueDate) return "";
+    if (!dueDate) return null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const due = new Date(dueDate + "T00:00:00");
     due.setHours(0, 0, 0, 0);
     const diffDays = Math.round((due - today) / 86400000);
     const label = due.toLocaleDateString("lt-LT");
+    const span = document.createElement("span");
+    span.className = "badge";
     if (diffDays < 0) {
-      return `<span class="badge bg-danger text-white">Vėluoja ${Math.abs(diffDays)}d.</span>`;
+      span.classList.add("bg-danger", "text-white");
+      span.textContent = `Vėluoja ${Math.abs(diffDays)}d.`;
+    } else if (diffDays <= 3) {
+      span.classList.add("bg-warning", "text-dark");
+      span.textContent = `Iki ${label}`;
+    } else {
+      span.classList.add("bg-light", "text-muted", "border");
+      span.textContent = `Iki ${label}`;
     }
-    if (diffDays <= 3) {
-      return `<span class="badge bg-warning text-dark">Iki ${escapeHtml(label)}</span>`;
-    }
-    return `<span class="badge bg-light text-muted border">Iki ${escapeHtml(label)}</span>`;
+    return span;
   }
 
   function escapeHtml(str) {
@@ -318,11 +328,13 @@
     _selectionMode = false;
     _selectedIds.clear();
     document.getElementById("backlogPanelContent")?.classList.remove("is-selecting");
+    if (_hasMore) setupScroll();
   }
 
   function enterSelectionMode() {
     _selectionMode = true;
     _selectedIds.clear();
+    _scroll?.disconnect();
     document.getElementById("backlogPanelContent")?.classList.add("is-selecting");
     updateBulkBar();
   }
@@ -333,7 +345,7 @@
     const scheduleBtn = document.getElementById("backlogBulkSchedule");
     const selectAllCb = document.getElementById("backlogSelectAll");
     const n = _selectedIds.size;
-    const total = getItems().filter(i => i.itemType === _activeTypeTab).length;
+    const total = _items.length;
     if (countEl) countEl.textContent = n === 0 ? "Nepasirinkta" : `${n} / ${total} pasirinkta`;
     if (deleteBtn) deleteBtn.disabled = n === 0;
     if (scheduleBtn) scheduleBtn.disabled = n === 0;
@@ -344,72 +356,204 @@
     }
   }
 
+  function buildBacklogCard(item) {
+    const tpl = document.getElementById("backlogCardTpl");
+    const card = tpl.content.cloneNode(true).firstElementChild;
+
+    card.dataset.backlogId = item.id;
+    card.setAttribute("draggable", _selectionMode ? "false" : "true");
+    if (_selectionMode && _selectedIds.has(String(item.id))) card.classList.add("is-selected");
+
+    // Checkbox — CSS (.is-selecting) controls visibility; just sync checked state
+    const checkbox = card.querySelector(".backlog-card__checkbox");
+    if (checkbox) checkbox.checked = _selectionMode && _selectedIds.has(String(item.id));
+
+    // Title
+    const titleEl = card.querySelector(".backlog-card__title");
+    if (titleEl) {
+      if (item.title) {
+        titleEl.textContent = item.title;
+      } else {
+        const em = document.createElement("em");
+        em.className = "text-muted";
+        em.textContent = "Be pavadinimo";
+        titleEl.appendChild(em);
+      }
+    }
+
+    // Priority badge
+    const priEl = card.querySelector(".backlog-card__badge-priority");
+    if (priEl) {
+      if (item.priority !== "") {
+        priEl.className = `badge ${PRIORITY_CLASSES[item.priority] || "bg-secondary"}`;
+        priEl.textContent = PRIORITY_LABELS[item.priority] || String(item.priority);
+      } else {
+        priEl.remove();
+      }
+    }
+
+    // Due date badge
+    const dueEl = card.querySelector(".backlog-card__badge-duedate");
+    if (dueEl) {
+      const dueDom = buildDueDateBadge(item.dueDate);
+      if (dueDom) dueEl.replaceWith(dueDom); else dueEl.remove();
+    }
+
+    // Date label
+    const createdLabel = new Date(item.createdAt).toLocaleDateString("lt-LT");
+    const dateEl = card.querySelector(".backlog-card__date");
+    if (dateEl) dateEl.textContent = createdLabel;
+
+    // Details, toggle button, footer
+    const hasDetails = !!(item.instructions || item.objectName || item.skillLevel);
+    const detailsEl = card.querySelector(".backlog-card__details");
+    const toggleBtn = card.querySelector(".backlog-card__toggle");
+    const footerEl = card.querySelector(".backlog-card__footer");
+
+    if (hasDetails) {
+      if (detailsEl) detailsEl.id = `backlog-details-${item.id}`;
+
+      if (item.skillLevel && detailsEl) {
+        const b = detailsEl.querySelector(".backlog-card__detail--skill");
+        if (b) {
+          b.removeAttribute("hidden");
+          const v = b.querySelector(".backlog-card__skill-value");
+          if (v) v.textContent = SKILL_LABELS[item.skillLevel] || item.skillLevel;
+        }
+      }
+      if (item.objectName && detailsEl) {
+        const b = detailsEl.querySelector(".backlog-card__detail--object");
+        if (b) {
+          b.removeAttribute("hidden");
+          const v = b.querySelector(".backlog-card__object-value");
+          if (v) v.textContent = item.locationText ? `${item.objectName} · ${item.locationText}` : item.objectName;
+        }
+      }
+      if (item.instructions && detailsEl) {
+        const b = detailsEl.querySelector(".backlog-card__detail--instructions");
+        if (b) {
+          b.removeAttribute("hidden");
+          const v = b.querySelector(".backlog-card__instructions-value");
+          if (v) v.textContent = item.instructions;
+        }
+      }
+      if (toggleBtn) toggleBtn.setAttribute("data-toggle-id", item.id);
+      if (footerEl) footerEl.textContent = createdLabel;
+    } else {
+      detailsEl?.remove();
+      toggleBtn?.remove();
+      footerEl?.remove();
+    }
+
+    // Action button data attributes
+    card.querySelector(".backlog-card__schedule")?.setAttribute("data-schedule-id", item.id);
+    card.querySelector(".backlog-card__edit")?.setAttribute("data-edit-id", item.id);
+    card.querySelector(".backlog-card__delete")?.setAttribute("data-delete-id", item.id);
+
+    setupCardDrag(card, item);
+
+    // Prevent drag from firing when interacting with action buttons
+    card.querySelector(".backlog-card__toggle")?.addEventListener("mousedown", (e) => e.stopPropagation());
+    card.querySelector(".backlog-card__schedule")?.addEventListener("mousedown", (e) => e.stopPropagation());
+    card.querySelector(".backlog-card__edit")?.addEventListener("mousedown", (e) => e.stopPropagation());
+    card.querySelector(".backlog-card__delete")?.addEventListener("mousedown", (e) => e.stopPropagation());
+
+    return card;
+  }
+
   function renderList() {
     const listEl = document.getElementById("backlogItemsList");
     const emptyEl = document.getElementById("backlogListEmpty");
     if (!listEl) return;
 
-    const items = getItems().filter((i) => i.itemType === _activeTypeTab);
     listEl.innerHTML = "";
 
-    if (items.length === 0) {
+    if (_items.length === 0) {
       if (emptyEl) emptyEl.classList.remove("d-none");
       return;
     }
     if (emptyEl) emptyEl.classList.add("d-none");
 
-    items.forEach((item) => {
-      const card = document.createElement("div");
-      card.className = "backlog-card";
-      if (_selectionMode && _selectedIds.has(String(item.id))) card.classList.add("is-selected");
-      card.setAttribute("draggable", _selectionMode ? "false" : "true");
-      card.dataset.backlogId = item.id;
+    _items.forEach((item) => listEl.appendChild(buildBacklogCard(item)));
+  }
 
-      const priorityBadge = item.priority !== ""
-        ? `<span class="badge ${PRIORITY_CLASSES[item.priority] || "bg-secondary"}">${escapeHtml(PRIORITY_LABELS[item.priority] || item.priority)}</span>`
-        : "";
+  function appendCards(newItems) {
+    const listEl = document.getElementById("backlogItemsList");
+    const emptyEl = document.getElementById("backlogListEmpty");
+    if (!listEl || newItems.length === 0) return;
+    if (emptyEl) emptyEl.classList.add("d-none");
+    newItems.forEach((item) => listEl.appendChild(buildBacklogCard(item)));
+  }
 
-      const hasDetails = !!(item.instructions || item.objectName || item.skillLevel);
-      const detailsHtml = hasDetails ? `
-        <div class="backlog-card__details" id="backlog-details-${escapeHtml(item.id)}" hidden>
-          ${item.skillLevel ? `<div class="backlog-card__detail-block"><span class="backlog-card__detail-label">Kvalifikacija</span><div class="backlog-card__skill"><i class="bi bi-person-check me-1" aria-hidden="true"></i>${escapeHtml(SKILL_LABELS[item.skillLevel] || item.skillLevel)}</div></div>` : ""}
-          ${item.objectName ? `<div class="backlog-card__detail-block"><span class="backlog-card__detail-label">Objektas</span><div class="backlog-card__location"><i class="bi bi-geo-alt me-1" aria-hidden="true"></i>${escapeHtml(item.objectName)}${item.locationText ? ` · ${escapeHtml(item.locationText)}` : ""}</div></div>` : ""}
-          ${item.instructions ? `<div class="backlog-card__detail-block"><span class="backlog-card__detail-label">Instrukcijos</span><div class="backlog-card__instructions">${escapeHtml(item.instructions)}</div></div>` : ""}
-        </div>` : "";
-
-      const createdLabel = new Date(item.createdAt).toLocaleDateString("lt-LT");
-
-      card.innerHTML = `
-        <div class="backlog-card__row">
-          ${_selectionMode ? `<input type="checkbox" class="backlog-card__checkbox" aria-label="Pasirinkti" tabindex="-1" ${_selectedIds.has(String(item.id)) ? "checked" : ""}>` : ""}
-          <div class="backlog-card__title">${escapeHtml(item.title) || "<em class='text-muted'>Be pavadinimo</em>"}</div>
-          <div class="backlog-card__badges">${priorityBadge}${buildDueDateBadge(item.dueDate)}</div>
-          <span class="backlog-card__date">${escapeHtml(createdLabel)}</span>
-          ${hasDetails ? `<button type="button" class="backlog-card__toggle" data-toggle-id="${escapeHtml(item.id)}" aria-label="Rodyti detales" aria-expanded="false"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>` : ""}
-          <button type="button" class="backlog-card__schedule" data-schedule-id="${escapeHtml(item.id)}" aria-label="Planuoti užduotį" title="Planuoti užduotį">
-            <i class="bi bi-calendar-plus" aria-hidden="true"></i>
-          </button>
-          <button type="button" class="backlog-card__edit" data-edit-id="${escapeHtml(item.id)}" aria-label="Redaguoti">
-            <i class="bi bi-pencil" aria-hidden="true"></i>
-          </button>
-          <button type="button" class="backlog-card__delete" data-delete-id="${escapeHtml(item.id)}" aria-label="Pašalinti iš eilės">
-            <i class="bi bi-x-lg" aria-hidden="true"></i>
-          </button>
-        </div>
-        ${detailsHtml}
-        ${hasDetails ? `<div class="backlog-card__footer">${escapeHtml(createdLabel)}</div>` : ""}
-      `;
-
-      setupCardDrag(card, item);
-
-      // Prevent drag from firing when interacting with action buttons
-      card.querySelector(".backlog-card__toggle")?.addEventListener("mousedown", (e) => e.stopPropagation());
-      card.querySelector(".backlog-card__schedule")?.addEventListener("mousedown", (e) => e.stopPropagation());
-      card.querySelector(".backlog-card__edit")?.addEventListener("mousedown", (e) => e.stopPropagation());
-      card.querySelector(".backlog-card__delete")?.addEventListener("mousedown", (e) => e.stopPropagation());
-
-      listEl.appendChild(card);
+  function setupScroll() {
+    const sentinelEl = document.getElementById("backlogScrollSentinel");
+    if (!sentinelEl || !window.schedule?.infra?.pagination) return;
+    _scroll?.disconnect();
+    _scroll = window.schedule.infra.pagination.createInfiniteScroll({
+      sentinelEl,
+      onLoadMore: async () => {
+        if (!_hasMore) return false;
+        _page++;
+        const data = await loadItemsFromApi(_activeTypeTab, _page);
+        if (!data) return false;
+        const newItems = (data.items ?? []).map(normalizeServerItem);
+        _items = _items.concat(newItems);
+        _hasMore = data.hasMore ?? false;
+        appendCards(newItems);
+        return _hasMore;
+      },
     });
+    _scroll.observe();
+  }
+
+  function resetPriorityFilter() {
+    _priority = null;
+    document.querySelectorAll("#backlogPriorityFilter [data-backlog-priority]").forEach((b) => {
+      b.classList.toggle("active", b.dataset.backlogPriority === "");
+    });
+  }
+
+  async function loadTypeTab(itemType) {
+    _scroll?.disconnect();
+    _page = 1;
+    _hasMore = false;
+    _items = [];
+    const data = await loadItemsFromApi(itemType, 1);
+    if (data) {
+      _items = (data.items ?? []).map(normalizeServerItem);
+      _hasMore = data.hasMore ?? false;
+      _localNow = data.localNow ?? _localNow;
+      _totalCounts[itemType] = data.totalCount ?? 0;
+    }
+    renderList();
+    updateBadge();
+    setupScroll();
+  }
+
+  async function openBacklogList() {
+    _scroll?.disconnect();
+    _page = 1;
+    _hasMore = false;
+    _items = [];
+
+    const [tempData, permData] = await Promise.all([
+      loadItemsFromApi(ITEM_TYPE.Temporary, 1),
+      loadItemsFromApi(ITEM_TYPE.Permanent, 1),
+    ]);
+
+    _totalCounts[ITEM_TYPE.Temporary] = tempData?.totalCount ?? 0;
+    _totalCounts[ITEM_TYPE.Permanent] = permData?.totalCount ?? 0;
+
+    const data = _activeTypeTab === ITEM_TYPE.Temporary ? tempData : permData;
+    if (data) {
+      _items = (data.items ?? []).map(normalizeServerItem);
+      _hasMore = data.hasMore ?? false;
+      _localNow = data.localNow ?? _localNow;
+    }
+
+    renderList();
+    updateBadge();
+    setupScroll();
   }
 
   // ── Tab switching ────────────────────────────────────────────────────────
@@ -1754,14 +1898,28 @@
       document.getElementById("backlogTypeTabTemp")?.classList.add("active");
       document.getElementById("backlogTypeTabPerm")?.classList.remove("active");
       exitSelectionMode();
-      renderList();
+      resetPriorityFilter();
+      loadTypeTab(ITEM_TYPE.Temporary);
     });
     document.getElementById("backlogTypeTabPerm")?.addEventListener("click", () => {
       _activeTypeTab = ITEM_TYPE.Permanent;
       document.getElementById("backlogTypeTabPerm")?.classList.add("active");
       document.getElementById("backlogTypeTabTemp")?.classList.remove("active");
       exitSelectionMode();
-      renderList();
+      resetPriorityFilter();
+      loadTypeTab(ITEM_TYPE.Permanent);
+    });
+
+    // Priority filter
+    document.getElementById("backlogPriorityFilter")?.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-backlog-priority]");
+      if (!btn) return;
+      const val = btn.dataset.backlogPriority;
+      _priority = val === "" ? null : Number(val);
+      document.querySelectorAll("#backlogPriorityFilter [data-backlog-priority]").forEach((b) => {
+        b.classList.toggle("active", b === btn);
+      });
+      await loadTypeTab(_activeTypeTab);
     });
 
     // Save via footer button
@@ -1792,18 +1950,31 @@
       startEdit(btn.dataset.editId);
     });
 
-    // Delete buttons (delegated on list container)
-    document.getElementById("backlogItemsList")?.addEventListener("click", async (e) => {
+    // Delete buttons (delegated on list container) — show confirmation modal
+    document.getElementById("backlogItemsList")?.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-delete-id]");
       if (!btn) return;
-      try {
-        const message = await apiRemoveItem(btn.dataset.deleteId);
-        window.schedule?.ui?.toast?.showSuccess?.(message);
-      } catch {
-        window.schedule?.ui?.toast?.showError?.("Nepavyko pašalinti.");
-      }
-      updateBadge();
-      renderList();
+      const itemId = btn.dataset.deleteId;
+      const item = getItemById(itemId);
+      const info = item ? {
+        title: item.title || "",
+        timeRange: item.dueDate ? `Terminas: ${item.dueDate}` : "",
+        location: item.objectName || item.objectAddress || "",
+      } : null;
+      window.schedule?.tasks?.delete?.openDeleteModalGeneric?.({
+        id: itemId,
+        info,
+        onConfirm: async () => {
+          try {
+            const message = await apiRemoveItem(itemId);
+            window.schedule?.ui?.toast?.showSuccess?.(message);
+          } catch {
+            window.schedule?.ui?.toast?.showError?.("Nepavyko pašalinti.");
+          }
+          updateBadge();
+          renderList();
+        },
+      });
     });
 
     // Card click selection in bulk mode (delegated on list container)
@@ -1841,8 +2012,7 @@
 
     // Select all checkbox
     document.getElementById("backlogSelectAll")?.addEventListener("change", (e) => {
-      const items = getItems().filter(i => i.itemType === _activeTypeTab);
-      if (e.target.checked) { items.forEach(i => _selectedIds.add(String(i.id))); }
+      if (e.target.checked) { _items.forEach(i => _selectedIds.add(String(i.id))); }
       else { _selectedIds.clear(); }
       renderList();
       updateBulkBar();
@@ -1896,7 +2066,7 @@
         if (type === "backlog") {
           panel.dataset.mode = "backlog";
           applyBacklogMode();
-          loadItemsFromApi().then(() => { renderList(); updateBadge(); });
+          openBacklogList();
         } else {
           // Do NOT touch dataset.mode here — task.modal.js owns create/update mode
           restoreFromBacklogMode();

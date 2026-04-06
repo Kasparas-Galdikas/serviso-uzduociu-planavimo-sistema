@@ -291,6 +291,16 @@
                 </div>
             </div>
             <hr class="backlog-section-divider">
+            <div id="backlogPriorityFilter">
+                <p class="backlog-section-label">Prioritetas</p>
+                <div class="btn-group btn-group-sm w-100" role="group" aria-label="Filtruoti pagal prioritetą">
+                    <button type="button" class="btn btn-outline-secondary active" data-backlog-priority="">Visi</button>
+                    <button type="button" class="btn btn-outline-secondary" data-backlog-priority="2">Aukštas</button>
+                    <button type="button" class="btn btn-outline-secondary" data-backlog-priority="1">Vidutinis</button>
+                    <button type="button" class="btn btn-outline-secondary" data-backlog-priority="0">Žemas</button>
+                </div>
+            </div>
+            <hr class="backlog-section-divider">
             <div class="backlog-list-header">
                 <div class="backlog-lh-normal">
                     <p class="backlog-section-label mb-0">Sąrašas</p>
@@ -319,6 +329,7 @@
                 <div class="small">sąrašas tuščias. Sukurkite naują įrašą.</div>
             </div>
             <div id="backlogItemsList"></div>
+            <div id="backlogScrollSentinel" class="backlog-scroll-sentinel"></div>
             <div id="backlogBulkBar" class="backlog-bulk-bar">
                 <label class="backlog-bulk-selectall-wrap">
                     <input type="checkbox" id="backlogSelectAll" class="backlog-bulk-selectall" aria-label="Pasirinkti visus">
@@ -327,6 +338,59 @@
                 <button type="button" id="backlogBulkSchedule" class="btn btn-sm btn-primary" disabled>
                     <i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Planuoti
                 </button>
+            </div>
+        </div>
+
+        <!-- Tasks Panel Content — shown when "Suplanuoti darbai" nav button is clicked -->
+        <div id="tasksPanelContent" style="display: none;">
+            <div id="tasksPanelTypeTabBar">
+                <p class="backlog-section-label">Sąrašo tipas</p>
+                <div class="btn-group btn-group-sm w-100" role="group">
+                    <button id="tasksPanelTabActive" type="button" class="btn btn-outline-secondary active">Suplanuotos <span class="badge ms-1 backlog-type-badge" id="tasksPanelCountActive">0</span></button>
+                    <button id="tasksPanelTabPast" type="button" class="btn btn-outline-secondary">Pasibaigusios <span class="badge ms-1 backlog-type-badge" id="tasksPanelCountPast">0</span></button>
+                </div>
+            </div>
+            <hr class="backlog-section-divider">
+            <div id="tasksPanelPriorityFilter">
+                <p class="backlog-section-label">Prioritetas</p>
+                <div class="btn-group btn-group-sm w-100" role="group" aria-label="Filtruoti pagal prioritetą">
+                    <button type="button" class="btn btn-outline-secondary active" data-tp-priority="">Visi</button>
+                    <button type="button" class="btn btn-outline-secondary" data-tp-priority="2">Aukštas</button>
+                    <button type="button" class="btn btn-outline-secondary" data-tp-priority="1">Vidutinis</button>
+                    <button type="button" class="btn btn-outline-secondary" data-tp-priority="0">Žemas</button>
+                </div>
+            </div>
+            <hr class="backlog-section-divider">
+            <div class="backlog-list-header">
+                <div class="backlog-lh-normal">
+                    <p class="backlog-section-label mb-0">Sąrašas</p>
+                    <button type="button" id="tasksPanelSelectToggle" class="btn btn-outline-secondary backlog-select-toggle-btn">
+                        <i class="bi bi-check2-square me-1" aria-hidden="true"></i>Pasirinkti
+                    </button>
+                </div>
+                <div class="backlog-lh-selecting">
+                    <p class="backlog-section-label mb-0">Sąrašas</p>
+                    <div class="d-flex gap-1 ms-auto">
+                        <button type="button" id="tasksPanelBulkDelete" class="btn btn-outline-danger backlog-select-toggle-btn" title="Ištrinti pasirinktus" disabled>
+                            <i class="bi bi-trash me-1" aria-hidden="true"></i>Ištrinti
+                        </button>
+                        <button type="button" id="tasksPanelSelectCancel" class="btn btn-outline-secondary backlog-select-toggle-btn">
+                            <i class="bi bi-x-lg me-1" aria-hidden="true"></i>Atšaukti
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div id="tasksPanelListEmpty" class="text-center text-muted py-4 d-none">
+                <i class="bi bi-calendar-check fs-3 d-block mb-2" aria-hidden="true"></i>
+                <div class="small">Nėra užduočių šiame sąraše.</div>
+            </div>
+            <div id="tasksPanelItemsList"></div>
+            <div id="tasksPanelScrollSentinel" class="backlog-scroll-sentinel"></div>
+            <div id="tasksPanelBulkBar" class="backlog-bulk-bar">
+                <label class="backlog-bulk-selectall-wrap">
+                    <input type="checkbox" id="tasksPanelSelectAll" class="backlog-bulk-selectall" aria-label="Pasirinkti visus">
+                    <span id="tasksPanelBulkCount" class="backlog-bulk-count">Nepasirinkta</span>
+                </label>
             </div>
         </div>
 

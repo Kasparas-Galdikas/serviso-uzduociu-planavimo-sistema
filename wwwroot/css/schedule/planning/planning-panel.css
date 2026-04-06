@@ -582,6 +582,7 @@
 }
 
 .backlog-card__checkbox {
+  display: none;
   flex-shrink: 0;
   width: 1rem;
   height: 1rem;
@@ -589,6 +590,10 @@
   accent-color: #dc3545;
   cursor: pointer;
   pointer-events: none;
+}
+
+.is-selecting .backlog-card__checkbox {
+  display: inline-block;
 }
 
 .backlog-section-label {
@@ -862,3 +867,14 @@
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.4; }
 }
+
+/* ── Tasks panel card overrides ── */
+.tasks-panel-card { cursor: default; }
+.tasks-panel-card:active { cursor: default; }
+.tasks-panel-card__title {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s ease;
+}
+.tasks-panel-card__title:hover { text-decoration-color: currentColor; }

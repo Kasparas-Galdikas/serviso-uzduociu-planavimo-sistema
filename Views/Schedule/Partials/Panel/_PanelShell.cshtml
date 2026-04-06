@@ -1,0 +1,89 @@
+<div class="offcanvas offcanvas-end task-detail-panel" tabindex="-1" id="taskDetailModal"
+     aria-labelledby="taskDetailLabel" data-bs-scroll="true" data-bs-backdrop="false">
+
+    <div class="task-detail-resize-handle" data-panel-resize aria-label="Keisti skydelio plotį"></div>
+
+    <button type="button" class="btn btn-light task-detail-collapse" data-panel-toggle
+            aria-label="Suskleisti / išskleisti skydelį" aria-pressed="false">
+        <span data-panel-toggle-icon>&gt;</span>
+    </button>
+
+    <div class="offcanvas-header border-bottom">
+        <div class="offcanvas-title-wrap">
+            <h5 class="offcanvas-title" id="taskDetailLabel" data-task-title="Užduoties informacija" data-history-title="Veiksmų istorija">Užduoties informacija</h5>
+            <small class="text-muted" id="taskDetailCode" data-task-subtitle="Kodas:" data-history-subtitle="">Kodas:</small>
+            <small class="text-muted d-none" id="taskDetailHistorySubtitle">Naujausi veiksmai rodomi viršuje</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Uždaryti"></button>
+    </div>
+
+    <div class="offcanvas-body">
+
+        <!-- Backlog tab bar — visible only in backlog mode -->
+        <div id="backlogTabBar" class="d-none mb-2">
+            <p class="backlog-section-label mb-1">Veiksmas</p>
+            <div class="btn-group w-100" role="group" aria-label="Laukiančių darbų valdymas">
+                <button type="button" class="btn btn-primary active backlog-tab-btn" id="backlogTabCreate" data-backlog-tab="create">
+                    <i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Sukurti
+                </button>
+                <button type="button" class="btn btn-outline-secondary backlog-tab-btn" id="backlogTabList" data-backlog-tab="list">
+                    <i class="bi bi-list-ul me-1" aria-hidden="true"></i>Sąrašas
+                </button>
+            </div>
+        </div>
+
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Panel/_TaskPanelContent.cshtml")
+
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Panel/_HistoryPanelContent.cshtml")
+
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Panel/_BacklogPanelContent.cshtml")
+
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Panel/_TasksPanelContent.cshtml")
+
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Panel/_TechnicianPanelContent.cshtml")
+
+        <!-- Bulk confirm view — shown instead of form sections during confirm phase -->
+        <div id="taskBulkConfirmView" class="d-none px-1 py-2">
+            <div class="fw-semibold mb-3">Plano santrauka</div>
+            <div id="taskBulkConfirmList"></div>
+        </div>
+
+        <!-- Card templates (inert — never rendered) -->
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Panel/Templates/_BacklogCardTemplate.cshtml")
+        @await Html.PartialAsync("~/Views/Schedule/Partials/Panel/Templates/_TasksPanelCardTemplate.cshtml")
+
+        <!-- FOOTER -->
+        <div id="taskDetailFooter" class="d-flex justify-content-between gap-2 border-top pt-3 mt-4">
+            <button type="button" class="btn btn-secondary" id="taskFooterClose" data-bs-dismiss="offcanvas">
+                Uždaryti
+            </button>
+            <button type="button" class="btn btn-outline-secondary d-none" id="taskBulkBack">
+                <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Atgal
+            </button>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-primary" id="taskDetailSave">
+                    Išsaugoti
+                </button>
+                <button type="button" class="btn btn-primary d-none" id="backlogSaveBtn">
+                    <i class="bi bi-inbox me-1" aria-hidden="true"></i>Įtraukti į sąrašą
+                </button>
+                <button type="button" class="btn btn-primary d-none" id="taskBulkNext">
+                    Kitas <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
+                </button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+document.addEventListener('schedule:table:updated', () => {
+    const tables = document.getElementById('scheduleTables');
+    if (!tables) return;
+
+    tables.setAttribute(
+        'data-is-manager',
+        tables.dataset.isManager || ''
+    );
+});
+</script>

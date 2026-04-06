@@ -61,12 +61,14 @@
     const footer = panelEl.querySelector("#taskDetailFooter");
 
     const technicianContent = panelEl.querySelector("#technicianPanelContent");
+    const tasksPanelContent = panelEl.querySelector("#tasksPanelContent");
 
     if (type === "history") {
       if (taskContent) taskContent.style.display = "none";
       if (historyContent) historyContent.style.display = "";
       if (backlogContent) backlogContent.style.display = "none";
       if (technicianContent) technicianContent.style.display = "none";
+      if (tasksPanelContent) tasksPanelContent.style.display = "none";
       if (headerTitle) headerTitle.textContent = headerTitle.dataset.historyTitle || "Veiksmų istorija";
       if (headerSubtitle) headerSubtitle.classList.add("d-none");
       if (historySubtitle) historySubtitle.classList.remove("d-none");
@@ -77,6 +79,7 @@
       if (historyContent) historyContent.style.display = "none";
       if (backlogContent) backlogContent.style.display = "none";
       if (technicianContent) technicianContent.style.display = "none";
+      if (tasksPanelContent) tasksPanelContent.style.display = "none";
       if (headerTitle) headerTitle.textContent = headerTitle.dataset.taskTitle || "Užduoties informacija";
       if (headerSubtitle) headerSubtitle.classList.remove("d-none");
       if (historySubtitle) historySubtitle.classList.add("d-none");
@@ -88,16 +91,29 @@
       if (historyContent) historyContent.style.display = "none";
       if (backlogContent) backlogContent.style.display = "none";
       if (technicianContent) technicianContent.style.display = "none";
-      if (headerTitle) headerTitle.textContent = "Darbų sąrašas";
+      if (tasksPanelContent) tasksPanelContent.style.display = "none";
+      if (headerTitle) headerTitle.textContent = "Darbų šablonai";
       if (headerSubtitle) headerSubtitle.classList.add("d-none");
       if (historySubtitle) historySubtitle.classList.add("d-none");
       if (footer) footer.classList.remove("d-none");
       panelEl.dispatchEvent(new CustomEvent("schedule:panel:mode", { detail: { type: "backlog" } }));
+    } else if (type === "tasks-panel") {
+      if (taskContent) taskContent.style.display = "none";
+      if (historyContent) historyContent.style.display = "none";
+      if (backlogContent) backlogContent.style.display = "none";
+      if (technicianContent) technicianContent.style.display = "none";
+      if (tasksPanelContent) tasksPanelContent.style.display = "";
+      if (headerTitle) headerTitle.textContent = "Suplanuoti darbai";
+      if (headerSubtitle) headerSubtitle.classList.add("d-none");
+      if (historySubtitle) historySubtitle.classList.add("d-none");
+      if (footer) footer.classList.add("d-none");
+      panelEl.dispatchEvent(new CustomEvent("schedule:panel:mode", { detail: { type: "tasks-panel" } }));
     } else if (type === "technician") {
       if (taskContent) taskContent.style.display = "none";
       if (historyContent) historyContent.style.display = "none";
       if (backlogContent) backlogContent.style.display = "none";
       if (technicianContent) technicianContent.style.display = "";
+      if (tasksPanelContent) tasksPanelContent.style.display = "none";
       if (headerTitle) headerTitle.textContent = "Techniko neaktyvumas";
       if (headerSubtitle) headerSubtitle.classList.add("d-none");
       if (historySubtitle) historySubtitle.classList.add("d-none");

@@ -906,8 +906,9 @@ internal sealed class PlanServiceAssignmentMatching
             };
         }
 
-        var loadRangeStart = _timeService.GetWeekStart(candidateDates[0]);
-        var loadRangeEndExclusive = _timeService.GetWeekEnd(candidateDates[^1]).AddDays(1);
+        var weekBoundary = _timeService.GetWeekBoundary(candidateDates[0]);
+        var loadRangeStart = weekBoundary.LocalStart;
+        var loadRangeEndExclusive = weekBoundary.LocalEndExclusive;
 
         var persistedWeekTasks = await _db.Tasks
             .AsNoTracking()

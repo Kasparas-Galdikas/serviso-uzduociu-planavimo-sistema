@@ -1,0 +1,244 @@
+@using ServiceTaskPlanningSystem.Data
+<!-- Task Content Container -->
+<div id="taskPanelContent">
+
+<!-- Bulk scheduling progress indicator — visible only during bulk queue -->
+<div id="taskBulkProgress" class="task-bulk-progress d-none">
+    <span id="taskBulkProgressStep" class="task-bulk-progress__step"></span>
+    <span id="taskBulkProgressTitle" class="task-bulk-progress__title text-muted"></span>
+</div>
+
+<!-- PLANAVIMAS -->
+<section class="mb-4 task-section">
+    <div class="task-section-header" role="button" tabindex="0"
+         data-bs-toggle="collapse"
+         data-bs-target="#taskSecPlanning"
+         aria-expanded="true"
+         aria-controls="taskSecPlanning">
+
+        <h6 class="text-uppercase small mb-0 task-section-title">
+            Planavimas
+        </h6>
+
+        <button type="button" class="btn btn-sm btn-ghost task-section-toggle"
+                data-bs-toggle="collapse"
+                data-bs-target="#taskSecPlanning"
+                aria-expanded="true"
+                aria-controls="taskSecPlanning">
+            <i class="bi bi-chevron-down"></i>
+        </button>
+    </div>
+
+    <div class="collapse show" id="taskSecPlanning">
+        <div class="row g-3 mt-1">
+
+            <div class="col-md-6">
+                <label class="form-label small">Pavadinimas</label>
+                <input type="text" class="form-control" id="taskDetailTitle">
+            </div>
+
+            <div class="col-md-6" id="taskFieldAssignee">
+                <label class="form-label small">Priskirtas darbuotojas</label>
+                <select class="form-select" id="taskDetailAssignee"
+                        data-select2-dropdown="technician"></select>
+            </div>
+
+            <div class="col-md-6 d-none" id="backlogTypeField">
+                <label class="form-label small">Šablono tipas</label>
+                <select class="form-select" id="backlogItemType">
+                    <option value="" disabled selected>– Pasirinkite tipą –</option>
+                    <option value="@((int)BacklogItemType.Temporary)">Laikinas</option>
+                    <option value="@((int)BacklogItemType.Permanent)">Nuolatinis</option>
+                </select>
+            </div>
+
+            <div class="col-md-6 d-none" id="backlogDueDateField">
+                <label class="form-label small">Terminas <span class="text-muted">(nebūtinas)</span></label>
+                <input type="date" class="form-control" id="backlogDueDate">
+            </div>
+
+            <div class="col-md-6" id="taskFieldStart">
+                <label class="form-label small">Pradžia</label>
+                <input type="datetime-local" class="form-control" id="taskDetailStart">
+            </div>
+
+            <div class="col-md-6" id="taskFieldEnd">
+                <label class="form-label small">Pabaiga</label>
+                <input type="datetime-local" class="form-control" id="taskDetailEnd">
+            </div>
+
+            <div class="col-12 d-none" id="planModeField">
+                <label class="form-label small">Planavimo režimas</label>
+                <div class="btn-group w-100" role="group" aria-label="Planavimo režimas">
+                    <input type="radio" class="btn-check" name="taskPlanModeRadio" id="taskPlanModeRankinis" value="rankinis" autocomplete="off">
+                    <label class="btn btn-outline-primary" for="taskPlanModeRankinis">Rankinis</label>
+                    <input type="radio" class="btn-check" name="taskPlanModeRadio" id="taskPlanModeAutomatinis" value="automatinis" autocomplete="off">
+                    <label class="btn btn-outline-primary" for="taskPlanModeAutomatinis">Automatinis</label>
+                </div>
+                <input type="hidden" id="taskPlanMode" value="">
+            </div>
+
+        </div>
+    </div>
+    <hr>
+</section>
+
+<!-- UŽDUOTIES PARAMETRAI -->
+<section class="mb-4 task-section">
+    <div class="task-section-header" role="button" tabindex="0"
+         data-bs-toggle="collapse"
+         data-bs-target="#taskSecParams"
+         aria-expanded="true"
+         aria-controls="taskSecParams">
+
+        <h6 class="text-uppercase small mb-0 task-section-title">
+            Užduoties parametrai
+        </h6>
+
+        <button type="button" class="btn btn-sm btn-ghost task-section-toggle"
+                data-bs-toggle="collapse"
+                data-bs-target="#taskSecParams"
+                aria-expanded="true"
+                aria-controls="taskSecParams">
+            <i class="bi bi-chevron-down"></i>
+        </button>
+    </div>
+
+    <div class="collapse show" id="taskSecParams">
+        <div class="row g-3 mt-1">
+            <div class="col-md-6">
+                <label class="form-label small">Reikalingas kvalifikacijos lygis</label>
+                <select class="form-select" id="taskDetailSkill">
+                    <option value="">– Pasirinkite kvalifikaciją –</option>
+                    <option value="Basic">Bazinis</option>
+                    <option value="Advanced">Pažengęs</option>
+                    <option value="Certified">Sertifikuotas</option>
+                </select>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label small">Prioritetas</label>
+                <select class="form-select" id="taskDetailPriority">
+                    <option value="">– Pasirinkite prioritetą –</option>
+                    <option value="@((int)TaskPriority.Low)">Žemas</option>
+                    <option value="@((int)TaskPriority.Medium)">Vidutinis</option>
+                    <option value="@((int)TaskPriority.High)">Aukštas</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    <hr>
+</section>
+
+<!-- SAUGOMAS OBJEKTAS -->
+<section class="mb-4 task-section" id="taskSectionAsset">
+    <div class="task-section-header" role="button" tabindex="0"
+         data-bs-toggle="collapse"
+         data-bs-target="#taskSecAsset">
+
+        <h6 class="text-uppercase small mb-0 task-section-title">
+            Saugomas objektas
+        </h6>
+
+        <button type="button" class="btn btn-sm btn-ghost task-section-toggle"
+                data-bs-toggle="collapse"
+                data-bs-target="#taskSecAsset">
+            <i class="bi bi-chevron-down"></i>
+        </button>
+    </div>
+
+    <div class="collapse show" id="taskSecAsset">
+        <div class="row g-3 mt-1">
+
+            <div class="col-md-6">
+                <label class="form-label small">Objektas</label>
+                <select class="form-select" id="taskDetailObject"
+                        data-select2-dropdown="object"></select>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label small">Adresas</label>
+                <select class="form-select" id="taskDetailLocation"
+                        data-select2-dropdown="address"></select>
+            </div>
+
+        </div>
+    </div>
+    <hr>
+</section>
+
+<!-- INSTRUKCIJOS IR SAUGA -->
+<section class="mb-4 task-section" id="managerSection">
+    <div class="task-section-header" role="button" tabindex="0"
+         data-bs-toggle="collapse"
+         data-bs-target="#taskSecSafety">
+
+        <h6 class="text-uppercase small mb-0 task-section-title">
+            Instrukcijos ir sauga
+        </h6>
+
+        <button type="button" class="btn btn-sm btn-ghost task-section-toggle"
+                data-bs-toggle="collapse"
+                data-bs-target="#taskSecSafety">
+            <i class="bi bi-chevron-down"></i>
+        </button>
+    </div>
+
+    <div class="collapse" id="taskSecSafety">
+        <div class="row g-3 mt-1">
+            <div class="col-12">
+                <label class="form-label small">Instrukcijos darbuotojui</label>
+                <textarea class="form-control" rows="3" id="taskDetailInstructions"></textarea>
+                <div id="taskDetailInstructionsReadonly"
+                     class="form-control-plaintext border rounded p-2 d-none"
+                     style="white-space: pre-line;"></div>
+            </div>
+        </div>
+    </div>
+    <hr>
+</section>
+
+<!-- DARBUOTOJO PASTABOS -->
+<section class="mb-4 task-section" id="technicianSection">
+    <div class="task-section-header" role="button" tabindex="0"
+         data-bs-toggle="collapse"
+         data-bs-target="#taskSecTechnician">
+
+        <h6 class="text-uppercase small mb-0 task-section-title">
+            Darbuotojo pastabos
+        </h6>
+
+        <button type="button" class="btn btn-sm btn-ghost task-section-toggle"
+                data-bs-toggle="collapse"
+                data-bs-target="#taskSecTechnician">
+            <i class="bi bi-chevron-down"></i>
+        </button>
+    </div>
+
+    <div class="collapse show" id="taskSecTechnician">
+        <div class="row g-3 mt-1">
+            <div class="col-md-6" id="taskDetailStatusContainer">
+                <label class="form-label small">Statusas</label>
+                <select class="form-select" id="taskDetailStatus">
+                    <option value="@((int)ScheduleTaskStatus.Completed)">Atlikta</option>
+                    <option value="@((int)ScheduleTaskStatus.Conflict)">Problema</option>
+                </select>
+                <div id="taskDetailStatusReadonly"
+                     class="form-select d-none"
+                     style="display: flex; align-items: center; cursor: default; background-color: #e9ecef; color: #495057;"></div>
+            </div>
+            <div class="col-12">
+                <label class="form-label small">Komentaras</label>
+                <textarea class="form-control" rows="3"
+                          id="taskDetailTechnicianComment"
+                          placeholder="Darbuotojo pastabos apie užduoties vykdymą..."></textarea>
+                <small class="form-text text-muted">
+                    Čia darbuotojai gali palikti darbo komentarą
+                </small>
+            </div>
+        </div>
+    </div>
+    <hr>
+</section>
+
+</div>

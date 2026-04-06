@@ -36,20 +36,32 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetItems(CancellationToken cancellationToken)
+        public async Task<IActionResult> GetItems(
+            [FromQuery] int itemType = 1,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 25,
+            [FromQuery] int? priority = null,
+            CancellationToken cancellationToken = default)
         {
             var userId = _userContextResolver.GetCurrentUser().UserId;
             if (userId == null) return Unauthorized();
 
+            if (page < 1) page = 1;
+            if (pageSize < 1 || pageSize > 100) pageSize = 25;
+
             var tzOffset = _timeService.GetBrowserTimezoneOffset(Request);
-            var items = await _backlogService.GetItemsAsync(userId.Value, cancellationToken);
+            var result = await _backlogService.GetItemsAsync(userId.Value, itemType, page, pageSize, priority, cancellationToken);
             var localNow = _timeService.ConvertUtcToLocal(_timeService.GetCurrentUtcTime(), tzOffset);
             var snappedMinutes = _timeService.GetEarliestCreatableStartMinutes(
                 localNow.Date, tzOffset, ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes);
             var localNowSnapped = localNow.Date.AddMinutes(snappedMinutes);
             return Ok(new
             {
-                items = items.Select(i => MapItem(i, tzOffset)),
+                items = result.Items.Select(i => MapItem(i, tzOffset)),
+                totalCount = result.TotalCount,
+                page = result.Page,
+                pageSize = result.PageSize,
+                hasMore = result.HasMore,
                 localNow = localNowSnapped.ToString("yyyy-MM-ddTHH:mm"),
             });
         }

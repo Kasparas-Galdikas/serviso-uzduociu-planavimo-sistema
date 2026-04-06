@@ -1,9 +1,9 @@
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Models.Common;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Services.History;
 
@@ -22,17 +22,27 @@ namespace ServiceTaskPlanningSystem.Services.Backlog
             _logger = logger;
         }
 
-        public Task<List<BacklogItemEntity>> GetItemsAsync(long userId, CancellationToken ct = default)
+        public async Task<PagedResult<BacklogItemEntity>> GetItemsAsync(long userId, int itemType, int page, int pageSize, int? priority = null, CancellationToken ct = default)
         {
-            _logger.LogInformation("svc.backlog.list userId={UserId}", userId);
-            return _db.BacklogItems
+            _logger.LogInformation("svc.backlog.list userId={UserId} itemType={ItemType} page={Page} pageSize={PageSize} priority={Priority}", userId, itemType, page, pageSize, priority);
+
+            var query = _db.BacklogItems
                 .AsNoTracking()
-                .Where(b => b.CreatedByUserId == userId)
+                .Where(b => b.CreatedByUserId == userId && (int)b.ItemType == itemType);
+
+            if (priority.HasValue)
+                query = query.Where(b => (int)b.Priority == priority.Value);
+
+            var ordered = query
                 .OrderByDescending(b => b.Priority)
                 .ThenBy(b => b.DueDate == null ? 1 : 0)
                 .ThenBy(b => b.DueDate)
-                .ThenByDescending(b => b.CreatedAt)
-                .ToListAsync(ct);
+                .ThenByDescending(b => b.CreatedAt);
+
+            var totalCount = await query.CountAsync(ct);
+            var items = await ordered.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+
+            return new PagedResult<BacklogItemEntity>(items, totalCount, page, pageSize);
         }
 
         public async Task<(BacklogItemEntity item, string summary)> CreateItemAsync(long userId, SaveBacklogItemRequestDto dto, CancellationToken ct = default)

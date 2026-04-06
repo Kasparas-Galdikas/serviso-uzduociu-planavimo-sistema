@@ -145,6 +145,7 @@ builder.Services.AddHostedService<TaskHistoryCleanupService>();
 builder.Services.AddScoped<ITaskHistoryWriter, TaskHistoryService>();
 builder.Services.AddScoped<ITaskHistoryReader, TaskHistoryService>();
 builder.Services.AddScoped<IBacklogService, BacklogService>();
+builder.Services.AddScoped<ServiceTaskPlanningSystem.Services.TasksPanel.ITasksPanelService, ServiceTaskPlanningSystem.Services.TasksPanel.TasksPanelService>();
 builder.Services.AddScoped<IUnavailabilityService, UnavailabilityService>();
 builder.Services.AddScoped<IServiceObjectService, ServiceObjectService>();
 builder.Services.AddScoped<ITechnicianLookupService, TechnicianLookupService>();
