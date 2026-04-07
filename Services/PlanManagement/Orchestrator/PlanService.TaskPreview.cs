@@ -13,7 +13,6 @@ using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
-using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Matching;
 using ServiceTaskPlanningSystem.Services.Travel;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
@@ -27,7 +26,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         private readonly ITaskPermissionService _taskPermissionService;
         private readonly ITravelTimeResolver _travelResolver;
         private readonly SchedulePlacementValidator _placementValidator;
-        private readonly IRouteEvaluationService _routeEvaluationService;
+        private readonly RoutePreviewLookupBuilder _routePreviewLookupBuilder;
         private readonly TechnicianUnavailabilityImpactResolver _unavailabilityImpactResolver;
         private readonly ILogger<PlanServiceTaskPreview> _logger;
 
@@ -37,7 +36,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             ITaskPermissionService taskPermissionService,
             ITravelTimeResolver travelResolver,
             SchedulePlacementValidator placementValidator,
-            IRouteEvaluationService routeEvaluationService,
+            RoutePreviewLookupBuilder routePreviewLookupBuilder,
             TechnicianUnavailabilityImpactResolver unavailabilityImpactResolver,
             ILogger<PlanServiceTaskPreview> logger)
         {
@@ -46,7 +45,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             _taskPermissionService = taskPermissionService;
             _travelResolver = travelResolver;
             _placementValidator = placementValidator;
-            _routeEvaluationService = routeEvaluationService;
+            _routePreviewLookupBuilder = routePreviewLookupBuilder;
             _unavailabilityImpactResolver = unavailabilityImpactResolver;
             _logger = logger;
         }
@@ -210,8 +209,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 .Distinct()
                 .ToList();
 
-            await _routeEvaluationService.EnsureAllPairwiseRoutesAsync(addressIds, cancellationToken);
-            var routeLookup = await _travelResolver.GetTravelMinutesAsync(addressIds, cancellationToken);
+            var routeLookup = await _routePreviewLookupBuilder.BuildAsync(addressIds, cancellationToken);
 
             var response = new Models.DTOs.Responses.DragPreviewResponseDto
             {

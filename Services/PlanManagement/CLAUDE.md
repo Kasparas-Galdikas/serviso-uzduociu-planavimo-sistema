@@ -1,191 +1,228 @@
-# PlanManagement — Architecture Contract
+# PlanManagement - Architecture Contract
 
-Read this before making any change to `PlanService.cs` or any file under `Orchestrator/`.
+Read this before changing `PlanService.cs` or any file under `Orchestrator/`.
 
 ---
 
 ## What this layer is
 
-`PlanService` is the **single public entry point** for all plan and task operations.
-Everything outside this folder (controllers, background jobs, other services) calls
-`IPlanService` only. The concrete class `PlanService` delegates every call to an
-internal orchestrator. No business logic lives in `PlanService.cs` itself.
+`PlanService` is the single public entry point for plan and task operations.
+Controllers, background jobs, and other services should depend on `IPlanService`,
+not on internal orchestrators or helpers.
+
+`PlanService.cs` is a facade. Its job is:
+- constructor wiring
+- dependency composition
+- method delegation
+
+Business behavior should live in orchestrators and shared helpers, not in the facade.
 
 ---
 
-## File map
+## Current file map
 
-```
+```text
 Services/PlanManagement/
-├── PlanService.cs                       ← thin facade, delegation only
-├── Interfaces/IPlanService.cs           ← public contract, never break this
-│
-└── Orchestrator/
-    ├── PlanService.PlanLifecycle.cs     ← plan CRUD, publish, discard
-    ├── PlanService.TaskQuery.cs         ← read-only queries, zero writes
-    ├── PlanService.TaskCreation.cs      ← single + bulk task creation
-    ├── PlanService.TaskModification.cs  ← update, move, swap, reschedule
-    ├── PlanService.TaskDeletion.cs      ← delete + optional compaction
-    ├── PlanService.TaskPreview.cs       ← what-if simulations, zero writes
-    └── Shared/
-        ├── SchedulePlacementValidator.cs  ← all timing/travel/overlap checks
-        ├── ServiceLocationResolver.cs     ← address + service object lookup
-        └── RouteEvaluationCaller.cs       ← safe route recalculation triggers
+|-- PlanService.cs
+|-- Interfaces/IPlanService.cs
+`-- Orchestrator/
+    |-- PlanService.PlanLifecycle.cs
+    |-- PlanService.TaskQuery.cs
+    |-- PlanService.TaskCreation.cs
+    |-- PlanService.TaskModification.cs
+    |-- PlanService.TaskDeletion.cs
+    |-- PlanService.TaskPreview.cs
+    |-- PlanService.AssignmentMatching.cs
+    |-- PlanService.TechnicianUnavailability.cs
+    `-- Shared/
+        |-- RouteEvaluationCaller.cs
+        |-- RoutePreviewLookupBuilder.cs
+        |-- PlanScopeResolver.cs
+        |-- PlanScopeSegregationService.cs
+        |-- SchedulePlacementValidator.cs
+        |-- ServiceLocationResolver.cs
+        `-- TechnicianUnavailabilityImpactResolver.cs
 ```
+
+Primary concern ownership:
+- `PlanLifecycle`: draft/active/superseded plan lifecycle and plan span adjustments
+- `TaskQuery`: read-only task and workload queries
+- `TaskCreation`: single-task and bulk-task creation flows
+- `TaskModification`: update, move, resize, swap, technician status updates
+- `TaskDeletion`: delete and bulk delete flows
+- `TaskPreview`: read-only simulations and previews
+- `AssignmentMatching`: auto-assignment suggestion and chained bulk matching
+- `TechnicianUnavailability`: create/update/delete unavailability and execute displacement/restoration
 
 ---
 
-## Who calls what
+## Public surface to orchestrator map
 
-### External call flows
-
-| Caller action | Entry point | Orchestrator used | Shared helpers used |
-|---|---|---|---|
-| Create a task | `CreateTaskAsync` | `TaskCreation` | `PlacementValidator`, `LocationResolver`, `RouteEvaluationCaller`, `PlanLifecycle` |
-| Bulk create | `BulkCreateTasksAsync` | `TaskCreation` | same as above |
-| Move a task | `MoveTaskAsync` | `TaskModification` | `PlacementValidator`, `RouteEvaluationCaller`, `PlanLifecycle` |
-| Swap two tasks | `SwapTasksSmartAsync` | `TaskModification` | `PlacementValidator`, `RouteEvaluationCaller`, `PlanLifecycle` |
-| Update task fields | `UpdateTaskAsync` | `TaskModification` | `PlacementValidator`, `LocationResolver`, `RouteEvaluationCaller`, `PlanLifecycle` |
-| Reschedule time | `UpdateTaskTimeAsync` | `TaskModification` | `PlacementValidator`, `RouteEvaluationCaller` |
-| Delete a task | `DeleteTaskAsync` | `TaskDeletion` | `RouteEvaluationCaller`, `PlanLifecycle` |
-| Technician marks done | `TechnicianUpdateTaskAsync` | `TaskModification` | — |
-| Drag preview | `PreviewDragAsync` | `TaskPreview` | `PlacementValidator` |
-| Swap preview | `PreviewSwapSmartAsync` | `TaskPreview` | `PlacementValidator` |
-| Workload snapshot | `GetWorkloadSnapshotAsync` | `TaskQuery` | — |
-| Task detail | `GetTaskDetailAsync` | `TaskQuery` | — |
-| Slot suggestion | `GetSuggestedNextSlotAsync` | `TaskQuery` | — |
-| Publish draft | `PublishDraftAsync` | `PlanLifecycle` | — |
-| Create draft | `CreateDraftFromActiveAsync` | `PlanLifecycle` | — |
-
-### Internal call flows (orchestrator → orchestrator)
-
-`TaskCreation`, `TaskModification`, `TaskDeletion` all call into `PlanLifecycle` for:
-- `GetOrExtendActivePlanAsync` — resolve or create the target plan for a task date
-- `AdjustPlanSpanAsync` — shrink/grow the plan's date boundaries after a change
-
-These two methods are `internal` on `PlanServicePlanLifecycle`. No other cross-orchestrator calls exist.
+| Public method | Owner |
+|---|---|
+| `GetActivePlanAsync` | `PlanLifecycle` |
+| `GetDraftPlanAsync` | `PlanLifecycle` |
+| `CreateDraftFromActiveAsync` | `PlanLifecycle` |
+| `PublishDraftAsync` | `PlanLifecycle` |
+| `DiscardDraftAsync` | `PlanLifecycle` |
+| `RecalculateCurrentPlansAsync` | `PlanLifecycle` |
+| `GetWorkloadSnapshotAsync` | `TaskQuery` |
+| `GetTaskDetailAsync` | `TaskQuery` |
+| `GetTaskVersionAsync` | `TaskQuery` |
+| `TechnicianExistsAsync` | `TaskQuery` |
+| `HasTaskOverlapAsync` | `TaskQuery` |
+| `GetSuggestedNextSlotAsync` | `TaskQuery` |
+| `CreateTaskAsync` | `TaskCreation` |
+| `BulkValidateTasksAsync` | `TaskCreation` |
+| `BulkCreateTasksAsync` | `TaskCreation` |
+| `UpdateTaskAsync` | `TaskModification` |
+| `UpdateTaskTimeAsync` | `TaskModification` |
+| `MoveTaskAsync` | `TaskModification` |
+| `SwapTasksAsync` | `TaskModification` |
+| `SwapTasksSmartAsync` | `TaskModification` |
+| `TechnicianUpdateTaskAsync` | `TaskModification` |
+| `DeleteTaskAsync` | `TaskDeletion` |
+| `BulkDeleteTasksAsync` | `TaskDeletion` |
+| `PreviewDragAsync` | `TaskPreview` |
+| `PreviewSwapSmartAsync` | `TaskPreview` |
+| `PreviewDisplacementAsync` | `TaskPreview` |
+| `SuggestAutoAssignmentAsync` | `AssignmentMatching` |
+| `SuggestBulkAutoAssignmentsAsync` | `AssignmentMatching` |
+| `ApplyAutomaticAssignmentsAsync` | `AssignmentMatching` |
+| `DisplaceTasksToBacklogAsync` | `TechnicianUnavailability` |
+| `UpdateUnavailabilityAsync` | `TechnicianUnavailability` |
+| `DeleteUnavailabilityAsync` | `TechnicianUnavailability` |
 
 ---
 
 ## Shared helper responsibilities
 
 ### `SchedulePlacementValidator`
-Answers: *can a task legally sit at this time slot?*
+Answers: can a task legally sit in this slot?
 
-Validation order:
-1. Date not in the past
-2. Start/end minutes are valid and grid-aligned
-3. Slot fits within the technician's working window
-4. Technician exists
-5. User has permission (via `ITaskPermissionService`)
-6. No overlap with existing tasks
-7. Travel from prior task is feasible (via `ITaskTravelFeasibilityService`)
-8. If travel fails — attempt repair plan via `IScheduleRepairService`
+Owns:
+- time-range validation
+- grid alignment validation
+- work-window validation
+- overlap checks
+- permission-aware placement checks
+- travel feasibility checks
+- repair-plan entry points
+- placement-error mapping helpers
 
-Also owns the `MapPlacementErrorFor*` static methods that translate validation
-failures into typed result objects for each operation.
-
-> Add new placement rules here. Never duplicate validation logic in an orchestrator.
+Rule:
+- new placement rules belong here
+- do not duplicate placement logic in multiple orchestrators
 
 ### `ServiceLocationResolver`
-Answers: *what is the DB id for this service location?*
+Answers: what address/service object should this operation use?
 
-- `FindOrCreateServiceObjectAsync` — upserts address + object rows, returns object id
-- `TryLookupServiceAddressIdAsync` — read-only, used during bulk dry-run validation
+Owns:
+- address lookup
+- address creation
+- service object lookup
+- service object upsert
 
-> Geocoding, address normalization, and deduplication logic belongs here.
+Rule:
+- address normalization and deduplication belong here
 
 ### `RouteEvaluationCaller`
-Triggers route recalculation after schedule changes. Both methods swallow exceptions
-so a route engine failure never fails the main request.
+Answers: how do write flows trigger route recalculation safely?
 
-- `TriggerRouteEvaluationSafelyAsync(technicianId, day, action)` — full day recalc
-- `TriggerTaskRouteImpactSafelyAsync(taskId, action)` — single task impact
+Owns:
+- full-day route recalculation trigger
+- task-specific route-impact trigger
+- exception swallowing/logging so route failures do not fail core writes
 
-> No orchestrator imports `IRouteEvaluationService` directly. Always go through this class.
+Rule:
+- write-side route recalculation should go through this helper
+
+### `RoutePreviewLookupBuilder`
+Answers: how do preview flows obtain route lookups without embedding route-service
+calls inside preview orchestrators?
+
+Owns:
+- preview-time pairwise route hydration
+- preview-time travel lookup construction
+- failure isolation so preview can fall back to cached route data
+
+Rule:
+- preview orchestrators should use this helper rather than injecting `IRouteEvaluationService` directly
+
+### `TechnicianUnavailabilityImpactResolver`
+Answers: which tasks are affected by a technician unavailability window?
+
+Owns:
+- affected-task discovery
+- normalized impact windows used by preview and mutation flows
+
+Rule:
+- unavailability impact scans belong here, not duplicated in orchestrators
+
+### `PlanScopeResolver`
+Answers: which plan scope/date scope applies to a request?
+
+Owns:
+- read-only scope resolution used by placement and assignment flows
+
+Rule:
+- scope rules belong here
 
 ---
 
-## Mutation operation pattern
+## Operation patterns
 
-Every operation that writes to the database follows this sequence:
+### Mutation flows
 
-```
-1. Load entity + check it exists
-2. Check optimistic concurrency version (xmin)
+Typical write sequence:
+
+```text
+1. Load entity or target scope
+2. Check existence
 3. Check permissions
-4. Validate placement (via SchedulePlacementValidator)
-5. Open transaction
-6. Apply changes + SaveChanges
-7. Trigger route recalculation (via RouteEvaluationCaller)
-8. Post-save travel validation — if fails, attempt repair or rollback
-9. Commit (or rollback)
-10. Adjust plan span (via PlanLifecycle.AdjustPlanSpanAsync)
-11. Recalculate evaluations (via IEvaluationEngine)
-12. Record history (via ITaskHistoryWriter)
+4. Check optimistic concurrency when the operation is versioned
+5. Validate placement/business rules
+6. Open transaction when multiple stateful writes are involved
+7. Persist changes
+8. Trigger route recalculation safely if applicable
+9. Recalculate evaluations if applicable
+10. Record history
+11. Commit
+12. Run post-write span/scope cleanup if applicable
 ```
 
-Not every step applies to every operation, but **never skip step 2, 3, or 5 for
-any mutation**.
+Notes:
+- not every mutation uses every step
+- create flows do not have an existing row version to compare before insert
+- updates, deletes, moves, swaps, and technician state changes should preserve concurrency protection where exposed by the contract
+
+### Read-only flows
+
+Read-only queries should:
+- use `AsNoTracking()`
+- never call `SaveChanges`
+- never open write transactions
+- never record history
+
+### Preview flows
+
+Preview flows should:
+- remain zero-write
+- use real validation logic so results stay accurate
+- avoid history writes
+- avoid write-side recalculation triggers
 
 ---
 
-## Read-only operation pattern
-
-All queries live in `TaskQuery`. They:
-- Use `AsNoTracking()` on every EF query
-- Never call `SaveChanges`
-- Never call `RouteEvaluationCaller`
-- Never call `IEvaluationEngine`
-
-> If you find yourself writing a DB read in an orchestrator that isn't `TaskQuery`,
-> ask whether it belongs there instead.
-
----
-
-## Preview operation pattern
-
-All simulations live in `TaskPreview`. They:
-- Run full placement validation (via `SchedulePlacementValidator`) so results are accurate
-- Never call `SaveChanges` or open transactions
-- Never call `RouteEvaluationCaller`
-- Never record history
-- Return a result describing what *would* happen
-
----
-
-## When to add to an existing orchestrator vs create a new one
-
-### Add to an existing orchestrator when:
-- The new method fits naturally in one of the six existing concerns
-- The orchestrator stays under ~900 lines after the addition
-- The method uses the same or a strict subset of the orchestrator's existing dependencies
-- Examples: new task creation variant → `TaskCreation`; new report query → `TaskQuery`
-
-### Create a new orchestrator (`PlanService.NewConcern.cs`) when:
-- The new behavior does not belong to any existing concern without forcing it
-- Adding it would push an existing orchestrator well past 900 lines
-- The new behavior requires a materially different set of dependencies
-- The new behavior could be developed, tested, or deployed independently
-- Examples: `PlanService.Notifications.cs` for push events; `PlanService.Recurrence.cs` for recurring task generation
-
-**How to add a new orchestrator:**
-1. Create `Orchestrator/PlanService.NewConcern.cs` with an `internal class PlanServiceNewConcern`
-2. Add a field `private readonly PlanServiceNewConcern _newConcern;` to `PlanService.cs`
-3. Construct it in `PlanService`'s 11-arg constructor
-4. Add the delegation method(s) to `PlanService.cs`
-5. Add new method(s) to `IPlanService` if they need to be public
-
----
-
-## Invariants — never break these
+## Invariants
 
 | Rule | Reason |
 |---|---|
-| All public surface goes through `IPlanService` | Controllers and tests depend on the interface, not the concrete class |
-| Orchestrators are `internal` | They are implementation details; nothing outside `PlanManagement` should reference them |
-| Shared helpers are `internal` | Same reason — they are not part of the public contract |
-| `TaskQuery` and `TaskPreview` never write | Keeps reads safe to call in parallel and easy to reason about |
-| `RouteEvaluationCaller` never throws | Route failures must not roll back schedule changes |
-| Optimistic concurrency (xmin) checked on every mutation | Prevents silent overwrites from concurrent users |
-| History recorded on every mutation | Audit trail is non-negotiable |
+| All public operations go through `IPlanService` | Keeps the external contract stable |
+| Orchestrators remain `internal` | They are implementation details |
+| Shared helpers remain `internal` | They are implementation details |
+| `PlanService.cs` stays a facade | Keeps wiring separate from business logic |
+| `TaskQuery` and preview methods stay zero-write | Makes them safe and predictable |
+| `RouteEvaluationCaller` must not throw into write flows | Route failures must not roll back core changes |
+| Versioned mutations must enforce optimistic concurrency | Prevents silent overwrites |
+| User-visible mutations must record history | Audit trail is required |

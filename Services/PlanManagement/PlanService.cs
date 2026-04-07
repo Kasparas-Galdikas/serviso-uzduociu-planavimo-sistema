@@ -237,6 +237,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 scopeFactory,
                 new ForwardingLogger<RouteEvaluationCaller>(logger));
 
+            var routePreviewLookupBuilder = new RoutePreviewLookupBuilder(
+                routeEvaluationService,
+                travelResolver,
+                new ForwardingLogger<RoutePreviewLookupBuilder>(logger));
+
             _placementValidator = new SchedulePlacementValidator(
                 db, taskPermissionService, timeService,
                 travelFeasibilityService, scheduleRepairService,
@@ -290,7 +295,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             _taskPreview = new PlanServiceTaskPreview(
                 db, timeService, taskPermissionService, travelResolver,
-                _placementValidator, routeEvaluationService, _unavailabilityImpactResolver,
+                _placementValidator, routePreviewLookupBuilder, _unavailabilityImpactResolver,
                 new ForwardingLogger<PlanServiceTaskPreview>(logger));
 
             _technicianUnavailability = new PlanServiceTechnicianUnavailability(
