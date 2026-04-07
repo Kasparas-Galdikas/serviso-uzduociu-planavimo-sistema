@@ -415,7 +415,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     ObjectAddress = task.ServiceObject.Address.FullAddress,
                     Instructions = task.Instructions,
                     DueDate = task.StartAt.Date,
-                    SourceTaskId = task.Id,
                     SourceUnavailabilityId = unavailability.Id,
                     OriginalTechnicianId = task.TechnicianId,
                     OriginalStartAt = task.StartAt,

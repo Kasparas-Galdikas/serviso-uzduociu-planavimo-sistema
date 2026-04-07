@@ -144,6 +144,85 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
             if (!placementValidation.IsValid)
             {
+                if (placementValidation.IsBlockedByUnavailability)
+                {
+                    // Resolve service object now (needed for repair plan, also needed below if repair succeeds)
+                    var preResolvedId = await _locationResolver.FindOrCreateServiceObjectAsync(objectName, objectAddress, placementValidation.City, cancellationToken);
+                    var preResolvedMeta = await _db.ServiceObjects
+                        .Where(o => o.Id == preResolvedId)
+                        .Select(o => new { o.AddressId })
+                        .FirstAsync(cancellationToken);
+
+                    var unavailRepair = await _placementValidator.TryBuildUnavailabilityRepairForSlotAsync(
+                        technicianId,
+                        placementValidation.StartAtUtc,
+                        placementValidation.EndAtUtc,
+                        preResolvedMeta.AddressId,
+                        timezoneOffsetMinutes,
+                        cancellationToken);
+
+                    _logger.LogInformation(
+                        "[REPAIR-BUILD-RESULT] techId={TechId} repairPlan={RepairSuccess} primary={Primary}",
+                        technicianId, unavailRepair?.Success ?? false, unavailRepair?.PrimaryPlacement != null);
+
+                    if (unavailRepair?.Success == true && unavailRepair.PrimaryPlacement != null)
+                    {
+                        var repStartLocal = _timeService.ConvertUtcToLocal(unavailRepair.PrimaryPlacement.StartAt, timezoneOffsetMinutes);
+                        var repEndLocal = _timeService.ConvertUtcToLocal(unavailRepair.PrimaryPlacement.EndAt, timezoneOffsetMinutes);
+                        var repStartMin = (int)repStartLocal.TimeOfDay.TotalMinutes;
+                        var repEndMin = (int)repEndLocal.TimeOfDay.TotalMinutes;
+
+                        var repairedPlacement = await _placementValidator.ValidatePlacementForActionAsync(
+                            ignoreTaskIds: null,
+                            targetTechnicianId: technicianId,
+                            targetDate: repStartLocal.Date,
+                            startMinutes: repStartMin,
+                            endMinutes: repEndMin,
+                            plan: targetPlan,
+                            status: status,
+                            user: user,
+                            timezoneOffsetMinutes: timezoneOffsetMinutes,
+                            requireEndAligned: true,
+                            cancellationToken: cancellationToken);
+
+                        if (repairedPlacement.IsValid)
+                        {
+                            var repairedTask = new TaskEntity
+                            {
+                                PlanId = targetPlan.Id,
+                                TechnicianId = technicianId,
+                                ServiceObjectId = preResolvedId,
+                                Title = normalizedTitle,
+                                SkillLevel = normalizedSkill,
+                                Instructions = normalizedInstructions,
+                                StartAt = repairedPlacement.StartAtUtc,
+                                EndAt = repairedPlacement.EndAtUtc,
+                                Priority = priority,
+                                Status = status,
+                                SourceBacklogItemId = sourceBacklogItemId,
+                                CreatedAt = DateTime.UtcNow
+                            };
+
+                            await using var repairTx = await _placementValidator.BeginTransactionIfSupportedAsync(cancellationToken);
+                            _db.Tasks.Add(repairedTask);
+                            await _db.SaveChangesAsync(cancellationToken);
+                            await _routeEvaluationCaller.TriggerRouteEvaluationSafelyAsync(repairedTask.TechnicianId, repairedTask.StartAt.Date, "create", cancellationToken);
+                            if (repairTx != null) await repairTx.CommitAsync(cancellationToken);
+
+                            var repairVersion = _db.Entry(repairedTask).Property<uint>("xmin").CurrentValue;
+                            await _evaluationEngine.RecalculatePlanAsync(targetPlan.Id, cancellationToken);
+                            var repairMessage = _placementValidator.BuildRepairAppliedMessage(
+                                "Pasirinktas laikas persidengia su techniko neaktyvumu.",
+                                unavailRepair.PrimaryPlacement, timezoneOffsetMinutes);
+                            var _rUnavail = new TaskCreateResult(TaskCreateError.None, repairMessage, repairedTask, repairVersion);
+                            var (_mUnavail, _oUnavail) = TaskHistoryMessages.ForCreate(_rUnavail, repairedTask.Title);
+                            await _historyWriter.RecordAsync(repairedTask.Id, repairedTask.PlanId, "create", _oUnavail, _mUnavail, user.UserId, user.Role.ToString().ToLower(),
+                                new { technicianId = repairedTask.TechnicianId, startAt = repairedTask.StartAt, endAt = repairedTask.EndAt, unavailabilityRepairApplied = true }, cancellationToken: cancellationToken);
+                            return _rUnavail;
+                        }
+                    }
+                }
+
                 var _r = SchedulePlacementValidator.MapPlacementErrorForCreate(placementValidation);
                 var (_msg, _out) = TaskHistoryMessages.ForCreate(_r, normalizedTitle);
                 await _historyWriter.RecordAsync(null, targetPlan.Id, "create", _out, _msg, user.UserId, user.Role.ToString().ToLower(),

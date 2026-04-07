@@ -191,7 +191,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 [context.Target.TaskId] = context.Source.StartAt
             };
 
-            return BuildSwapFitPlan(context, fixedStarts);
+            return await BuildSwapFitPlanAsync(context, fixedStarts, cancellationToken);
         }
 
         private async Task<ScheduleRepairPlan> BuildSwapAdjustPlanAsync(ScheduleRepairRequest request, CancellationToken cancellationToken)
@@ -208,11 +208,73 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 [context.Target.TaskId] = context.Target.StartAt
             };
 
-            return BuildSwapFitPlan(context, fixedStarts);
+            return await BuildSwapFitPlanAsync(context, fixedStarts, cancellationToken);
         }
 
-        private ScheduleRepairPlan BuildSwapFitPlan(SwapContext context, IReadOnlyDictionary<long, DateTime> fixedStarts)
+        private async Task<ScheduleRepairPlan> BuildSwapFitPlanAsync(
+            SwapContext context,
+            IReadOnlyDictionary<long, DateTime> fixedStarts,
+            CancellationToken cancellationToken)
         {
+            if (context.BlockedIntervals.Count > 0)
+            {
+                var adjustedFixedStarts = new Dictionary<long, DateTime>(fixedStarts);
+                for (var i = 0; i < context.OrderedTasks.Count; i++)
+                {
+                    var task = context.OrderedTasks[i];
+                    if (!adjustedFixedStarts.TryGetValue(task.TaskId, out var desiredStart))
+                    {
+                        continue;
+                    }
+
+                    var fromAddressId = i == 0
+                        ? context.WorkplaceAddressId
+                        : context.OrderedTasks[i - 1].AddressId;
+                    var requiredTravel = ResolveTravelMinutes(context.RouteLookup, fromAddressId, task.AddressId);
+                    if (!requiredTravel.HasValue || requiredTravel.Value <= 0)
+                    {
+                        continue;
+                    }
+
+                    var blockedBeforeStart = context.BlockedIntervals
+                        .Where(interval => interval.EndAt <= desiredStart && interval.EndAt > desiredStart.AddMinutes(-requiredTravel.Value))
+                        .OrderByDescending(interval => interval.EndAt)
+                        .FirstOrDefault();
+
+                    if (blockedBeforeStart == null)
+                    {
+                        continue;
+                    }
+
+                    var shiftedStart = AlignUtcToSlotCeiling(
+                        blockedBeforeStart.EndAt.AddMinutes(requiredTravel.Value),
+                        context.TimezoneOffsetMinutes);
+                    if (shiftedStart > desiredStart)
+                    {
+                        adjustedFixedStarts[task.TaskId] = shiftedStart;
+                    }
+                }
+
+                var anchors = adjustedFixedStarts
+                    .Select(entry => new ScheduleRepairAnchor(entry.Key, entry.Value))
+                    .ToList();
+
+                var fitRequest = new DayScheduleFitRequest(
+                    context.OrderedTasks,
+                    anchors,
+                    context.RouteLookup,
+                    context.WorkplaceAddressId,
+                    context.DayStartUtc,
+                    context.DayEndUtc,
+                    context.TimezoneOffsetMinutes,
+                    NowUtc: _timeService.GetCurrentUtcTime(),
+                    BlockedIntervals: context.BlockedIntervals,
+                    AllowBlockedIntervalShift: true);
+
+                var fitResult = await _fitCore.FitAsync(fitRequest, cancellationToken);
+                return MapFitResult(fitResult, null);
+            }
+
             var tasks = context.OrderedTasks;
             var n = tasks.Count;
             var currentUtc = _timeService.GetCurrentUtcTime();
@@ -373,6 +435,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             var localDay = source.StartAt.Date.AddMinutes(request.TimezoneOffsetMinutes).Date;
             var dayStartUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, ScheduleGrid.DayStartMinutes, request.TimezoneOffsetMinutes);
             var dayEndUtc = _timeService.CreateUtcFromDateAndMinutes(localDay, ScheduleGrid.DayEndMinutes, request.TimezoneOffsetMinutes);
+            var blockedIntervals = await LoadBlockedIntervalsAsync(source.TechnicianId, dayStartUtc, dayEndUtc, cancellationToken);
             var effectiveSourceIndex = effectiveOrder.ToList().FindIndex(t => t.TaskId == source.Id);
             var effectiveTargetIndex = effectiveOrder.ToList().FindIndex(t => t.TaskId == target.Id);
 
@@ -386,6 +449,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                 routeLookup,
                 dayStartUtc,
                 dayEndUtc,
+                blockedIntervals,
                 Math.Min(effectiveSourceIndex, effectiveTargetIndex),
                 Math.Max(effectiveSourceIndex, effectiveTargetIndex),
                 request.TimezoneOffsetMinutes);
@@ -718,6 +782,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             IReadOnlyDictionary<(long From, long To), int> RouteLookup,
             DateTime DayStartUtc,
             DateTime DayEndUtc,
+            IReadOnlyList<DayScheduleBlockedInterval> BlockedIntervals,
             int StartIndex,
             int EndIndex,
             int TimezoneOffsetMinutes)
@@ -725,7 +790,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
             private static readonly ScheduleRepairTaskSnapshot EmptyTask = new(0, 0, default, TimeSpan.Zero);
 
             public static SwapContext Fail(string message) =>
-                new(false, message, Array.Empty<ScheduleRepairTaskSnapshot>(), EmptyTask, EmptyTask, 0, new Dictionary<(long From, long To), int>(), default, default, 0, 0, 0);
+                new(false, message, Array.Empty<ScheduleRepairTaskSnapshot>(), EmptyTask, EmptyTask, 0, new Dictionary<(long From, long To), int>(), default, default, Array.Empty<DayScheduleBlockedInterval>(), 0, 0, 0);
         }
     }
 }

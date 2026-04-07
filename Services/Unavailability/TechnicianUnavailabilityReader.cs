@@ -39,7 +39,7 @@ namespace ServiceTaskPlanningSystem.Services.Unavailability
 
             return blockedPeriods
                 .Select(period => new TechnicianBlockedInterval(period.PeriodStart, period.PeriodEnd))
-                .Where(interval => Overlaps(interval.StartAtUtc, interval.EndAtUtc, rangeStartUtc, rangeEndUtc))
+                .Where(interval => HasHalfOpenOverlap(interval.StartAtUtc, interval.EndAtUtc, rangeStartUtc, rangeEndUtc))
                 .OrderBy(interval => interval.StartAtUtc)
                 .ToList();
         }
@@ -75,7 +75,7 @@ namespace ServiceTaskPlanningSystem.Services.Unavailability
 
             foreach (var blockedPeriod in blockedPeriods)
             {
-                if (!Overlaps(blockedPeriod.PeriodStart, blockedPeriod.PeriodEnd, rangeStartUtc, rangeEndUtc))
+                if (!HasHalfOpenOverlap(blockedPeriod.PeriodStart, blockedPeriod.PeriodEnd, rangeStartUtc, rangeEndUtc))
                 {
                     continue;
                 }
@@ -102,25 +102,42 @@ namespace ServiceTaskPlanningSystem.Services.Unavailability
             DateTime startAtUtc,
             DateTime endAtUtc)
         {
-            return blockedIntervals.Any(interval => Overlaps(interval.StartAtUtc, interval.EndAtUtc, startAtUtc, endAtUtc));
+            return blockedIntervals.Any(interval => HasHalfOpenOverlap(interval.StartAtUtc, interval.EndAtUtc, startAtUtc, endAtUtc));
         }
 
-        public bool OverlapsWindow(
+        public bool TouchesOrOverlapsWindow(
             DateTime rangeStartUtc,
             DateTime rangeEndUtc,
             DateTime blockedStartUtc,
             DateTime blockedEndUtc)
         {
-            return Overlaps(blockedStartUtc, blockedEndUtc, rangeStartUtc, rangeEndUtc);
+            return TouchesOrOverlaps(blockedStartUtc, blockedEndUtc, rangeStartUtc, rangeEndUtc);
         }
 
-        private static bool Overlaps(
+        public bool TouchesOrOverlaps(
+            TechnicianBlockedInterval blockedInterval,
+            DateTime startAtUtc,
+            DateTime endAtUtc)
+        {
+            return TouchesOrOverlaps(blockedInterval.StartAtUtc, blockedInterval.EndAtUtc, startAtUtc, endAtUtc);
+        }
+
+        private static bool HasHalfOpenOverlap(
             DateTime leftStartUtc,
             DateTime leftEndUtc,
             DateTime rightStartUtc,
             DateTime rightEndUtc)
         {
             return leftStartUtc < rightEndUtc && leftEndUtc > rightStartUtc;
+        }
+
+        private static bool TouchesOrOverlaps(
+            DateTime leftStartUtc,
+            DateTime leftEndUtc,
+            DateTime rightStartUtc,
+            DateTime rightEndUtc)
+        {
+            return leftStartUtc <= rightEndUtc && leftEndUtc >= rightStartUtc;
         }
     }
 }

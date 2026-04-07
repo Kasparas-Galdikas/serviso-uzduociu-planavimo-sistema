@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +14,7 @@ using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.History;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
+using ServiceTaskPlanningSystem.Services.Time;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 {
@@ -24,6 +27,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         private readonly ITaskHistoryWriter _historyWriter;
         private readonly RouteEvaluationCaller _routeEvaluationCaller;
         private readonly PlanServicePlanLifecycle _planLifecycle;
+        private readonly IScheduleTimeService _timeService;
         private readonly ILogger<PlanServiceTaskDeletion> _logger;
 
         public PlanServiceTaskDeletion(
@@ -34,6 +38,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             ITaskHistoryWriter historyWriter,
             RouteEvaluationCaller routeEvaluationCaller,
             PlanServicePlanLifecycle planLifecycle,
+            IScheduleTimeService timeService,
             ILogger<PlanServiceTaskDeletion> logger)
         {
             _db = db;
@@ -43,6 +48,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             _historyWriter = historyWriter;
             _routeEvaluationCaller = routeEvaluationCaller;
             _planLifecycle = planLifecycle;
+            _timeService = timeService;
             _logger = logger;
         }
 
@@ -138,6 +144,70 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             await _historyWriter.RecordAsync(taskId, planId, "delete", _oDok, _mDok, user.UserId, user.Role.ToString().ToLower(),
                 new { deletedTaskId = taskId, wasStatus = deletedStatus.ToString(), wasAutoCompacted = autoCompact, technicianId = deletedTechnicianId }, cancellationToken: cancellationToken);
             return _rDok;
+        }
+
+        public async Task<(int Deleted, int Skipped)> BulkDeleteTasksAsync(long[] ids, UserContext user, CancellationToken cancellationToken = default)
+        {
+            _logger.LogInformation("svc.task.bulk-delete.requested count={Count}", ids.Length);
+
+            var tasks = await _db.Tasks
+                .Include(t => t.Plan)
+                .Where(t => ids.Contains(t.Id))
+                .ToListAsync(cancellationToken);
+
+            var toDelete = new List<TaskEntity>();
+            var skipped = 0;
+
+            foreach (var task in tasks)
+            {
+                if (!_timeService.IsTaskStillEditable(task.EndAt))
+                {
+                    _logger.LogWarning("svc.task.bulk-delete.skipped-past taskId={TaskId}", task.Id);
+                    skipped++;
+                    continue;
+                }
+                toDelete.Add(task);
+            }
+
+            if (toDelete.Count == 0)
+            {
+                _logger.LogInformation("svc.task.bulk-delete.nothing-to-delete skipped={Skipped}", skipped);
+                return (0, skipped);
+            }
+
+            _db.Tasks.RemoveRange(toDelete);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            // Post-delete side effects — mirror single delete behaviour
+            var affectedPlanIds = toDelete
+                .Where(t => t.PlanId.HasValue)
+                .Select(t => t.PlanId!.Value)
+                .Distinct();
+
+            var affectedTechnicianDays = toDelete
+                .Select(t => (t.TechnicianId, Day: t.StartAt.Date))
+                .Distinct();
+
+            foreach (var planId in affectedPlanIds)
+                await _evaluationEngine.RecalculatePlanAsync(planId, cancellationToken);
+
+            foreach (var (technicianId, day) in affectedTechnicianDays)
+                await _routeEvaluationCaller.TriggerRouteEvaluationSafelyAsync(technicianId, day, "bulk-delete", cancellationToken);
+
+            var actorRole = user.Role.ToString().ToLower();
+            var successResult = new TaskDeleteResult(TaskDeleteError.None, CurrentVersion: 0);
+            foreach (var task in toDelete)
+            {
+                var (summary, outcome) = TaskHistoryMessages.ForDelete(successResult, task.Title);
+                await _historyWriter.RecordAsync(
+                    task.Id, task.PlanId, "delete", outcome, summary,
+                    user.UserId, actorRole,
+                    new { deletedTaskId = task.Id, wasStatus = task.Status.ToString(), source = "bulk" },
+                    cancellationToken: cancellationToken);
+            }
+
+            _logger.LogInformation("svc.task.bulk-delete.ok deleted={Deleted} skipped={Skipped}", toDelete.Count, skipped);
+            return (toDelete.Count, skipped);
         }
     }
 }

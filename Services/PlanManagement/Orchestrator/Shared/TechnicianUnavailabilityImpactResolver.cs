@@ -94,11 +94,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                         routeLookup,
                         timezoneOffsetMinutes,
                         _timeService);
-                    if (_technicianAvailabilityPolicy.OverlapsWindow(
+                    if (_technicianAvailabilityPolicy.HasBlockedOverlap(
+                        new[] { new TechnicianBlockedInterval(periodStart, periodEnd) },
                         effectiveStartAt,
-                        task.EndAt,
-                        periodStart,
-                        periodEnd))
+                        task.EndAt))
                     {
                         affected.Add(new AffectedTaskCandidate(task, effectiveStartAt));
                     }

@@ -1260,7 +1260,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         {
             public Task RecordAsync(long? taskId, long? planId, string actionType, string outcome, string summary,
                 long? actorUserId, string actorRole, object? details = null, string source = "user",
-                string? correlationId = null, CancellationToken cancellationToken = default)
+                CancellationToken cancellationToken = default)
                 => Task.CompletedTask;
         }
     }

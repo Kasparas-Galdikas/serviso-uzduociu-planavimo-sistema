@@ -74,7 +74,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             public Task RecordAsync(
                 long? taskId, long? planId, string actionType, string outcome, string summary,
                 long? actorUserId, string actorRole, object? details = null, string source = "user",
-                string? correlationId = null, CancellationToken cancellationToken = default)
+                CancellationToken cancellationToken = default)
                 => Task.CompletedTask;
         }
 
@@ -285,7 +285,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             _taskDeletion = new PlanServiceTaskDeletion(
                 db, evaluationEngine, scheduleRepairService, taskPermissionService, historyWriter,
-                _routeEvaluationCaller, _planLifecycle,
+                _routeEvaluationCaller, _planLifecycle, timeService,
                 new ForwardingLogger<PlanServiceTaskDeletion>(logger));
 
             _taskPreview = new PlanServiceTaskPreview(
@@ -534,6 +534,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             => _taskDeletion.DeleteTaskAsync(
                 taskId, expectedVersion, autoCompact,
                 user, timezoneOffsetMinutes, cancellationToken);
+
+        public Task<(int Deleted, int Skipped)> BulkDeleteTasksAsync(
+            long[] ids,
+            UserContext user,
+            CancellationToken cancellationToken = default)
+            => _taskDeletion.BulkDeleteTasksAsync(ids, user, cancellationToken);
 
         // ── Task previews ────────────────────────────────────────────────────
 

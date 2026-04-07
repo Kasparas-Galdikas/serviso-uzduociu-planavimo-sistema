@@ -15,7 +15,6 @@ namespace ServiceTaskPlanningSystem.Data
         public string Instructions { get; set; } = string.Empty;
         public DateTime? DueDate { get; set; }
         public DateTime CreatedAt { get; set; }
-        public long? SourceTaskId { get; set; }   // set when item was created by technician displacement
         public long? SourceUnavailabilityId { get; set; }
         public long? OriginalTechnicianId { get; set; }
         public DateTime? OriginalStartAt { get; set; }
