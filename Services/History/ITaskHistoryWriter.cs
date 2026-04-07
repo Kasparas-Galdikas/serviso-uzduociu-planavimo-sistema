@@ -15,7 +15,6 @@ namespace ServiceTaskPlanningSystem.Services.History
             string actorRole,
             object? details = null,
             string source = "user",
-            string? correlationId = null,
             CancellationToken cancellationToken = default);
     }
 }

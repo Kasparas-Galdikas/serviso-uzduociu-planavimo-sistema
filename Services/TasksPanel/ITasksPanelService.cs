@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Common;
+using ServiceTaskPlanningSystem.Services.Authorization.Models;
 
 namespace ServiceTaskPlanningSystem.Services.TasksPanel
 {
@@ -19,6 +20,6 @@ namespace ServiceTaskPlanningSystem.Services.TasksPanel
     public interface ITasksPanelService
     {
         Task<TasksPanelPagedResult> GetItemsAsync(string tab, int page, int pageSize, int? priority = null, CancellationToken ct = default);
-        Task<int> BulkDeleteTasksAsync(long[] ids, CancellationToken ct = default);
+        Task<(int Deleted, int Skipped)> BulkDeleteTasksAsync(long[] ids, UserContext user, CancellationToken ct = default);
     }
 }

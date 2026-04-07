@@ -111,6 +111,50 @@ public sealed class ScheduleRepairServiceTests
         result.Adjustments.Should().Contain(x => x.TaskId == 101 && x.StartAt == day.AddHours(8) && x.EndAt == day.AddHours(10));
         result.Adjustments.Should().Contain(x => x.TaskId == 100 && x.StartAt == day.AddHours(11.5) && x.EndAt == day.AddHours(14));
     }
+
+    [Fact]
+    public async Task BuildPlanAsync_ForSwap_WithBlockedInboundTravel_ShiftsTaskAfterUnavailability()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedTechnician(db, 1, 1);
+        SeedObject(db, 100, 2);
+        SeedObject(db, 101, 3);
+        SeedTask(db, 200, 1, 100, day.AddHours(10), day.AddHours(10.5));
+        SeedTask(db, 201, 1, 101, day.AddHours(14.5), day.AddHours(15));
+        SeedUnavailability(db, 1, day.AddHours(11.5), day.AddHours(14.5));
+        SeedRoute(db, 1, 2, 0);
+        SeedRoute(db, 1, 3, 0);
+        SeedRoute(db, 2, 3, 0);
+        SeedRoute(db, 3, 2, 82);
+
+        var routeChainBuilder = Substitute.For<IRouteChainBuilder>();
+        routeChainBuilder.BuildDayChainAsync(Arg.Any<RouteChainRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new RouteChain
+            {
+                TechnicianId = 1,
+                WorkplaceAddressId = 1,
+                Stops =
+                {
+                    new RouteStop { TaskId = 200, StartAt = day.AddHours(10), EndAt = day.AddHours(10.5), AddressId = 2 },
+                    new RouteStop { TaskId = 201, StartAt = day.AddHours(14.5), EndAt = day.AddHours(15), AddressId = 3 }
+                }
+            });
+
+        var service = new ScheduleRepairService(db, CreateTimeService(), routeChainBuilder, new DayScheduleFitCore(), CreateTravelResolver(db), Substitute.For<IRouteEvaluationService>(), new TechnicianUnavailabilityReader(db));
+
+        var result = await service.BuildPlanAsync(new ScheduleRepairRequest
+        {
+            ScenarioKind = ScheduleRepairScenarioKind.Swap,
+            SourceTaskId = 200,
+            TargetTaskId = 201,
+            TimezoneOffsetMinutes = 0
+        });
+
+        result.Success.Should().BeTrue();
+        result.Adjustments.Should().Contain(x => x.TaskId == 201 && x.StartAt == day.AddHours(10) && x.EndAt == day.AddHours(10.5));
+        result.Adjustments.Should().Contain(x => x.TaskId == 200 && x.StartAt == day.AddHours(16) && x.EndAt == day.AddHours(16.5));
+    }
     [Fact]
     public async Task BuildPlanAsync_ForPlacement_ReturnsPrimaryPlacement()
     {
@@ -141,6 +185,34 @@ public sealed class ScheduleRepairServiceTests
         result.Success.Should().BeTrue();
         result.PrimaryPlacement.Should().NotBeNull();
         result.Adjustments.Should().Contain(x => x.TaskId == -1);
+    }
+
+    [Fact]
+    public async Task BuildPlanAsync_ForPlacementWithBlockedIntervalShift_AllowsPrimaryPlacementAtBlockEnd()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedTechnician(db, 1, 1);
+        SeedAddress(db, 4, "New, City");
+        SeedUnavailability(db, 1, day.AddHours(11.5), day.AddHours(14.5));
+        SeedRoute(db, 1, 4, 0);
+
+        var service = new ScheduleRepairService(db, CreateTimeService(), Substitute.For<IRouteChainBuilder>(), new DayScheduleFitCore(), CreateTravelResolver(db), Substitute.For<IRouteEvaluationService>(), new TechnicianUnavailabilityReader(db));
+
+        var result = await service.BuildPlanAsync(new ScheduleRepairRequest
+        {
+            ScenarioKind = ScheduleRepairScenarioKind.Move,
+            TechnicianId = 1,
+            DayUtc = day,
+            TimezoneOffsetMinutes = 0,
+            AllowBlockedIntervalShift = true,
+            ProposedPlacement = new ScheduleRepairPlacement(0, 4, day.AddHours(14), day.AddHours(14.5))
+        });
+
+        result.Success.Should().BeTrue();
+        result.PrimaryPlacement.Should().NotBeNull();
+        result.PrimaryPlacement!.StartAt.Should().Be(day.AddHours(14.5));
+        result.PrimaryPlacement.EndAt.Should().Be(day.AddHours(15));
     }
 
     [Fact]
@@ -454,6 +526,18 @@ public sealed class ScheduleRepairServiceTests
             City = "City",
             Street = fullAddress.Split(',')[0],
             FullAddress = fullAddress,
+            CreatedAt = DateTime.UtcNow
+        });
+        db.SaveChanges();
+    }
+
+    private static void SeedUnavailability(ScheduleDbContext db, long technicianId, DateTime startAt, DateTime endAt)
+    {
+        db.TechnicianUnavailabilities.Add(new TechnicianUnavailabilityEntity
+        {
+            TechnicianId = technicianId,
+            PeriodStart = DateTime.SpecifyKind(startAt, DateTimeKind.Utc),
+            PeriodEnd = DateTime.SpecifyKind(endAt, DateTimeKind.Utc),
             CreatedAt = DateTime.UtcNow
         });
         db.SaveChanges();

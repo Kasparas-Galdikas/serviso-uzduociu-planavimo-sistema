@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.TasksPanel;
 using ServiceTaskPlanningSystem.Services.Time;
 
@@ -16,15 +17,18 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
     {
         private readonly ITasksPanelService _tasksPanelService;
         private readonly IScheduleTimeService _timeService;
+        private readonly IUserContextResolver _userContextResolver;
         private readonly ILogger<TasksPanelController> _logger;
 
         public TasksPanelController(
             ITasksPanelService tasksPanelService,
             IScheduleTimeService timeService,
+            IUserContextResolver userContextResolver,
             ILogger<TasksPanelController> logger)
         {
             _tasksPanelService = tasksPanelService;
             _timeService = timeService;
+            _userContextResolver = userContextResolver;
             _logger = logger;
         }
 
@@ -74,9 +78,10 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             if (ids == null || ids.Length == 0)
                 return BadRequest(new { message = "No ids provided." });
 
+            var user = _userContextResolver.GetCurrentUser();
             _logger.LogInformation("api.tasks-panel.bulk-delete count={Count}", ids.Length);
-            var deleted = await _tasksPanelService.BulkDeleteTasksAsync(ids, cancellationToken);
-            return Ok(new { deleted });
+            var (deleted, skipped) = await _tasksPanelService.BulkDeleteTasksAsync(ids, user, cancellationToken);
+            return Ok(new { deleted, skipped });
         }
     }
 }

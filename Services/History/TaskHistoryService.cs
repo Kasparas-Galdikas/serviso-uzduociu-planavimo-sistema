@@ -39,7 +39,6 @@ namespace ServiceTaskPlanningSystem.Services.History
             string actorRole,
             object? details = null,
             string source = "user",
-            string? correlationId = null,
             CancellationToken cancellationToken = default)
         {
             try
@@ -89,8 +88,7 @@ namespace ServiceTaskPlanningSystem.Services.History
                     DetailsJson = details != null
                         ? JsonSerializer.Serialize(details, _jsonOptions)
                         : null,
-                    Source = source,
-                    CorrelationId = correlationId
+                    Source = source
                 };
 
                 db.TaskActionLogs.Add(entry);

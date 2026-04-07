@@ -161,10 +161,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDefaultValue("")
                         .HasColumnName("skill_level");
 
-                    b.Property<long?>("SourceTaskId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("source_task_id");
-
                     b.Property<long?>("SourceUnavailabilityId")
                         .HasColumnType("bigint")
                         .HasColumnName("source_unavailability_id");
@@ -326,10 +322,6 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.Property<long?>("ActorUserId")
                         .HasColumnType("bigint")
                         .HasColumnName("actor_user_id");
-
-                    b.Property<string>("CorrelationId")
-                        .HasColumnType("text")
-                        .HasColumnName("correlation_id");
 
                     b.Property<string>("DetailsJson")
                         .HasColumnType("jsonb")

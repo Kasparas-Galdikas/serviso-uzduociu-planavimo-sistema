@@ -390,14 +390,31 @@
       });
       if (!resp.ok) throw new Error("delete-failed");
       const data = await resp.json();
-      _items = _items.filter((i) => !ids.includes(Number(i.id)));
-      schedule.ui?.toast?.showSuccess?.(`${data.deleted} užduotis(-ys) ištrinta(-os).`);
+
+      if (data.deleted === 0) {
+        schedule.ui?.toast?.showError?.("Nėra užduočių, kurias galima ištrinti.");
+      } else {
+        schedule.ui?.toast?.showSuccess?.(`${data.deleted} užduočių ištrinta.`);
+      }
     } catch {
       schedule.ui?.toast?.showError?.("Nepavyko ištrinti užduočių.");
     }
 
     exitSelectionMode();
+
+    // Reload from server — server is the source of truth on what was actually deleted
+    _scroll?.disconnect();
+    _page = 1;
+    _hasMore = false;
+    _items = [];
+    const data = await loadItemsFromApi(_activeTab, 1);
+    if (data) {
+      _items = data.items ?? [];
+      _hasMore = data.hasMore ?? false;
+      setTabCount(_activeTab, data.totalCount ?? _items.length);
+    }
     renderList();
+    if (_hasMore) setupScroll();
 
     // Refresh the calendar to reflect deleted tasks
     const query = schedule.state?.getQuery?.();

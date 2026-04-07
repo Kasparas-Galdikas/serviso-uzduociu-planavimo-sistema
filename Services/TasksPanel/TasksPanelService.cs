@@ -5,18 +5,21 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
-using ServiceTaskPlanningSystem.Models.Common;
+using ServiceTaskPlanningSystem.Services.Authorization.Models;
+using ServiceTaskPlanningSystem.Services.PlanManagement;
 
 namespace ServiceTaskPlanningSystem.Services.TasksPanel
 {
     public class TasksPanelService : ITasksPanelService
     {
         private readonly ScheduleDbContext _db;
+        private readonly IPlanService _planService;
         private readonly ILogger<TasksPanelService> _logger;
 
-        public TasksPanelService(ScheduleDbContext db, ILogger<TasksPanelService> logger)
+        public TasksPanelService(ScheduleDbContext db, IPlanService planService, ILogger<TasksPanelService> logger)
         {
             _db = db;
+            _planService = planService;
             _logger = logger;
         }
 
@@ -62,19 +65,7 @@ namespace ServiceTaskPlanningSystem.Services.TasksPanel
             return new TasksPanelPagedResult(items, versions, totalCount, page, pageSize);
         }
 
-        public async Task<int> BulkDeleteTasksAsync(long[] ids, CancellationToken ct = default)
-        {
-            var tasks = await _db.Tasks
-                .Where(t => ids.Contains(t.Id))
-                .ToListAsync(ct);
-
-            if (tasks.Count == 0) return 0;
-
-            _db.Tasks.RemoveRange(tasks);
-            await _db.SaveChangesAsync(ct);
-
-            _logger.LogInformation("svc.tasks-panel.bulk-delete count={Count}", tasks.Count);
-            return tasks.Count;
-        }
+        public Task<(int Deleted, int Skipped)> BulkDeleteTasksAsync(long[] ids, UserContext user, CancellationToken ct = default)
+            => _planService.BulkDeleteTasksAsync(ids, user, ct);
     }
 }

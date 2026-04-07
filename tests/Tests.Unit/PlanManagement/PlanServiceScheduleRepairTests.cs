@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -60,6 +62,8 @@ public sealed class PlanServiceScheduleRepairTests
             .Returns(ScheduleRepairPlan.Fail("no repair"));
         _repairService.ApplyPlanAsync(Arg.Any<ScheduleRepairPlan>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
             .Returns(new ScheduleRepairApplyResult(true, null, Array.Empty<long>()));
+        _travelResolver.GetTravelMinutesAsync(Arg.Any<IEnumerable<long>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new Dictionary<(long From, long To), int>()));
     }
 
     [Fact]
@@ -152,6 +156,433 @@ public sealed class PlanServiceScheduleRepairTests
         await _repairService.Received(1).ApplyPlanAsync(Arg.Any<ScheduleRepairPlan>(), Arg.Any<long?>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task CreateTask_WhenTaskStartsAtUnavailabilityEnd_AllowsCreation()
+    {
+        using var db = CreateContext();
+        SeedTechnicianAndPlan(db);
+        SeedUnavailability(db, 1, DateTime.Today.AddDays(1).AddHours(11.5), DateTime.Today.AddDays(1).AddHours(14.5));
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult { IsFeasible = true });
+
+        var sut = CreateService(db);
+
+        var result = await sut.CreateTaskAsync(
+            1,
+            DateTime.Today.AddDays(1),
+            14 * 60 + 30,
+            15 * 60,
+            "Task",
+            TaskPriority.Medium,
+            ScheduleTaskStatus.InProgress,
+            "A",
+            "Obj",
+            "Main St 1, City",
+            string.Empty,
+            new UserContext { Role = UserRole.Manager, UserId = 1 },
+            0,
+            cancellationToken: CancellationToken.None);
+
+        result.Ok.Should().BeTrue();
+        (result.Message ?? string.Empty).Should().NotContain("techniko neaktyvumas");
+        await _repairService.DidNotReceive().BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateTask_WhenTaskOverlapsUnavailabilityAndRepairExists_CreatesAtBlockEnd()
+    {
+        using var db = CreateContext();
+        SeedTechnicianAndPlan(db);
+        SeedUnavailability(db, 1, DateTime.Today.AddDays(1).AddHours(11.5), DateTime.Today.AddDays(1).AddHours(14.5));
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult { IsFeasible = true });
+        _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ScheduleRepairPlan(
+                true,
+                null,
+                ScheduleRepairKind.Shifted,
+                Array.Empty<DayScheduleFitAdjustment>(),
+                new ScheduleRepairPlacement(
+                    -1,
+                    2,
+                    DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(14.5), DateTimeKind.Utc),
+                    DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(15), DateTimeKind.Utc))));
+
+        var sut = CreateService(db);
+
+        var result = await sut.CreateTaskAsync(
+            1,
+            DateTime.Today.AddDays(1),
+            14 * 60,
+            14 * 60 + 30,
+            "Task",
+            TaskPriority.Medium,
+            ScheduleTaskStatus.InProgress,
+            "A",
+            "Obj",
+            "Main St 1, City",
+            string.Empty,
+            new UserContext { Role = UserRole.Manager, UserId = 1 },
+            0,
+            cancellationToken: CancellationToken.None);
+
+        result.Ok.Should().BeTrue();
+        result.Task!.StartAt.Should().Be(DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(14.5), DateTimeKind.Utc));
+        await _repairService.Received(1).BuildPlanAsync(
+            Arg.Is<ScheduleRepairRequest>(x =>
+                x.TechnicianId == 1 &&
+                x.ScenarioKind == ScheduleRepairScenarioKind.Move &&
+                x.AllowBlockedIntervalShift),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateTask_WhenTravelStartsAfterUnavailability_UsesBlockedBoundaryRepair()
+    {
+        using var db = CreateContext();
+        SeedTechnicianAndPlan(db);
+        SeedUnavailability(db, 1, DateTime.Today.AddDays(1).AddHours(11.5), DateTime.Today.AddDays(1).AddHours(14.5));
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult
+            {
+                IsFeasible = false,
+                InboundTravelMinutes = 82,
+                Message = "travel fail"
+            });
+        _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var request = call.ArgAt<ScheduleRepairRequest>(0);
+                return new ScheduleRepairPlan(
+                    true,
+                    null,
+                    ScheduleRepairKind.Shifted,
+                    Array.Empty<DayScheduleFitAdjustment>(),
+                    new ScheduleRepairPlacement(
+                        -1,
+                        request.ProposedPlacement!.ServiceAddressId,
+                        request.ProposedPlacement.StartAt,
+                        request.ProposedPlacement.EndAt));
+            });
+
+        var sut = CreateService(db);
+
+        var result = await sut.CreateTaskAsync(
+            1,
+            DateTime.Today.AddDays(1),
+            14 * 60 + 30,
+            15 * 60,
+            "Task",
+            TaskPriority.Medium,
+            ScheduleTaskStatus.InProgress,
+            "A",
+            "Obj",
+            "Main St 1, City",
+            string.Empty,
+            new UserContext { Role = UserRole.Manager, UserId = 1 },
+            0,
+            cancellationToken: CancellationToken.None);
+
+        result.Ok.Should().BeTrue();
+        await _repairService.Received().BuildPlanAsync(
+            Arg.Is<ScheduleRepairRequest>(x =>
+                x.AllowBlockedIntervalShift &&
+                x.SimulatedBlockedIntervalStart == DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(11.5), DateTimeKind.Utc) &&
+                x.SimulatedBlockedIntervalEnd == DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(14.5), DateTimeKind.Utc) &&
+                x.ProposedPlacement != null &&
+                x.ProposedPlacement.StartAt == DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(16), DateTimeKind.Utc) &&
+                x.ProposedPlacement.EndAt == DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(16.5), DateTimeKind.Utc)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateTask_WhenBlockedTravelRepairCannotFit_ReturnsTravelInfeasible()
+    {
+        using var db = CreateContext();
+        SeedTechnicianAndPlan(db);
+        SeedUnavailability(db, 1, DateTime.Today.AddDays(1).AddHours(11.5), DateTime.Today.AddDays(1).AddHours(18.5));
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult
+            {
+                IsFeasible = false,
+                InboundTravelMinutes = 82,
+                Message = "travel fail"
+            });
+        _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ScheduleRepairPlan.Fail("no repair"));
+
+        var sut = CreateService(db);
+
+        var result = await sut.CreateTaskAsync(
+            1,
+            DateTime.Today.AddDays(1),
+            18 * 60 + 30,
+            19 * 60,
+            "Task",
+            TaskPriority.Medium,
+            ScheduleTaskStatus.InProgress,
+            "A",
+            "Obj",
+            "Main St 1, City",
+            string.Empty,
+            new UserContext { Role = UserRole.Manager, UserId = 1 },
+            0,
+            cancellationToken: CancellationToken.None);
+
+        result.Error.Should().Be(TaskCreateError.TravelInfeasible);
+    }
+
+    [Fact]
+    public async Task UpdateTask_WhenTravelStartsAfterUnavailability_UsesBlockedBoundaryRepair()
+    {
+        using var db = CreateContext();
+        SeedTechnicianAndPlan(db);
+        SeedUnavailability(db, 1, DateTime.Today.AddDays(1).AddHours(11.5), DateTime.Today.AddDays(1).AddHours(14.5));
+        SeedTask(db, 100, 1, 2, DateTime.Today.AddDays(1).AddHours(14.5), DateTime.Today.AddDays(1).AddHours(15));
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult
+            {
+                IsFeasible = false,
+                InboundTravelMinutes = 82,
+                Message = "travel fail"
+            });
+        _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var request = call.ArgAt<ScheduleRepairRequest>(0);
+                return new ScheduleRepairPlan(
+                    true,
+                    null,
+                    ScheduleRepairKind.Shifted,
+                    Array.Empty<DayScheduleFitAdjustment>(),
+                    new ScheduleRepairPlacement(
+                        -1,
+                        request.ProposedPlacement!.ServiceAddressId,
+                        request.ProposedPlacement.StartAt,
+                        request.ProposedPlacement.EndAt));
+            });
+
+        var sut = CreateService(db);
+
+        var result = await sut.UpdateTaskAsync(
+            100,
+            _ => { },
+            1,
+            new UserContext { Role = UserRole.Manager, UserId = 1 },
+            0,
+            null,
+            null,
+            CancellationToken.None);
+
+        result.Ok.Should().BeTrue();
+        await _repairService.Received().BuildPlanAsync(
+            Arg.Is<ScheduleRepairRequest>(x =>
+                x.AllowBlockedIntervalShift &&
+                x.ProposedPlacement != null &&
+                x.ProposedPlacement.StartAt == DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(16), DateTimeKind.Utc)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MoveTask_WhenTravelStartsAfterUnavailability_UsesBlockedBoundaryRepair()
+    {
+        using var db = CreateContext();
+        SeedTechnicianAndPlan(db);
+        SeedUnavailability(db, 1, DateTime.Today.AddDays(1).AddHours(11.5), DateTime.Today.AddDays(1).AddHours(14.5));
+        SeedTask(db, 100, 1, 2, DateTime.Today.AddDays(1).AddHours(9), DateTime.Today.AddDays(1).AddHours(9.5));
+        SetVersion(db, 100, 1u);
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult
+            {
+                IsFeasible = false,
+                InboundTravelMinutes = 82,
+                Message = "travel fail"
+            });
+        _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var request = call.ArgAt<ScheduleRepairRequest>(0);
+                return new ScheduleRepairPlan(
+                    true,
+                    null,
+                    ScheduleRepairKind.Shifted,
+                    Array.Empty<DayScheduleFitAdjustment>(),
+                    new ScheduleRepairPlacement(
+                        -1,
+                        request.ProposedPlacement!.ServiceAddressId,
+                        request.ProposedPlacement.StartAt,
+                        request.ProposedPlacement.EndAt));
+            });
+
+        var sut = CreateService(db);
+
+        var result = await sut.MoveTaskAsync(
+            100,
+            1,
+            DateTime.Today.AddDays(1),
+            14 * 60 + 30,
+            1u,
+            new UserContext { Role = UserRole.Manager, UserId = 1 },
+            0,
+            CancellationToken.None);
+
+        result.Ok.Should().BeTrue();
+        await _repairService.Received().BuildPlanAsync(
+            Arg.Is<ScheduleRepairRequest>(x =>
+                x.AllowBlockedIntervalShift &&
+                x.ProposedPlacement != null &&
+                x.ProposedPlacement.StartAt == DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(16), DateTimeKind.Utc)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UpdateTaskTime_WhenTravelStartsAfterUnavailability_UsesBlockedBoundaryRepair()
+    {
+        using var db = CreateContext();
+        SeedTechnicianAndPlan(db);
+        SeedUnavailability(db, 1, DateTime.Today.AddDays(1).AddHours(11.5), DateTime.Today.AddDays(1).AddHours(14.5));
+        SeedTask(db, 100, 1, 2, DateTime.Today.AddDays(1).AddHours(9), DateTime.Today.AddDays(1).AddHours(9.5));
+        SetVersion(db, 100, 1u);
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new TravelFeasibilityResult
+            {
+                IsFeasible = false,
+                InboundTravelMinutes = 82,
+                Message = "travel fail"
+            });
+        _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var request = call.ArgAt<ScheduleRepairRequest>(0);
+                return new ScheduleRepairPlan(
+                    true,
+                    null,
+                    ScheduleRepairKind.Shifted,
+                    Array.Empty<DayScheduleFitAdjustment>(),
+                    new ScheduleRepairPlacement(
+                        -1,
+                        request.ProposedPlacement!.ServiceAddressId,
+                        request.ProposedPlacement.StartAt,
+                        request.ProposedPlacement.EndAt));
+            });
+
+        var sut = CreateService(db);
+
+        var result = await sut.UpdateTaskTimeAsync(
+            100,
+            DateTime.Today.AddDays(1),
+            14 * 60 + 30,
+            15 * 60,
+            1u,
+            new UserContext { Role = UserRole.Manager, UserId = 1 },
+            0,
+            CancellationToken.None);
+
+        result.Ok.Should().BeTrue();
+        await _repairService.Received().BuildPlanAsync(
+            Arg.Is<ScheduleRepairRequest>(x =>
+                x.AllowBlockedIntervalShift &&
+                x.ProposedPlacement != null &&
+                x.ProposedPlacement.StartAt == DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(16), DateTimeKind.Utc)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PreviewDisplacement_WhenTaskStartsAtUnavailabilityEnd_DoesNotMarkTaskAffected()
+    {
+        using var db = CreateContext();
+        SeedTechnicianAndPlan(db);
+        SeedTask(db, 100, 1, 2, DateTime.Today.AddDays(1).AddHours(14.5), DateTime.Today.AddDays(1).AddHours(15));
+
+        var sut = CreateService(db);
+
+        var result = await sut.PreviewDisplacementAsync(
+            1,
+            DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(11.5), DateTimeKind.Utc),
+            DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(14.5), DateTimeKind.Utc),
+            new UserContext { Role = UserRole.Manager, UserId = 1 },
+            0,
+            CancellationToken.None);
+
+        result.AffectedTasks.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PreviewDisplacement_WhenTaskOverlapsUnavailability_MarksTaskAffected()
+    {
+        using var db = CreateContext();
+        SeedTechnicianAndPlan(db);
+        SeedTask(db, 100, 1, 2, DateTime.Today.AddDays(1).AddHours(14), DateTime.Today.AddDays(1).AddHours(14.5));
+
+        var sut = CreateService(db);
+
+        var result = await sut.PreviewDisplacementAsync(
+            1,
+            DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(11.5), DateTimeKind.Utc),
+            DateTime.SpecifyKind(DateTime.Today.AddDays(1).AddHours(14.5), DateTimeKind.Utc),
+            new UserContext { Role = UserRole.Manager, UserId = 1 },
+            0,
+            CancellationToken.None);
+
+        result.AffectedTasks.Should().ContainSingle(x => x.TaskId == 100);
+    }
+
     private PlanService CreateService(ScheduleDbContext db) =>
         new(db, _evaluation, _planningCalendar, _permission, _time, _routeEvaluation, _travelFeasibility, _repairService, _travelResolver, Substitute.For<ITaskHistoryWriter>(), _logger);
 
@@ -189,6 +620,13 @@ public sealed class PlanServiceScheduleRepairTests
             WeeklyLimit = 40,
             CreatedAt = DateTime.UtcNow
         });
+        db.ServiceObjects.Add(new ServiceObjectEntity
+        {
+            Id = 2,
+            Name = "Obj",
+            AddressId = 2,
+            CreatedAt = DateTime.UtcNow
+        });
         db.Plans.Add(new PlanEntity
         {
             Id = 50,
@@ -196,6 +634,42 @@ public sealed class PlanServiceScheduleRepairTests
             PeriodEnd = DateTime.Today.AddDays(30),
             Weeks = 4,
             Status = PlanStatus.Active,
+            CreatedAt = DateTime.UtcNow
+        });
+        db.SaveChanges();
+    }
+
+    private static void SeedTask(ScheduleDbContext db, long taskId, long technicianId, long serviceObjectId, DateTime startAt, DateTime endAt)
+    {
+        db.Tasks.Add(new TaskEntity
+        {
+            Id = taskId,
+            TechnicianId = technicianId,
+            ServiceObjectId = serviceObjectId,
+            Title = $"Task {taskId}",
+            StartAt = DateTime.SpecifyKind(startAt, DateTimeKind.Utc),
+            EndAt = DateTime.SpecifyKind(endAt, DateTimeKind.Utc),
+            Priority = TaskPriority.Medium,
+            Status = ScheduleTaskStatus.InProgress,
+            PlanId = 50,
+            CreatedAt = DateTime.UtcNow
+        });
+        db.SaveChanges();
+    }
+
+    private static void SetVersion(ScheduleDbContext db, long taskId, uint version)
+    {
+        var task = db.Tasks.Single(x => x.Id == taskId);
+        db.Entry(task).Property<uint>("xmin").CurrentValue = version;
+    }
+
+    private static void SeedUnavailability(ScheduleDbContext db, long technicianId, DateTime startAt, DateTime endAt)
+    {
+        db.TechnicianUnavailabilities.Add(new TechnicianUnavailabilityEntity
+        {
+            TechnicianId = technicianId,
+            PeriodStart = DateTime.SpecifyKind(startAt, DateTimeKind.Utc),
+            PeriodEnd = DateTime.SpecifyKind(endAt, DateTimeKind.Utc),
             CreatedAt = DateTime.UtcNow
         });
         db.SaveChanges();

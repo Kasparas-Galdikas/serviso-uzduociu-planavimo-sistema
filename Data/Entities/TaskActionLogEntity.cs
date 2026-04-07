@@ -15,7 +15,6 @@ namespace ServiceTaskPlanningSystem.Data
         public DateTime OccurredAtUtc { get; set; }
         public string Summary { get; set; } = string.Empty;
         public string? DetailsJson { get; set; }
-        public string? CorrelationId { get; set; }
         public string Source { get; set; } = "user";
     }
 }

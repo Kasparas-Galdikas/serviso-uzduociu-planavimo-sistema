@@ -321,9 +321,6 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.Title)
                 .IsRequired()
                 .HasMaxLength(200);
-            entity.Property(e => e.SourceTaskId)
-                .HasColumnName("source_task_id")
-                .IsRequired(false);
             entity.Property(e => e.SourceUnavailabilityId)
                 .HasColumnName("source_unavailability_id")
                 .IsRequired(false);

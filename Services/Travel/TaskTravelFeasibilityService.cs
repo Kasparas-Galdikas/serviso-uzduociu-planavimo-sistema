@@ -30,7 +30,7 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             var minutes = Math.Max(0, totalMinutes);
             var hours = minutes / 60;
             var remainder = minutes % 60;
-            return $"{hours:00}:{remainder:00}";
+            return hours > 0 ? $"{hours} val. {remainder} min." : $"{remainder} min.";
         }
 
         public TaskTravelFeasibilityService(
