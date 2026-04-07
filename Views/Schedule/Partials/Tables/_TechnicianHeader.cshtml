@@ -1,4 +1,7 @@
 @model ServiceTaskPlanningSystem.Models.Planning.TechnicianHeaderInfo
 
-<div class="fw-semibold">@Model.Name</div>
+<button type="button"
+        class="fw-semibold tech-name-btn btn btn-link p-0 text-start lh-sm"
+        data-technician-id="@Model.TechnicianId"
+        data-technician-name="@Model.Name">@Model.Name</button>
 <div class="text-muted small">@Model.Location</div>

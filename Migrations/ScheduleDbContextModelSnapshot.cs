@@ -135,6 +135,18 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDefaultValue("")
                         .HasColumnName("object_name");
 
+                    b.Property<DateTime?>("OriginalEndAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("original_end_at");
+
+                    b.Property<DateTime?>("OriginalStartAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("original_start_at");
+
+                    b.Property<long?>("OriginalTechnicianId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("original_technician_id");
+
                     b.Property<TaskPriority>("Priority")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("task_priority")
@@ -149,10 +161,18 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDefaultValue("")
                         .HasColumnName("skill_level");
 
+                    b.Property<long?>("SourceTaskId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_task_id");
+
+                    b.Property<long?>("SourceUnavailabilityId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_unavailability_id");
+
                     b.Property<string>("Title")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
                         .HasColumnName("title");
 
                     b.HasKey("Id")
@@ -160,6 +180,9 @@ namespace ServiceTaskPlanningSystem.Migrations
 
                     b.HasIndex("CreatedByUserId")
                         .HasDatabaseName("ix_backlog_items_created_by_user_id");
+
+                    b.HasIndex("SourceUnavailabilityId")
+                        .HasDatabaseName("ix_backlog_items_source_unavailability_id");
 
                     b.ToTable("backlog_items", (string)null);
                 });
@@ -385,6 +408,14 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDefaultValue("")
                         .HasColumnName("instructions");
 
+                    b.Property<DateTime?>("OriginalEndAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("original_end_at");
+
+                    b.Property<DateTime?>("OriginalStartAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("original_start_at");
+
                     b.Property<long?>("PlanId")
                         .HasColumnType("bigint")
                         .HasColumnName("plan_id");
@@ -410,6 +441,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.Property<long?>("SourceBacklogItemId")
                         .HasColumnType("bigint")
                         .HasColumnName("source_backlog_item_id");
+
+                    b.Property<long?>("SourceUnavailabilityId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_unavailability_id");
 
                     b.Property<DateTime>("StartAt")
                         .HasColumnType("timestamptz")
@@ -443,6 +478,14 @@ namespace ServiceTaskPlanningSystem.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_tasks");
+
+                    b.HasIndex("EndAt")
+                        .HasDatabaseName("ix_tasks_inprogress_end_at")
+                        .HasFilter("status = 'in_progress'");
+
+                    b.HasIndex("SourceUnavailabilityId")
+                        .HasDatabaseName("ix_tasks_source_unavailability_id")
+                        .HasFilter("source_unavailability_id IS NOT NULL");
 
                     b.HasIndex("PlanId", "StartAt")
                         .HasDatabaseName("ix_tasks_plan_id_start_at");
@@ -531,6 +574,45 @@ namespace ServiceTaskPlanningSystem.Migrations
                             t.HasCheckConstraint("ck_technicians_daily_limit_positive", "daily_limit > 0");
 
                             t.HasCheckConstraint("ck_technicians_weekly_limit_positive", "weekly_limit > 0");
+                        });
+                });
+
+            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.TechnicianUnavailabilityEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<DateTime>("PeriodEnd")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("period_end");
+
+                    b.Property<DateTime>("PeriodStart")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("period_start");
+
+                    b.Property<long>("TechnicianId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("technician_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_technician_unavailabilities");
+
+                    b.HasIndex("TechnicianId", "PeriodStart")
+                        .HasDatabaseName("ix_unavailability_tech_period");
+
+                    b.ToTable("technician_unavailabilities", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_unavailability_period", "period_end >= period_start");
                         });
                 });
 
@@ -725,6 +807,18 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.Navigation("User");
 
                     b.Navigation("WorkplaceAddress");
+                });
+
+            modelBuilder.Entity("ServiceTaskPlanningSystem.Data.TechnicianUnavailabilityEntity", b =>
+                {
+                    b.HasOne("ServiceTaskPlanningSystem.Data.TechnicianEntity", "Technician")
+                        .WithMany()
+                        .HasForeignKey("TechnicianId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_technician_unavailabilities_technicians_technician_id");
+
+                    b.Navigation("Technician");
                 });
 
             modelBuilder.Entity("ServiceTaskPlanningSystem.Data.TravelRouteEntity", b =>

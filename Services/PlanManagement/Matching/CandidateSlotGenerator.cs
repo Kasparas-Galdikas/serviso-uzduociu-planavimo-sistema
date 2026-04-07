@@ -17,6 +17,11 @@ internal sealed class CandidateSlotGenerator
         _timeService = timeService;
     }
 
+    /// <param name="blockedWindows">
+    /// Technician unavailability windows for the target day expressed in
+    /// local-time minutes (e.g. 660–780 for 11:00–13:00).  Pass an empty
+    /// list when there are no blocked periods.
+    /// </param>
     public IReadOnlyList<int> GenerateCandidateStartMinutes(
         TechnicianEntity technician,
         List<TaskEntity> dayTasks,
@@ -24,7 +29,8 @@ internal sealed class CandidateSlotGenerator
         int timezoneOffsetMinutes,
         int durationMinutes,
         ServiceObjectEntity serviceObject,
-        IReadOnlyDictionary<(long From, long To), int> routeLookup)
+        IReadOnlyDictionary<(long From, long To), int> routeLookup,
+        IReadOnlyList<(int StartMinutes, int EndMinutes)> blockedWindows)
     {
         var slotSize = ScheduleGrid.SlotSizeMinutes;
         var window = SchedulePlacementValidator.GetWorkingWindow(technician.Id, targetDate);
@@ -55,10 +61,16 @@ internal sealed class CandidateSlotGenerator
                 firstStart = Math.Max(firstStart, travelFloor);
             }
 
-            if (FitsWithinWindow(firstStart, durationMinutes, window.EndMinutes))
+            if (FitsWithinWindow(firstStart, durationMinutes, window.EndMinutes) &&
+                !OverlapsAnyBlock(firstStart, durationMinutes, blockedWindows))
             {
                 candidates.Add(firstStart);
             }
+
+            AddAfterBlockCandidates(
+                candidates, blockedWindows, ordered, technician, serviceObject,
+                routeLookup, earliestAllowed, isTargetToday, nowLocalMinutes,
+                timezoneOffsetMinutes, durationMinutes, window.EndMinutes, slotSize);
 
             return candidates.OrderBy(x => x).ToList();
         }
@@ -81,7 +93,8 @@ internal sealed class CandidateSlotGenerator
                 serviceObject: serviceObject,
                 routeLookup: routeLookup,
                 timezoneOffsetMinutes: timezoneOffsetMinutes,
-                windowEndMinutes: window.EndMinutes))
+                windowEndMinutes: window.EndMinutes,
+                blockedWindows: blockedWindows))
         {
             candidates.Add(beforeFirstCandidate);
         }
@@ -122,13 +135,88 @@ internal sealed class CandidateSlotGenerator
                     serviceObject,
                     routeLookup,
                     timezoneOffsetMinutes,
-                    window.EndMinutes))
+                    window.EndMinutes,
+                    blockedWindows))
             {
                 candidates.Add(candidateStartMinutes);
             }
         }
 
+        AddAfterBlockCandidates(
+            candidates, blockedWindows, ordered, technician, serviceObject,
+            routeLookup, earliestAllowed, isTargetToday, nowLocalMinutes,
+            timezoneOffsetMinutes, durationMinutes, window.EndMinutes, slotSize);
+
         return candidates.OrderBy(x => x).ToList();
+    }
+
+    /// <summary>
+    /// For each blocked window, generates a candidate slot starting immediately
+    /// after the block ends (accounting for inbound travel).  This ensures the
+    /// algorithm considers the time right after unavailability as a placement option,
+    /// even when no existing task borders that gap.
+    /// </summary>
+    private void AddAfterBlockCandidates(
+        HashSet<int> candidates,
+        IReadOnlyList<(int StartMinutes, int EndMinutes)> blockedWindows,
+        List<TaskEntity> ordered,
+        TechnicianEntity technician,
+        ServiceObjectEntity serviceObject,
+        IReadOnlyDictionary<(long From, long To), int> routeLookup,
+        int earliestAllowed,
+        bool isTargetToday,
+        int nowLocalMinutes,
+        int timezoneOffsetMinutes,
+        int durationMinutes,
+        int windowEndMinutes,
+        int slotSize)
+    {
+        foreach (var block in blockedWindows)
+        {
+            // Last task that ends at or before the block starts
+            var prevTask = ordered.LastOrDefault(
+                t => LocalMinutes(t.EndAt, timezoneOffsetMinutes) <= block.StartMinutes);
+
+            // First task that starts at or after the block ends
+            var nextTask = ordered.FirstOrDefault(
+                t => LocalMinutes(t.StartAt, timezoneOffsetMinutes) >= block.EndMinutes);
+
+            var inboundFromAddressId = prevTask?.ServiceObject?.AddressId ?? technician.WorkplaceAddressId;
+            var travel = GetTravelMinutes(routeLookup, inboundFromAddressId, serviceObject.AddressId);
+
+            var afterBlock = _timeService.CeilingToSlot(block.EndMinutes, slotSize);
+            var afterBlockWithTravel = _timeService.CeilingToSlot(block.EndMinutes + travel, slotSize);
+            var candidateStart = Math.Max(afterBlock, afterBlockWithTravel);
+
+            if (candidateStart < earliestAllowed)
+            {
+                candidateStart = earliestAllowed;
+            }
+
+            if (isTargetToday)
+            {
+                var travelFloor = _timeService.CeilingToSlot(nowLocalMinutes + travel, slotSize);
+                if (candidateStart < travelFloor)
+                {
+                    candidateStart = travelFloor;
+                }
+            }
+
+            if (IsSlotFeasible(
+                    candidateStart,
+                    durationMinutes,
+                    prevTask,
+                    nextTask,
+                    technician,
+                    serviceObject,
+                    routeLookup,
+                    timezoneOffsetMinutes,
+                    windowEndMinutes,
+                    blockedWindows))
+            {
+                candidates.Add(candidateStart);
+            }
+        }
     }
 
     private bool IsSlotFeasible(
@@ -140,9 +228,15 @@ internal sealed class CandidateSlotGenerator
         ServiceObjectEntity serviceObject,
         IReadOnlyDictionary<(long From, long To), int> routeLookup,
         int timezoneOffsetMinutes,
-        int windowEndMinutes)
+        int windowEndMinutes,
+        IReadOnlyList<(int StartMinutes, int EndMinutes)> blockedWindows)
     {
         if (!FitsWithinWindow(candidateStartMinutes, durationMinutes, windowEndMinutes))
+        {
+            return false;
+        }
+
+        if (OverlapsAnyBlock(candidateStartMinutes, durationMinutes, blockedWindows))
         {
             return false;
         }
@@ -178,6 +272,23 @@ internal sealed class CandidateSlotGenerator
             nextTask.ServiceObject?.AddressId ?? 0);
 
         return candidateStartMinutes + durationMinutes + requiredOutboundTravel <= nextStartMinutes;
+    }
+
+    private static bool OverlapsAnyBlock(
+        int candidateStartMinutes,
+        int durationMinutes,
+        IReadOnlyList<(int StartMinutes, int EndMinutes)> blockedWindows)
+    {
+        var candidateEnd = candidateStartMinutes + durationMinutes;
+        foreach (var block in blockedWindows)
+        {
+            if (candidateStartMinutes < block.EndMinutes && candidateEnd > block.StartMinutes)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool FitsWithinWindow(int candidateStartMinutes, int durationMinutes, int windowEndMinutes) =>

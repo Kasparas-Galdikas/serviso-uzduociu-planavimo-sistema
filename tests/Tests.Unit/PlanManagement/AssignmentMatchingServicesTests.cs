@@ -57,7 +57,8 @@ public sealed class AssignmentMatchingServicesTests
             new Dictionary<(long From, long To), int>
             {
                 [(100, 200)] = 120
-            });
+            },
+            new List<(int, int)>());
 
         starts.Should().ContainSingle();
         starts[0].Should().BeGreaterThanOrEqualTo(600);
@@ -92,7 +93,8 @@ public sealed class AssignmentMatchingServicesTests
             new Dictionary<(long From, long To), int>
             {
                 [(100, 200)] = 4
-            });
+            },
+            new List<(int, int)>());
 
         starts.Should().ContainSingle();
         starts[0].Should().Be(510);

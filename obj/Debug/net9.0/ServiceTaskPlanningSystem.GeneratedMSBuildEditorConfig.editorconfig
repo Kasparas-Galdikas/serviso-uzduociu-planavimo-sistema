@@ -76,6 +76,38 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcTW9kYWxzXF9UYXNrRGVsZXRlTW9kYWwuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
+[C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/Panel/Templates/_BacklogCardTemplate.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcUGFuZWxcVGVtcGxhdGVzXF9CYWNrbG9nQ2FyZFRlbXBsYXRlLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/Panel/Templates/_TasksPanelCardTemplate.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcUGFuZWxcVGVtcGxhdGVzXF9UYXNrc1BhbmVsQ2FyZFRlbXBsYXRlLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/Panel/_BacklogPanelContent.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcUGFuZWxcX0JhY2tsb2dQYW5lbENvbnRlbnQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/Panel/_HistoryPanelContent.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcUGFuZWxcX0hpc3RvcnlQYW5lbENvbnRlbnQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/Panel/_PanelShell.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcUGFuZWxcX1BhbmVsU2hlbGwuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/Panel/_TaskPanelContent.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcUGFuZWxcX1Rhc2tQYW5lbENvbnRlbnQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/Panel/_TasksPanelContent.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcUGFuZWxcX1Rhc2tzUGFuZWxDb250ZW50LmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/Panel/_TechnicianPanelContent.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcUGFuZWxcX1RlY2huaWNpYW5QYW5lbENvbnRlbnQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
 [C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/ScheduleCreate/_CreateScheduleModal.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcU2NoZWR1bGVDcmVhdGVcX0NyZWF0ZVNjaGVkdWxlTW9kYWwuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
@@ -114,6 +146,10 @@ build_metadata.AdditionalFiles.CssScope =
 
 [C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/Tables/_TechnicianHeader.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcVGFibGVzXF9UZWNobmljaWFuSGVhZGVyLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/Tables/_TechnicianPanel.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2NoZWR1bGVcUGFydGlhbHNcVGFibGVzXF9UZWNobmljaWFuUGFuZWwuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
 [C:/Users/Kasparas/OneDrive/Desktop/serviso-uzduociu-planavimo-sistema/Views/Schedule/Partials/Tables/_ViewNavigation.cshtml]

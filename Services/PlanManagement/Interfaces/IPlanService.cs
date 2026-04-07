@@ -133,5 +133,46 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             bool appendAfterLastTask = false,
             List<SimulatedTaskAssignmentDto>? simulatedAssignments = null,
             CancellationToken cancellationToken = default);
+
+        // ── Technician unavailability / conflict resolution ──────────────────
+
+        /// <summary>
+        /// Returns a preview of InProgress tasks that would be displaced for the given
+        /// technician and period. Zero writes — safe to call speculatively.
+        /// </summary>
+        Task<UnavailabilityPreviewResult> PreviewDisplacementAsync(
+            long technicianId,
+            DateTime periodStart,
+            DateTime periodEnd,
+            UserContext actorUser,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Atomically displaces all InProgress tasks for a technician in the given period
+        /// to high-priority backlog items, deletes the original tasks, and records the
+        /// unavailability period — all in one transaction.
+        /// </summary>
+        Task<DisplaceTasksResult> DisplaceTasksToBacklogAsync(
+            long technicianId,
+            DateTime periodStart,
+            DateTime periodEnd,
+            UserContext actorUser,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default);
+
+        Task<DisplaceTasksResult> UpdateUnavailabilityAsync(
+            long id,
+            DateTime newPeriodStart,
+            DateTime newPeriodEnd,
+            UserContext actorUser,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default);
+
+        Task<DisplaceTasksResult> DeleteUnavailabilityAsync(
+            long id,
+            UserContext actorUser,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default);
     }
 }

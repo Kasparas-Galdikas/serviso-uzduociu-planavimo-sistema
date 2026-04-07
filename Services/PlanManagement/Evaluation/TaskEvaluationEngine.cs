@@ -117,8 +117,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 foreach (var dayGroup in tasksByDay)
                 {
                     var dayTasks = dayGroup.OrderBy(t => t.StartAt).ToList();
-                    var weekStart = _timeService.GetWeekStart(dayGroup.Key);
-                    var weekEnd = weekStart.AddDays(7);
+                    var weekBoundary = _timeService.GetWeekBoundary(dayGroup.Key);
+                    var weekStart = weekBoundary.LocalStart;
+                    var weekEnd = weekBoundary.LocalEndExclusive;
                     var weekTasks = techGroup
                         .Where(t => t.StartAt.Date >= weekStart && t.StartAt.Date < weekEnd)
                         .OrderBy(t => t.StartAt)

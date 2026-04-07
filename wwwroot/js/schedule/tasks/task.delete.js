@@ -23,6 +23,7 @@
   const dom = schedule.ui?.dom;
   const toast = schedule.ui?.toast;
   const taskApi = schedule.tasks?.api;
+  let _pendingOnConfirm = null;
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
@@ -51,7 +52,7 @@
 
   // ========== Modal Setup ==========
 
-  const setDeleteModalDetails = ({ taskId, sourceEl }) => {
+  const setDeleteModalDetails = ({ taskId, sourceEl, info }) => {
     const modalEl = getDeleteModal();
     if (!modalEl) return;
 
@@ -89,6 +90,10 @@
       if (startTime && endTime) {
         timeRange = `${startTime} - ${endTime}`;
       }
+    } else if (info) {
+      title = info.title || "";
+      timeRange = info.timeRange || "";
+      location = info.location || "";
     }
 
     setRowText("title", "[data-task-delete-title]", title);
@@ -96,7 +101,7 @@
     setRowText("location", "[data-task-delete-location]", location);
   };
 
-  const openDeleteModal = ({ taskId, version, sourceEl }) => {
+  const openDeleteModal = ({ taskId, version, sourceEl, info }) => {
     if (!taskId) return;
     const modalEl = getDeleteModal();
     if (!modalEl) return;
@@ -106,7 +111,22 @@
     if (version != null && !Number.isNaN(version)) {
       modalEl.dataset.version = String(version);
     }
-    setDeleteModalDetails({ taskId, sourceEl });
+    setDeleteModalDetails({ taskId, sourceEl, info });
+    const modal = window.bootstrap?.Modal?.getOrCreateInstance?.(modalEl);
+    modal?.show?.();
+  };
+
+  const openDeleteModalGeneric = ({ id, info, onConfirm }) => {
+    if (!id) return;
+    const modalEl = getDeleteModal();
+    if (!modalEl) return;
+    _pendingOnConfirm = onConfirm ?? null;
+    // Hide the autoCompact row — irrelevant for non-task deletes
+    const autoCompactRow = modalEl.querySelector(".form-check");
+    if (autoCompactRow) autoCompactRow.classList.add("d-none");
+    modalEl.dataset.taskId = String(id);
+    delete modalEl.dataset.version;
+    setDeleteModalDetails({ taskId: id, sourceEl: null, info });
     const modal = window.bootstrap?.Modal?.getOrCreateInstance?.(modalEl);
     modal?.show?.();
   };
@@ -225,6 +245,16 @@
       confirmBtn.setAttribute("aria-busy", "true");
 
       try {
+        // Generic (non-task) delete: call the stored callback
+        if (_pendingOnConfirm) {
+          const cb = _pendingOnConfirm;
+          _pendingOnConfirm = null;
+          await cb();
+          const modal = window.bootstrap?.Modal?.getInstance?.(modalEl);
+          modal?.hide?.();
+          return;
+        }
+
         logEvent("ui.task.delete.requested", { taskId, version, autoCompact });
         const ok = await deleteTaskAndRefresh({ taskId, version, autoCompact });
         if (ok) {
@@ -243,6 +273,13 @@
         confirmBtn.disabled = false;
         confirmBtn.removeAttribute("aria-busy");
       }
+    });
+
+    // Restore modal state when closed (e.g. Atšaukti or backdrop click)
+    modalEl.addEventListener("hidden.bs.modal", () => {
+      _pendingOnConfirm = null;
+      const autoCompactRow = modalEl.querySelector(".form-check");
+      if (autoCompactRow) autoCompactRow.classList.remove("d-none");
     });
   };
 
@@ -264,6 +301,7 @@
 
   schedule.tasks.delete = {
     openDeleteModal,
+    openDeleteModalGeneric,
     deleteTaskAndRefresh,
     updateTaskVersion,
     wireDeleteModal,

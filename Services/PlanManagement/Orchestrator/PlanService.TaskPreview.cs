@@ -28,6 +28,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         private readonly ITravelTimeResolver _travelResolver;
         private readonly SchedulePlacementValidator _placementValidator;
         private readonly IRouteEvaluationService _routeEvaluationService;
+        private readonly TechnicianUnavailabilityImpactResolver _unavailabilityImpactResolver;
         private readonly ILogger<PlanServiceTaskPreview> _logger;
 
         public PlanServiceTaskPreview(
@@ -37,6 +38,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             ITravelTimeResolver travelResolver,
             SchedulePlacementValidator placementValidator,
             IRouteEvaluationService routeEvaluationService,
+            TechnicianUnavailabilityImpactResolver unavailabilityImpactResolver,
             ILogger<PlanServiceTaskPreview> logger)
         {
             _db = db;
@@ -45,7 +47,57 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             _travelResolver = travelResolver;
             _placementValidator = placementValidator;
             _routeEvaluationService = routeEvaluationService;
+            _unavailabilityImpactResolver = unavailabilityImpactResolver;
             _logger = logger;
+        }
+
+        public async Task<UnavailabilityPreviewResult> PreviewDisplacementAsync(
+            long technicianId,
+            DateTime periodStart,
+            DateTime periodEnd,
+            UserContext actorUser,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default)
+        {
+            if (!actorUser.IsManager)
+            {
+                return new UnavailabilityPreviewResult(new List<AffectedTaskSummary>());
+            }
+
+            var affectedTasks = await _unavailabilityImpactResolver.GetAffectedTasksAsync(
+                technicianId,
+                periodStart,
+                periodEnd,
+                timezoneOffsetMinutes,
+                cancellationToken);
+
+            var summaries = new List<AffectedTaskSummary>(affectedTasks.Count);
+            foreach (var item in affectedTasks.OrderBy(task => task.Task.StartAt))
+            {
+                var repairPlan = await _placementValidator.TryBuildUnavailabilityRepairPlanAsync(
+                    technicianId,
+                    item.Task.StartAt,
+                    item.Task.EndAt,
+                    item.EffectiveStartAt,
+                    periodEnd,
+                    item.Task.ServiceObject.AddressId,
+                    timezoneOffsetMinutes,
+                    item.Task.Id,
+                    cancellationToken,
+                    blockingPeriodStartUtc: periodStart);
+
+                summaries.Add(new AffectedTaskSummary(
+                    TaskId: item.Task.Id,
+                    Title: item.Task.Title,
+                    StartAt: item.EffectiveStartAt,
+                    EndAt: item.Task.EndAt,
+                    Priority: item.Task.Priority,
+                    ObjectName: item.Task.ServiceObject.Name,
+                    ObjectAddress: item.Task.ServiceObject.Address.FullAddress,
+                    Resolution: repairPlan.Success ? UnavailabilityTaskResolution.Repair : UnavailabilityTaskResolution.Backlog));
+            }
+
+            return new UnavailabilityPreviewResult(summaries);
         }
 
         public async Task<DragPreviewResult> PreviewDragAsync(

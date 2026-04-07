@@ -1,0 +1,60 @@
+<!-- Backlog List Container — shown when list tab is active -->
+<div id="backlogPanelContent" style="display: none;">
+    <hr class="backlog-section-divider">
+    <div id="backlogTypeTabBar">
+        <p class="backlog-section-label">Sąrašo tipas</p>
+        <div class="btn-group btn-group-sm w-100" role="group">
+            <button id="backlogTypeTabTemp" type="button" class="btn btn-outline-secondary">Laikini <span class="badge ms-1 backlog-type-badge" id="backlogCountTemp">0</span></button>
+            <button id="backlogTypeTabPerm" type="button" class="btn btn-outline-secondary active">Nuolatiniai <span class="badge ms-1 backlog-type-badge" id="backlogCountPerm">0</span></button>
+        </div>
+    </div>
+    <hr class="backlog-section-divider">
+    <div id="backlogPriorityFilter">
+        <p class="backlog-section-label">Prioritetas</p>
+        <div class="btn-group btn-group-sm w-100" role="group" aria-label="Filtruoti pagal prioritetą">
+            <button type="button" class="btn btn-outline-secondary active" data-backlog-priority="">Visi</button>
+            <button type="button" class="btn btn-outline-secondary" data-backlog-priority="2">Aukštas</button>
+            <button type="button" class="btn btn-outline-secondary" data-backlog-priority="1">Vidutinis</button>
+            <button type="button" class="btn btn-outline-secondary" data-backlog-priority="0">Žemas</button>
+        </div>
+    </div>
+    <hr class="backlog-section-divider">
+    <div class="backlog-list-header">
+        <div class="backlog-lh-normal">
+            <p class="backlog-section-label mb-0">Sąrašas</p>
+            <button type="button" id="backlogSelectToggle" class="btn btn-outline-secondary backlog-select-toggle-btn">
+                <i class="bi bi-check2-square me-1" aria-hidden="true"></i>Pasirinkti
+            </button>
+        </div>
+        <div class="backlog-lh-selecting">
+            <p class="backlog-section-label mb-0">Sąrašas</p>
+            <div class="d-flex gap-1 ms-auto">
+                <button type="button" id="backlogBulkDelete" class="btn btn-outline-danger backlog-select-toggle-btn" title="Ištrinti pasirinktus" disabled>
+                    <i class="bi bi-trash me-1" aria-hidden="true"></i>Ištrinti
+                </button>
+                <button type="button" id="backlogSelectCancel" class="btn btn-outline-secondary backlog-select-toggle-btn" title="Atšaukti pasirinkimą">
+                    <i class="bi bi-x-lg me-1" aria-hidden="true"></i>Atšaukti
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="backlog-drag-hint">
+        <i class="bi bi-arrows-move me-1" aria-hidden="true"></i>
+        Nutempkite užduoties kortelę į grafiką ir paleiskite norimoje vietoje
+    </div>
+    <div id="backlogListEmpty" class="text-center text-muted py-4 d-none">
+        <i class="bi bi-inbox fs-3 d-block mb-2" aria-hidden="true"></i>
+        <div class="small">sąrašas tuščias. Sukurkite naują įrašą.</div>
+    </div>
+    <div id="backlogItemsList"></div>
+    <div id="backlogScrollSentinel" class="backlog-scroll-sentinel"></div>
+    <div id="backlogBulkBar" class="backlog-bulk-bar">
+        <label class="backlog-bulk-selectall-wrap">
+            <input type="checkbox" id="backlogSelectAll" class="backlog-bulk-selectall" aria-label="Pasirinkti visus">
+            <span id="backlogBulkCount" class="backlog-bulk-count">Nepasirinkta</span>
+        </label>
+        <button type="button" id="backlogBulkSchedule" class="btn btn-sm btn-primary" disabled>
+            <i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Planuoti
+        </button>
+    </div>
+</div>

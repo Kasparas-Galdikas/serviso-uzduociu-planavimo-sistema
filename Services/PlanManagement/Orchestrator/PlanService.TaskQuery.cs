@@ -52,8 +52,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             }
 
             var dayEnd = dayStartUtc.AddDays(1);
-            var weekStart = _timeService.GetWeekStart(dayStartUtc);
-            var weekEnd = weekStart.AddDays(7);
+            var weekBoundary = _timeService.GetWeekBoundary(dayStartUtc);
+            var weekStart = weekBoundary.LocalStart;
+            var weekEnd = weekBoundary.LocalEndExclusive;
             var constraintScope = await _planScopeResolver.ResolveConstraintScopeAsync(weekStart, weekEnd, cancellationToken);
 
             var weekTasks = await _planScopeResolver.ApplyConstraintScope(

@@ -430,12 +430,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return UnprocessableEntity(new { message = "Laikas turi atitikti grafiko zingsni." });
             }
 
-            var hasOverlap = await _planService.HasTaskOverlapAsync(id, dto.TechnicianId, utcStartAt, utcEndAt, cancellationToken);
-            if (hasOverlap)
-            {
-                return Conflict(new { message = "Laiko langas uzimtas (persidengia uzduotys).", version = currentVersion });
-            }
-
             // Preserve existing status - managers cannot change it, system manages status automatically
             var preservedStatus = existing.Status;
 

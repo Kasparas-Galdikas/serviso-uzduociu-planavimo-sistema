@@ -92,6 +92,12 @@ namespace ServiceTaskPlanningSystem.Services.Time
         DateTime GetWeekEnd(DateTime date);
 
         /// <summary>
+        /// Returns the Mon–Sun week boundary that contains the given date,
+        /// with both local and UTC equivalents.
+        /// </summary>
+        WeekBoundary GetWeekBoundary(DateTime date);
+
+        /// <summary>
         /// Gets the current business-week boundaries using local week semantics
         /// and UTC equivalents derived from the same local boundaries.
         /// </summary>

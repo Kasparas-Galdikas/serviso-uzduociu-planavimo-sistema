@@ -3,6 +3,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Npgsql;
 using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.Backlog;
@@ -19,29 +21,47 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         private readonly IBacklogService _backlogService;
         private readonly IUserContextResolver _userContextResolver;
         private readonly IScheduleTimeService _timeService;
+        private readonly ILogger<BacklogController> _logger;
 
-        public BacklogController(IBacklogService backlogService, IUserContextResolver userContextResolver, IScheduleTimeService timeService)
+        public BacklogController(
+            IBacklogService backlogService,
+            IUserContextResolver userContextResolver,
+            IScheduleTimeService timeService,
+            ILogger<BacklogController> logger)
         {
             _backlogService = backlogService;
             _userContextResolver = userContextResolver;
             _timeService = timeService;
+            _logger = logger;
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetItems(CancellationToken cancellationToken)
+        public async Task<IActionResult> GetItems(
+            [FromQuery] int itemType = 1,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 25,
+            [FromQuery] int? priority = null,
+            CancellationToken cancellationToken = default)
         {
             var userId = _userContextResolver.GetCurrentUser().UserId;
             if (userId == null) return Unauthorized();
 
+            if (page < 1) page = 1;
+            if (pageSize < 1 || pageSize > 100) pageSize = 25;
+
             var tzOffset = _timeService.GetBrowserTimezoneOffset(Request);
-            var items = await _backlogService.GetItemsAsync(userId.Value, cancellationToken);
+            var result = await _backlogService.GetItemsAsync(userId.Value, itemType, page, pageSize, priority, cancellationToken);
             var localNow = _timeService.ConvertUtcToLocal(_timeService.GetCurrentUtcTime(), tzOffset);
             var snappedMinutes = _timeService.GetEarliestCreatableStartMinutes(
                 localNow.Date, tzOffset, ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes);
             var localNowSnapped = localNow.Date.AddMinutes(snappedMinutes);
             return Ok(new
             {
-                items = items.Select(i => MapItem(i, tzOffset)),
+                items = result.Items.Select(i => MapItem(i, tzOffset)),
+                totalCount = result.TotalCount,
+                page = result.Page,
+                pageSize = result.PageSize,
+                hasMore = result.HasMore,
                 localNow = localNowSnapped.ToString("yyyy-MM-ddTHH:mm"),
             });
         }
@@ -54,13 +74,21 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var userId = _userContextResolver.GetCurrentUser().UserId;
             if (userId == null) return Unauthorized();
 
-            var tzOffset = _timeService.GetBrowserTimezoneOffset(Request);
-            var (item, summary) = await _backlogService.CreateItemAsync(userId.Value, dto, cancellationToken);
-            return Ok(new
+            try
             {
-                item = MapItem(item, tzOffset),
-                message = summary,
-            });
+                var tzOffset = _timeService.GetBrowserTimezoneOffset(Request);
+                var (item, summary) = await _backlogService.CreateItemAsync(userId.Value, dto, cancellationToken);
+                return Ok(new
+                {
+                    item = MapItem(item, tzOffset),
+                    message = summary,
+                });
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UndefinedColumn)
+            {
+                _logger.LogError(ex, "api.backlog.create.schema-mismatch");
+                return StatusCode(500, new { message = "Nepavyko išsaugoti. Perleiskite programą, kad būtų pritaikyta naujausia migracija." });
+            }
         }
 
         [HttpPut("{id:long}")]
@@ -71,15 +99,23 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var userId = _userContextResolver.GetCurrentUser().UserId;
             if (userId == null) return Unauthorized();
 
-            var tzOffset = _timeService.GetBrowserTimezoneOffset(Request);
-            var (item, summary) = await _backlogService.UpdateItemAsync(userId.Value, id, dto, cancellationToken);
-            if (item == null) return NotFound();
-
-            return Ok(new
+            try
             {
-                item = MapItem(item, tzOffset),
-                message = summary,
-            });
+                var tzOffset = _timeService.GetBrowserTimezoneOffset(Request);
+                var (item, summary) = await _backlogService.UpdateItemAsync(userId.Value, id, dto, cancellationToken);
+                if (item == null) return NotFound();
+
+                return Ok(new
+                {
+                    item = MapItem(item, tzOffset),
+                    message = summary,
+                });
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UndefinedColumn)
+            {
+                _logger.LogError(ex, "api.backlog.update.schema-mismatch");
+                return StatusCode(500, new { message = "Nepavyko išsaugoti. Perleiskite programą, kad būtų pritaikyta naujausia migracija." });
+            }
         }
 
         [HttpDelete("{id:long}")]

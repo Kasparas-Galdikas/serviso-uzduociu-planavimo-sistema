@@ -19,6 +19,7 @@ using ServiceTaskPlanningSystem.Services.History;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Matching;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
+using ServiceTaskPlanningSystem.Services.Unavailability;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement
 {
@@ -42,6 +43,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private readonly ServiceLocationResolver _locationResolver;
         private readonly RouteEvaluationCaller _routeEvaluationCaller;
         private readonly SchedulePlacementValidator _placementValidator;
+        private readonly TechnicianUnavailabilityImpactResolver _unavailabilityImpactResolver;
         private readonly PlanServicePlanLifecycle _planLifecycle;
         private readonly PlanServiceTaskQuery _taskQuery;
         private readonly PlanServiceTaskCreation _taskCreation;
@@ -49,6 +51,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         private readonly PlanServiceTaskDeletion _taskDeletion;
         private readonly PlanServiceTaskPreview _taskPreview;
         private readonly PlanServiceAssignmentMatching _assignmentMatching;
+        private readonly PlanServiceTechnicianUnavailability _technicianUnavailability;
 
         // ── Noop fallbacks for optional dependencies ─────────────────────────
 
@@ -110,11 +113,64 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             IRouteEvaluationService routeEvaluationService,
             ITaskTravelFeasibilityService travelFeasibilityService,
             ITravelTimeResolver travelResolver,
+            TechnicianUnavailabilityReader technicianAvailabilityPolicy,
             ILogger<PlanService> logger)
             : this(db, evaluationEngine, planningCalendar, taskPermissionService,
                    timeService, routeEvaluationService, travelFeasibilityService,
-                   new NoopScheduleRepairService(), travelResolver, null,
+                   new NoopScheduleRepairService(), travelResolver, technicianAvailabilityPolicy, null,
                    new NoopTaskHistoryWriter(), logger)
+        { }
+
+        public PlanService(
+            ScheduleDbContext db,
+            IEvaluationEngine evaluationEngine,
+            IPlanningCalendar planningCalendar,
+            ITaskPermissionService taskPermissionService,
+            IScheduleTimeService timeService,
+            IRouteEvaluationService routeEvaluationService,
+            ITaskTravelFeasibilityService travelFeasibilityService,
+            ITravelTimeResolver travelResolver,
+            ILogger<PlanService> logger)
+            : this(
+                db,
+                evaluationEngine,
+                planningCalendar,
+                taskPermissionService,
+                timeService,
+                routeEvaluationService,
+                travelFeasibilityService,
+                travelResolver,
+                new TechnicianUnavailabilityReader(db),
+                logger)
+        { }
+
+        public PlanService(
+            ScheduleDbContext db,
+            IEvaluationEngine evaluationEngine,
+            IPlanningCalendar planningCalendar,
+            ITaskPermissionService taskPermissionService,
+            IScheduleTimeService timeService,
+            IRouteEvaluationService routeEvaluationService,
+            ITaskTravelFeasibilityService travelFeasibilityService,
+            IScheduleRepairService scheduleRepairService,
+            ITravelTimeResolver travelResolver,
+            TechnicianUnavailabilityReader technicianAvailabilityPolicy,
+            ITaskHistoryWriter historyWriter,
+            ILogger<PlanService> logger)
+            : this(
+                db,
+                evaluationEngine,
+                planningCalendar,
+                taskPermissionService,
+                timeService,
+                routeEvaluationService,
+                travelFeasibilityService,
+                scheduleRepairService,
+                travelResolver,
+                technicianAvailabilityPolicy,
+                null,
+                historyWriter,
+                logger)
         { }
 
         public PlanService(
@@ -139,7 +195,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 travelFeasibilityService,
                 scheduleRepairService,
                 travelResolver,
-                null,
+                new TechnicianUnavailabilityReader(db),
                 historyWriter,
                 logger)
         { }
@@ -154,6 +210,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             ITaskTravelFeasibilityService travelFeasibilityService,
             IScheduleRepairService scheduleRepairService,
             ITravelTimeResolver travelResolver,
+            TechnicianUnavailabilityReader technicianAvailabilityPolicy,
             IServiceScopeFactory? scopeFactory,
             ITaskHistoryWriter historyWriter,
             ILogger<PlanService> logger)
@@ -184,7 +241,14 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 db, taskPermissionService, timeService,
                 travelFeasibilityService, scheduleRepairService,
                 planScopeResolver,
+                technicianAvailabilityPolicy,
                 new ForwardingLogger<SchedulePlacementValidator>(logger));
+
+            _unavailabilityImpactResolver = new TechnicianUnavailabilityImpactResolver(
+                db,
+                travelResolver,
+                timeService,
+                technicianAvailabilityPolicy);
 
             _planLifecycle = new PlanServicePlanLifecycle(
                 db, evaluationEngine, planningCalendar, timeService,
@@ -203,6 +267,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 new CandidateSlotGenerator(timeService),
                 new CandidateScoreCalculator(),
                 new CandidateRankingService(),
+                technicianAvailabilityPolicy,
                 new ForwardingLogger<PlanServiceAssignmentMatching>(logger));
 
             _taskCreation = new PlanServiceTaskCreation(
@@ -225,9 +290,50 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             _taskPreview = new PlanServiceTaskPreview(
                 db, timeService, taskPermissionService, travelResolver,
-                _placementValidator, routeEvaluationService,
+                _placementValidator, routeEvaluationService, _unavailabilityImpactResolver,
                 new ForwardingLogger<PlanServiceTaskPreview>(logger));
+
+            _technicianUnavailability = new PlanServiceTechnicianUnavailability(
+                db,
+                evaluationEngine,
+                timeService,
+                historyWriter,
+                _locationResolver,
+                _routeEvaluationCaller,
+                _planLifecycle,
+                _placementValidator,
+                _unavailabilityImpactResolver,
+                new ForwardingLogger<PlanServiceTechnicianUnavailability>(logger));
         }
+
+        public PlanService(
+            ScheduleDbContext db,
+            IEvaluationEngine evaluationEngine,
+            IPlanningCalendar planningCalendar,
+            ITaskPermissionService taskPermissionService,
+            IScheduleTimeService timeService,
+            IRouteEvaluationService routeEvaluationService,
+            ITaskTravelFeasibilityService travelFeasibilityService,
+            IScheduleRepairService scheduleRepairService,
+            ITravelTimeResolver travelResolver,
+            IServiceScopeFactory? scopeFactory,
+            ITaskHistoryWriter historyWriter,
+            ILogger<PlanService> logger)
+            : this(
+                db,
+                evaluationEngine,
+                planningCalendar,
+                taskPermissionService,
+                timeService,
+                routeEvaluationService,
+                travelFeasibilityService,
+                scheduleRepairService,
+                travelResolver,
+                new TechnicianUnavailabilityReader(db),
+                scopeFactory,
+                historyWriter,
+                logger)
+        { }
 
         // ── Plan lifecycle ───────────────────────────────────────────────────
 
@@ -479,5 +585,45 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 simulatedAssignments,
                 batchAssignmentCounts,
                 cancellationToken);
+
+        // ── Technician unavailability / conflict resolution ──────────────────
+
+        public Task<UnavailabilityPreviewResult> PreviewDisplacementAsync(
+            long technicianId,
+            DateTime periodStart,
+            DateTime periodEnd,
+            UserContext actorUser,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default)
+            => _taskPreview.PreviewDisplacementAsync(
+                technicianId, periodStart, periodEnd, actorUser, timezoneOffsetMinutes, cancellationToken);
+
+        public Task<DisplaceTasksResult> DisplaceTasksToBacklogAsync(
+            long technicianId,
+            DateTime periodStart,
+            DateTime periodEnd,
+            UserContext actorUser,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default)
+            => _technicianUnavailability.DisplaceTasksToBacklogAsync(
+                technicianId, periodStart, periodEnd, actorUser, timezoneOffsetMinutes, cancellationToken);
+
+        public Task<DisplaceTasksResult> UpdateUnavailabilityAsync(
+            long id,
+            DateTime newPeriodStart,
+            DateTime newPeriodEnd,
+            UserContext actorUser,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default)
+            => _technicianUnavailability.UpdateUnavailabilityAsync(
+                id, newPeriodStart, newPeriodEnd, actorUser, timezoneOffsetMinutes, cancellationToken);
+
+        public Task<DisplaceTasksResult> DeleteUnavailabilityAsync(
+            long id,
+            UserContext actorUser,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken = default)
+            => _technicianUnavailability.DeleteUnavailabilityAsync(
+                id, actorUser, timezoneOffsetMinutes, cancellationToken);
     }
 }

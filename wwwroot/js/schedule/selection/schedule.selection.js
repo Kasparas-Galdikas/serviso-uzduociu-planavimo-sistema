@@ -65,6 +65,7 @@
       selection.durationSlots = 1;
       selection.startTd = null;
     });
+    document.dispatchEvent(new CustomEvent("schedule:selection:cleared", { detail: { reason } }));
     if (reason) logEvent("ui.slot.selection.clear", { reason });
   };
 
@@ -153,6 +154,15 @@
     renderBar();
     syncHandleDisabled();
     syncSelectionToPanel();
+    document.dispatchEvent(new CustomEvent("schedule:selection:changed", {
+      detail: {
+        techId: selection.techId,
+        date: selection.date,
+        startMinutes,
+        endMinutes,
+        durationSlots,
+      },
+    }));
     return true;
   };
 
@@ -647,6 +657,9 @@
       return;
     }
     // Panel not open yet — open fresh create mode
+    if (modal?.classList?.contains("show") && modal.dataset.panelMode === "technician") {
+      return;
+    }
     schedule.tasks?.openTaskPanel?.({
       technicianId: selection.techId,
       targetDate: selection.date,

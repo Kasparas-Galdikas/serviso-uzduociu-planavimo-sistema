@@ -36,7 +36,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
         DateTime DayEndUtc,
         int TimezoneOffsetMinutes,
         DateTime NowUtc = default,
-        IReadOnlySet<long>? ImmovableTaskIds = null);
+        IReadOnlySet<long>? ImmovableTaskIds = null,
+        IReadOnlyList<DayScheduleBlockedInterval>? BlockedIntervals = null,
+        bool AllowBlockedIntervalShift = false);
+
+    public sealed record DayScheduleBlockedInterval(
+        DateTime StartAt,
+        DateTime EndAt);
 
     public sealed record DayScheduleFitAdjustment(
         long TaskId,
@@ -102,6 +108,10 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                     var task = byId[taskId];
                     var currentStart = starts[taskId];
                     var currentEnd = currentStart + durations[taskId];
+                    var occupancyFloorUtc = i == 0
+                        ? (request.NowUtc > request.DayStartUtc ? request.NowUtc : request.DayStartUtc)
+                        : starts[ordered[i - 1]] + durations[ordered[i - 1]];
+                    var requiredTravelMinutes = 0;
 
                     DateTime minStartUtc;
                     if (i == 0)
@@ -112,8 +122,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                             return Task.FromResult(DayScheduleFitResult.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu)."));
                         }
 
+                        requiredTravelMinutes = required.Value;
                         var effectiveDayStart = request.NowUtc > request.DayStartUtc ? request.NowUtc : request.DayStartUtc;
-                        minStartUtc = effectiveDayStart.AddMinutes(required.Value);
+                        minStartUtc = effectiveDayStart.AddMinutes(requiredTravelMinutes);
                     }
                     else
                     {
@@ -126,7 +137,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
                             return Task.FromResult(DayScheduleFitResult.Fail("Nepavyko ivertinti keliones (truksta marsruto duomenu)."));
                         }
 
-                        minStartUtc = prevEnd.AddMinutes(required.Value);
+                        requiredTravelMinutes = required.Value;
+                        minStartUtc = prevEnd.AddMinutes(requiredTravelMinutes);
                     }
 
                     minStartUtc = AlignUtcToSlotCeiling(minStartUtc, request.TimezoneOffsetMinutes);
@@ -149,6 +161,37 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Repair
 
                     currentStart = starts[taskId];
                     currentEnd = currentStart + durations[taskId];
+                    var effectiveOccupiedStart = currentStart.AddMinutes(-requiredTravelMinutes);
+                    if (effectiveOccupiedStart < occupancyFloorUtc)
+                    {
+                        effectiveOccupiedStart = occupancyFloorUtc;
+                    }
+
+                    var overlappingBlockedInterval = request.BlockedIntervals?
+                        .Where(interval => interval.StartAt < currentEnd && interval.EndAt > effectiveOccupiedStart)
+                        .OrderBy(interval => interval.EndAt)
+                        .FirstOrDefault();
+
+                    if (overlappingBlockedInterval != null)
+                    {
+                        if (!request.AllowBlockedIntervalShift)
+                        {
+                            return Task.FromResult(DayScheduleFitResult.Fail("Pasirinktas laikas pažymėtas kaip techniko neaktyvumas."));
+                        }
+
+                        var blockedFreeStart = AlignUtcToSlotCeiling(
+                            overlappingBlockedInterval.EndAt,
+                            request.TimezoneOffsetMinutes);
+                        var delta = (int)Math.Ceiling((blockedFreeStart - currentStart).TotalMinutes);
+                        delta = AlignToSlot(delta);
+                        if (delta > 0)
+                        {
+                            ShiftSuffix(ordered, starts, i, delta);
+                            changed = true;
+                            continue;
+                        }
+                    }
+
                     if (currentEnd <= request.DayEndUtc)
                     {
                         continue;

@@ -29,6 +29,8 @@ namespace ServiceTaskPlanningSystem.Models.Planning
         public decimal? TravelDistanceKm { get; set; }
         public bool IsTravelBlock { get; set; }
         public int? TravelForTaskId { get; set; }
+        public bool IsUnavailabilityBlock { get; set; }
+        public long? UnavailabilityId { get; set; }
     }
 
     public enum TaskPlanSource

@@ -33,6 +33,24 @@
         return;
     }
 
+    if (task.IsUnavailabilityBlock)
+    {
+        var blockedDurationMinutes = (int)Math.Ceiling((task.End - task.Start).TotalMinutes);
+        <div class="task-unavailability-slot read-only"
+             data-tech-id="@task.TechnicianId"
+             data-date="@task.Start.ToString("yyyy-MM-dd")"
+             data-start-minutes="@((int)task.Start.TimeOfDay.TotalMinutes)"
+             data-duration-minutes="@blockedDurationMinutes"
+             data-unavailability-id="@task.UnavailabilityId"
+             aria-label="Neaktyvumas @task.Start.ToString("HH:mm") - @task.End.ToString("HH:mm")">
+            <div class="task-unavailability-slot__badge" aria-hidden="true">
+                <i class="bi bi-person-dash"></i>
+                <span>Neaktyvus</span>
+            </div>
+        </div>
+        return;
+    }
+
     var sourceClass = task.Source switch
     {
         ServiceTaskPlanningSystem.Models.Planning.TaskPlanSource.Draft => "task-draft",

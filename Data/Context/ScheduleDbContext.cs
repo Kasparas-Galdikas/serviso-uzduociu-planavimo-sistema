@@ -19,6 +19,7 @@ namespace ServiceTaskPlanningSystem.Data
         public DbSet<TravelRouteEntity> TravelRoutes => Set<TravelRouteEntity>();
         public DbSet<TaskActionLogEntity> TaskActionLogs => Set<TaskActionLogEntity>();
         public DbSet<BacklogItemEntity> BacklogItems => Set<BacklogItemEntity>();
+        public DbSet<TechnicianUnavailabilityEntity> TechnicianUnavailabilities => Set<TechnicianUnavailabilityEntity>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -41,6 +42,7 @@ namespace ServiceTaskPlanningSystem.Data
             ConfigureTravelRoutes(modelBuilder);
             ConfigureTaskActionLogs(modelBuilder);
             ConfigureBacklogItems(modelBuilder);
+            ConfigureTechnicianUnavailabilities(modelBuilder);
         }
 
         private static void ConfigureAddresses(ModelBuilder modelBuilder)
@@ -245,6 +247,27 @@ namespace ServiceTaskPlanningSystem.Data
             entity.HasIndex(e => new { e.PlanId, e.StartAt });
             entity.HasIndex(e => new { e.TechnicianId, e.StartAt });
             entity.HasIndex(e => new { e.ServiceObjectId, e.StartAt });
+            // Partial index used exclusively by TaskAutoExpirationService.
+            // Only covers InProgress rows — stays small as tasks expire and never revert.
+            entity.HasIndex(e => e.EndAt)
+                .HasFilter("status = 'in_progress'")
+                .HasDatabaseName("ix_tasks_inprogress_end_at");
+
+            entity.Property(e => e.SourceUnavailabilityId)
+                .HasColumnName("source_unavailability_id")
+                .IsRequired(false);
+            entity.Property(e => e.OriginalStartAt)
+                .HasColumnName("original_start_at")
+                .HasColumnType("timestamptz")
+                .IsRequired(false);
+            entity.Property(e => e.OriginalEndAt)
+                .HasColumnName("original_end_at")
+                .HasColumnType("timestamptz")
+                .IsRequired(false);
+            // Partial index — only rows currently linked to an active unavailability have a value.
+            entity.HasIndex(e => e.SourceUnavailabilityId)
+                .HasDatabaseName("ix_tasks_source_unavailability_id")
+                .HasFilter("source_unavailability_id IS NOT NULL");
         }
 
         private static void ConfigureTaskEvaluations(ModelBuilder modelBuilder)
@@ -297,7 +320,24 @@ namespace ServiceTaskPlanningSystem.Data
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Title)
                 .IsRequired()
-                .HasMaxLength(20);
+                .HasMaxLength(200);
+            entity.Property(e => e.SourceTaskId)
+                .HasColumnName("source_task_id")
+                .IsRequired(false);
+            entity.Property(e => e.SourceUnavailabilityId)
+                .HasColumnName("source_unavailability_id")
+                .IsRequired(false);
+            entity.Property(e => e.OriginalTechnicianId)
+                .HasColumnName("original_technician_id")
+                .IsRequired(false);
+            entity.Property(e => e.OriginalStartAt)
+                .HasColumnName("original_start_at")
+                .HasColumnType("timestamptz")
+                .IsRequired(false);
+            entity.Property(e => e.OriginalEndAt)
+                .HasColumnName("original_end_at")
+                .HasColumnType("timestamptz")
+                .IsRequired(false);
             entity.Property(e => e.SkillLevel)
                 .HasMaxLength(100)
                 .HasDefaultValue(string.Empty);
@@ -327,6 +367,7 @@ namespace ServiceTaskPlanningSystem.Data
                 .HasForeignKey(e => e.CreatedByUserId)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(e => e.CreatedByUserId);
+            entity.HasIndex(e => e.SourceUnavailabilityId);
         }
 
         private static void ConfigureTaskActionLogs(ModelBuilder modelBuilder)
@@ -360,6 +401,31 @@ namespace ServiceTaskPlanningSystem.Data
                 .IsRequired();
             entity.HasIndex(e => new { e.PlanId, e.OccurredAtUtc });
             entity.HasIndex(e => new { e.TaskId, e.OccurredAtUtc });
+        }
+
+        private static void ConfigureTechnicianUnavailabilities(ModelBuilder modelBuilder)
+        {
+            var entity = modelBuilder.Entity<TechnicianUnavailabilityEntity>();
+            entity.ToTable("technician_unavailabilities", table =>
+            {
+                table.HasCheckConstraint("ck_unavailability_period", "period_end >= period_start");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.PeriodStart)
+                .HasColumnType("timestamptz")
+                .IsRequired();
+            entity.Property(e => e.PeriodEnd)
+                .HasColumnType("timestamptz")
+                .IsRequired();
+            entity.Property(e => e.CreatedAt)
+                .HasColumnType("timestamptz")
+                .HasDefaultValueSql("NOW()");
+            entity.HasOne(e => e.Technician)
+                .WithMany()
+                .HasForeignKey(e => e.TechnicianId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.TechnicianId, e.PeriodStart })
+                .HasDatabaseName("ix_unavailability_tech_period");
         }
     }
 }
