@@ -106,18 +106,20 @@
   backlog.list.exitSelectionMode = () => {
     if (!state._selectionMode) return;
     state._selectionMode = false;
-    state._selectedIds.clear();
+    state.clearSelection();
     document.getElementById("backlogPanelContent")?.classList.remove("is-selecting");
     if (state._hasMore) backlog.list.setupScroll();
   };
 
   backlog.list.enterSelectionMode = () => {
     state._selectionMode = true;
-    state._selectedIds.clear();
+    state.clearSelection();
     if (state._isBulkMode && state._bulkQueue.length) {
-      state._bulkQueue.forEach((item) => {
-        if (item?.id != null) state._selectedIds.add(String(item.id));
-      });
+      state.replaceSelectionOrder(
+        state._bulkQueue
+          .map((item) => String(item?.id ?? ""))
+          .filter(Boolean)
+      );
     }
     state._scroll?.disconnect();
     document.getElementById("backlogPanelContent")?.classList.add("is-selecting");
@@ -145,13 +147,13 @@
     const normalizedId = String(id ?? "");
     if (!normalizedId) return;
     const shouldSelect = typeof selected === "boolean" ? selected : !state._selectedIds.has(normalizedId);
-    if (shouldSelect) state._selectedIds.add(normalizedId);
-    else state._selectedIds.delete(normalizedId);
+    if (shouldSelect) state.selectBacklogItem(normalizedId);
+    else state.unselectBacklogItem(normalizedId);
   };
 
   backlog.list.handleBulkDelete = async () => {
     if (state._selectedIds.size === 0) return;
-    const ids = [...state._selectedIds];
+    const ids = state.getSelectedIdsInOrder();
     for (const id of ids) {
       try {
         await backlog.api.apiRemoveItem(id);
@@ -442,9 +444,15 @@
       window.schedule?.ui?.toast?.showError?.("Nepavyko atidaryti planavimo lango.");
       return;
     }
+    const placement = state.getEarliestCreatableRangeForScheduleDate?.() || {};
     state._schedulingFromBacklogId = item.id;
     state._schedulingFromBacklogItemType = item.itemType;
-    await openPanel({ allowEmptySchedule: true });
+    await openPanel({
+      targetDate: placement.targetDate,
+      startMinutes: placement.startMinutes,
+      endMinutes: placement.endMinutes,
+      allowEmptySchedule: false,
+    });
     await backlog.form.applyPrefill(item);
   };
 

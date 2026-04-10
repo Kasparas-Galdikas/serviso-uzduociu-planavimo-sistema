@@ -47,9 +47,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, status, info, planScope, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
             vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
-            vm.EarliestStartMinutes = _timeService.GetEarliestCreatableStartMinutes(
-                _timeService.ConvertUtcToLocal(_timeService.GetCurrentUtcTime(), timezoneOffset).Date,
-                timezoneOffset, ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes);
+            ApplyEarliestCreatablePlacement(vm, timezoneOffset);
             if (!vm.IsManager && vm.Tasks != null)
             {
                 foreach (var t in vm.Tasks)
@@ -91,9 +89,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, status, info, planScope, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
             vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
-            vm.EarliestStartMinutes = _timeService.GetEarliestCreatableStartMinutes(
-                _timeService.ConvertUtcToLocal(_timeService.GetCurrentUtcTime(), timezoneOffset).Date,
-                timezoneOffset, ScheduleGrid.SlotSizeMinutes, ScheduleGrid.DayStartMinutes);
+            ApplyEarliestCreatablePlacement(vm, timezoneOffset);
             if (!vm.IsManager && vm.Tasks != null)
             {
                 foreach (var t in vm.Tasks)
@@ -122,6 +118,31 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
                 draftPlan?.PeriodEnd,
                 draftPlan?.Status.ToString());
             return PartialView(partial, vm);
+        }
+
+        private void ApplyEarliestCreatablePlacement(SchedulePageViewModel viewModel, int timezoneOffset)
+        {
+            var todayLocal = _timeService.ConvertUtcToLocal(_timeService.GetCurrentUtcTime(), timezoneOffset).Date;
+            viewModel.EarliestStartMinutes = _timeService.GetEarliestCreatableStartMinutes(
+                todayLocal,
+                timezoneOffset,
+                ScheduleGrid.SlotSizeMinutes,
+                ScheduleGrid.DayStartMinutes);
+
+            var placement = _timeService.GetEarliestCreatablePlacement(
+                viewModel.SelectedDate,
+                timezoneOffset,
+                ScheduleGrid.SlotSizeMinutes,
+                ScheduleGrid.DayStartMinutes,
+                ScheduleGrid.DayEndMinutes);
+
+            viewModel.EarliestCreatableTargetDate = placement.TargetDate;
+            viewModel.EarliestCreatableStartMinutes = placement.StartMinutes;
+            viewModel.EarliestCreatableEndMinutes = placement.StartMinutes + ScheduleGrid.SlotSizeMinutes;
+
+            Response.Headers["X-Schedule-Earliest-Creatable-Date"] = placement.TargetDate.ToString("yyyy-MM-dd");
+            Response.Headers["X-Schedule-Earliest-Creatable-Start-Minutes"] = placement.StartMinutes.ToString();
+            Response.Headers["X-Schedule-Earliest-Creatable-End-Minutes"] = viewModel.EarliestCreatableEndMinutes.ToString();
         }
 
         private SchedulePageViewModel EnrichWithLayout(SchedulePageViewModel viewModel, int timezoneOffsetMinutes)

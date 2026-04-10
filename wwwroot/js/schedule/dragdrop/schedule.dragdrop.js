@@ -508,6 +508,19 @@
     return Math.ceil(required);
   };
 
+  const getDraggedBacklogItem = () => {
+    const draggingItem = schedule.backlog?._draggingItem;
+    if (!draggingItem?.id) return null;
+
+    const item = schedule.backlog?.api?.getItemById?.(draggingItem.id) || null;
+    if (!item) return null;
+
+    return {
+      ...item,
+      itemType: item.itemType ?? draggingItem.itemType ?? null,
+    };
+  };
+
   const applyOptimisticTravelMetadata = ({
     taskCard,
     travelCard,
@@ -1240,10 +1253,26 @@
        * ============================================================
        */
       if (!dragState.taskId) {
+        const backlogItem = getDraggedBacklogItem();
+
+        if (window.schedule.backlog?._draggingItem) {
+          if (!backlogItem) {
+            showWarning("Nepavyko rasti tempiamo sablono. Atnaujinkite sarasa ir bandykite dar karta.");
+            clearDragState();
+            return;
+          }
+
+          if (schedule.backlog?.state) {
+            schedule.backlog.state._schedulingFromBacklogId = backlogItem.id;
+            schedule.backlog.state._schedulingFromBacklogItemType = backlogItem.itemType;
+          }
+        }
+
         logEvent("ui.drag.drop.create", {
           technicianId,
           targetDate,
           startMinutes,
+          backlogItemId: backlogItem?.id || null,
         });
 
         await schedule.tasks?.openTaskPanel?.({
@@ -1252,6 +1281,10 @@
           startMinutes,
           endMinutes: startMinutes + 30, // default slot length
         });
+
+        if (backlogItem) {
+          await schedule.backlog?.form?.applyPrefill?.(backlogItem);
+        }
 
         clearDragState();
         return;

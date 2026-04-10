@@ -94,6 +94,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentAsync(
             DateTime targetDate,
             int durationMinutes,
+            long? objectId,
             string objectName,
             TaskPriority priority,
             int timezoneOffsetMinutes,

@@ -22,6 +22,8 @@ public class BacklogItemDto
     [StringLength(500, ErrorMessage = "Objekto pavadinimas negali virsyti 500 simboliu.")]
     public string ObjectName { get; set; } = string.Empty;
 
+    public long? ObjectId { get; set; }
+
     [Required(ErrorMessage = "Adresas yra privalomas.")]
     [StringLength(500, ErrorMessage = "Objekto adresas negali virsyti 500 simboliu.")]
     public string ObjectAddress { get; set; } = string.Empty;

@@ -1001,6 +1001,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 var suggestion = await _planService.SuggestAutoAssignmentAsync(
                     targetDate,
                     dto.EndMinutes - dto.StartMinutes,
+                    dto.ObjectId,
                     dto.ObjectName,
                     dto.Priority,
                     dto.TimezoneOffsetMinutes,

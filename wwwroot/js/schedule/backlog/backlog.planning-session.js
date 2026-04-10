@@ -45,6 +45,25 @@
   };
   backlog.bulkState.getCurrentItemState = () =>
     backlog.bulkState.getItemState(state._bulkQueueIdx);
+  backlog.bulkState.pickSnapshotMetadata = (base = {}) => {
+    const normalized = backlog.bulkState.ensurePlanningMetadata(base);
+    return {
+      _planningRevision: Number(normalized._planningRevision || 0),
+      _appliedPlanningRevision: Number(normalized._appliedPlanningRevision || 0),
+      _lastSavedRevision: Number(normalized._lastSavedRevision || 0),
+      _lastAutoPlanFingerprint: normalized._lastAutoPlanFingerprint || "",
+      _visited: normalized._visited === true,
+      _dirty: normalized._dirty === true,
+      _autoPlanned: normalized._autoPlanned === true,
+      _autoPlanLocked: normalized._autoPlanLocked === true,
+    };
+  };
+  backlog.bulkState.composeSnapshot = ({ base = {}, data = {}, metadata = {} } = {}) => ({
+    ...backlog.bulkState.pickSnapshotMetadata(base),
+    ...base,
+    ...data,
+    ...metadata,
+  });
   backlog.bulkState.hasPlanningInputsChangedSinceAutoPlan = (idx) => {
     const snapshot = backlog.bulkState.getItemState(idx);
     return backlog.bulkState.buildPlanningFingerprint(snapshot) !== (snapshot._lastAutoPlanFingerprint || "");
@@ -135,6 +154,67 @@
     if (!panel || !modal) return;
     state._bulkScheduledData[state._bulkQueueIdx] = backlog.bulkState.collectMergedBulkSnapshot(panel, state._bulkQueueIdx);
   };
+  backlog.bulkState.mapFormDataToSnapshotFields = ({
+    base = {},
+    item = null,
+    formData = {},
+    selectedObjectValue = "",
+    selectedObjectText = "",
+    selectedAddressValue = "",
+    selectedAddressText = "",
+    selectedAssigneeText = "",
+  } = {}) => ({
+    title: formData.title || "",
+    priorityRaw: formData.priority || "",
+    priorityVal: Number.isNaN(formData.priorityVal) ? null : formData.priorityVal,
+    technicianId: formData.technicianId || 0,
+    technicianName: selectedAssigneeText || base.technicianName || "",
+    startAt: state.normalizeDateTimeLocalValue(formData.startAt),
+    endAt: state.normalizeDateTimeLocalValue(formData.endAt),
+    skillLevel: formData.skillLevel || "",
+    instructions: formData.instructions || "",
+    technicianComment: formData.technicianComment || "",
+    objectId: selectedObjectValue ? Number(selectedObjectValue) : null,
+    objectName: selectedObjectText && selectedObjectText !== "â€“ Pasirinkite â€“" ? selectedObjectText : "",
+    addressId: selectedAddressValue ? Number(selectedAddressValue) : null,
+    objectAddress: selectedAddressText && selectedAddressText !== "â€“ Pasirinkite â€“" ? selectedAddressText : "",
+    draftTaskId: base.draftTaskId || null,
+    draftTaskVersion: Number(base.draftTaskVersion || 0),
+    sourceBacklogItemId: Number(base.sourceBacklogItemId || item?.id || 0) || null,
+    isMaterialized: base.isMaterialized === true,
+    isUserLocked: base.isUserLocked === true,
+    isAutoManaged: base.isAutoManaged !== false,
+  });
+  backlog.bulkState.mapTaskDataToSnapshotFields = (taskData, base = {}) => ({
+    title: taskData?.title || base.title || "",
+    priorityVal: Number.isFinite(taskData?.priority) ? taskData.priority : (base.priorityVal ?? null),
+    priorityRaw: taskData?.priority != null ? String(taskData.priority) : (base.priorityRaw || ""),
+    technicianId: Number(taskData?.technicianId || base.technicianId || 0),
+    technicianName: base.technicianName || "",
+    startAt: taskData?.startAt ? taskData.startAt.substring(0, 16) : (base.startAt || ""),
+    endAt: taskData?.endAt ? taskData.endAt.substring(0, 16) : (base.endAt || ""),
+    skillLevel: taskData?.skillLevel || base.skillLevel || "",
+    instructions: taskData?.instructions || base.instructions || "",
+    technicianComment: taskData?.technicianComment || base.technicianComment || "",
+    objectId: taskData?.objectId ?? base.objectId ?? null,
+    objectName: taskData?.objectName || base.objectName || "",
+    addressId: base.addressId ?? null,
+    objectAddress: taskData?.objectAddress || taskData?.location || base.objectAddress || "",
+    sourceBacklogItemId: Number(taskData?.sourceBacklogItemId || base.sourceBacklogItemId || 0) || null,
+    draftTaskId: Number(taskData?.id || base.draftTaskId || 0) || null,
+    draftTaskVersion: Number(taskData?.version || base.draftTaskVersion || 0),
+    isMaterialized: true,
+    isUserLocked: base.isUserLocked === true,
+    isAutoManaged: base.isAutoManaged !== false,
+  });
+  backlog.bulkState.mapSuggestionToPlanningFields = (suggestion, base = {}) => ({
+    technicianId: Number(suggestion.technicianId || 0),
+    technicianName: suggestion.technicianName || base.technicianName || "",
+    startAt: suggestion.startAt || base.startAt || "",
+    endAt: suggestion.endAt || base.endAt || "",
+    isUserLocked: false,
+    isAutoManaged: true,
+  });
   backlog.bulkState.collectMergedBulkSnapshot = (panel, idx) => {
     const modal = window.schedule?.tasks?.modal;
     if (!panel || !modal) return backlog.bulkState.ensurePlanningMetadata(state._bulkScheduledData[idx] || {});
@@ -143,46 +223,20 @@
     const formData = modal.collectFormData(panel) || {};
     const objectSelect = panel.querySelector("#taskDetailObject");
     const addressSelect = panel.querySelector("#taskDetailLocation");
-    const selectedObjectOption = objectSelect?.selectedOptions?.[0] || null;
-    const selectedAddressOption = addressSelect?.selectedOptions?.[0] || null;
     const assigneeSelect = panel.querySelector("#taskDetailAssignee");
-    const selectedAssigneeOption = assigneeSelect?.selectedOptions?.[0] || null;
-    const selectedObjectValue = objectSelect?.value || "";
-    const selectedObjectText = selectedObjectOption?.textContent?.trim() || "";
-    const selectedAddressValue = addressSelect?.value || "";
-    const selectedAddressText = selectedAddressOption?.textContent?.trim() || "";
-    const selectedAssigneeText = selectedAssigneeOption?.textContent?.trim() || "";
-    return {
-      ...base,
-      title: formData.title || "",
-      priorityRaw: formData.priority || "",
-      priorityVal: Number.isNaN(formData.priorityVal) ? null : formData.priorityVal,
-      technicianId: formData.technicianId || 0,
-      technicianName: selectedAssigneeText || base.technicianName || "",
-      startAt: state.normalizeDateTimeLocalValue(formData.startAt),
-      endAt: state.normalizeDateTimeLocalValue(formData.endAt),
-      skillLevel: formData.skillLevel || "",
-      instructions: formData.instructions || "",
-      technicianComment: formData.technicianComment || "",
-      objectId: selectedObjectValue ? Number(selectedObjectValue) : null,
-      objectName: selectedObjectText && selectedObjectText !== "– Pasirinkite –" ? selectedObjectText : "",
-      addressId: selectedAddressValue ? Number(selectedAddressValue) : null,
-      objectAddress: selectedAddressText && selectedAddressText !== "– Pasirinkite –" ? selectedAddressText : "",
-      draftTaskId: base.draftTaskId || null,
-      draftTaskVersion: Number(base.draftTaskVersion || 0),
-      sourceBacklogItemId: Number(base.sourceBacklogItemId || item?.id || 0) || null,
-      isMaterialized: base.isMaterialized === true,
-      isUserLocked: base.isUserLocked === true,
-      isAutoManaged: base.isAutoManaged !== false,
-      _planningRevision: Number(base._planningRevision || 0),
-      _appliedPlanningRevision: Number(base._appliedPlanningRevision || 0),
-      _lastSavedRevision: Number(base._lastSavedRevision || 0),
-      _lastAutoPlanFingerprint: base._lastAutoPlanFingerprint || "",
-      _visited: base._visited === true,
-      _dirty: base._dirty === true,
-      _autoPlanned: base._autoPlanned === true,
-      _autoPlanLocked: base._autoPlanLocked === true,
-    };
+    return backlog.bulkState.composeSnapshot({
+      base,
+      data: backlog.bulkState.mapFormDataToSnapshotFields({
+        base,
+        item,
+        formData,
+        selectedObjectValue: objectSelect?.value || "",
+        selectedObjectText: objectSelect?.selectedOptions?.[0]?.textContent?.trim() || "",
+        selectedAddressValue: addressSelect?.value || "",
+        selectedAddressText: addressSelect?.selectedOptions?.[0]?.textContent?.trim() || "",
+        selectedAssigneeText: assigneeSelect?.selectedOptions?.[0]?.textContent?.trim() || "",
+      }),
+    });
   };
   backlog.bulkState.isBulkSnapshotSchedulable = (snapshot, item) => {
     const start = state.parseDatetimeComponents(snapshot?.startAt);
@@ -204,6 +258,7 @@
       priority: snap.priorityVal ?? item.priority ?? 0,
       status: 0,
       skillLevel: snap.skillLevel || item.skillLevel || "",
+      objectId: snap.objectId ? Number(snap.objectId) : null,
       objectName: snap.objectName || item.objectName || "",
       objectAddress: snap.objectAddress || item.locationText || "",
       instructions: snap.instructions || item.instructions || "",
@@ -276,6 +331,7 @@
       priority: snapshot.priorityVal ?? item.priority ?? 0,
       status: 0,
       skillLevel: snapshot.skillLevel || item.skillLevel || "",
+      objectId: snapshot.objectId ? Number(snapshot.objectId) : null,
       objectName: snapshot.objectName || item.objectName || "",
       objectAddress: snapshot.objectAddress || item.locationText || "",
       instructions: snapshot.instructions || item.instructions || "",
@@ -296,6 +352,56 @@
     if (!query) return false;
     query.set("planScope", "draft");
     return await window.schedule?.table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
+  };
+  backlog.bulkSync.deleteDraftTaskForSnapshot = async (snapshot, { silent = true } = {}) => {
+    const taskApi = window.schedule?.tasks?.api;
+    const taskId = Number(snapshot?.draftTaskId || 0);
+    if (!taskId) return true;
+    if (!taskApi?.deleteTask) {
+      state._bulkLastSyncError = "Nepavyko pasiekti uzduociu API.";
+      return false;
+    }
+
+    const result = await taskApi.deleteTask(taskId, Number(snapshot?.draftTaskVersion || 0), { autoCompact: true });
+    if (result?.success || result?.errorType === "not_found") return true;
+
+    state._bulkLastSyncError = result?.error || "Nepavyko istrinti juodrascio uzduoties.";
+    if (!silent) {
+      window.schedule?.ui?.toast?.showWarning?.(state._bulkLastSyncError);
+    }
+    return false;
+  };
+  backlog.bulkSync.reconcileDeselectedDraftTasks = async (nextQueue, { silent = true } = {}) => {
+    const previousQueue = Array.isArray(state._bulkQueue) ? state._bulkQueue : [];
+    const previousSnapshots = Array.isArray(state._bulkScheduledData) ? state._bulkScheduledData : [];
+    if (!previousQueue.length || !previousSnapshots.length) return true;
+
+    const nextIds = new Set(
+      (nextQueue || [])
+        .map((item) => String(item?.id ?? ""))
+        .filter(Boolean)
+    );
+
+    const staleSnapshots = previousQueue
+      .map((item, idx) => ({
+        itemId: String(item?.id ?? ""),
+        snapshot: previousSnapshots[idx] || null,
+      }))
+      .filter(({ itemId, snapshot }) =>
+        itemId &&
+        !nextIds.has(itemId) &&
+        Number(snapshot?.draftTaskId || 0) > 0)
+      .map(({ snapshot }) => snapshot);
+
+    if (!staleSnapshots.length) return true;
+
+    for (const snapshot of staleSnapshots) {
+      const deleted = await backlog.bulkSync.deleteDraftTaskForSnapshot(snapshot, { silent });
+      if (!deleted) return false;
+    }
+
+    await backlog.bulkSync.refreshDraftScheduleTable();
+    return true;
   };
   backlog.bulkSync.materializeOrUpdateBulkItem = async (idx, { refreshSchedule = true, silent = true } = {}) => {
     const item = state._bulkQueue[idx];
@@ -322,11 +428,13 @@
         if (!silent) window.schedule?.ui?.toast?.showWarning?.(createResult?.error || "Nepavyko sukurti juodrascio uzduoties.");
         return false;
       }
-      state._bulkScheduledData[idx] = backlog.bulkState.ensurePlanningMetadata({
-        ...snap,
-        draftTaskId: Number(createResult.id),
-        draftTaskVersion: Number(createResult.version || 0),
-        isMaterialized: true,
+      state._bulkScheduledData[idx] = backlog.bulkState.composeSnapshot({
+        base: snap,
+        data: {
+          draftTaskId: Number(createResult.id),
+          draftTaskVersion: Number(createResult.version || 0),
+          isMaterialized: true,
+        },
       });
       backlog.bulkState.markPlanningSaved(idx, backlog.bulkState.getSnapshotPlanningRevision(idx));
       await backlog.bulkSync.fetchAndSyncBulkTask(Number(createResult.id));
@@ -340,10 +448,12 @@
       if (!silent) window.schedule?.ui?.toast?.showWarning?.(updateResult?.error || "Nepavyko atnaujinti juodrascio uzduoties.");
       return false;
     }
-    state._bulkScheduledData[idx] = backlog.bulkState.ensurePlanningMetadata({
-      ...(state._bulkScheduledData[idx] || {}),
-      draftTaskVersion: Number(updateResult.version || snap.draftTaskVersion || 0),
-      isMaterialized: true,
+    state._bulkScheduledData[idx] = backlog.bulkState.composeSnapshot({
+      base: state._bulkScheduledData[idx] || {},
+      data: {
+        draftTaskVersion: Number(updateResult.version || snap.draftTaskVersion || 0),
+        isMaterialized: true,
+      },
     });
     backlog.bulkState.markPlanningSaved(idx, backlog.bulkState.getSnapshotPlanningRevision(idx));
     await backlog.bulkSync.fetchAndSyncBulkTask(Number(snap.draftTaskId));
@@ -351,37 +461,11 @@
     if (state._bulkQueueIdx === idx) await backlog.bulkSync.restoreBulkPanelFromSnapshot(idx);
     return true;
   };
-  backlog.bulkSync.taskToBulkSnapshot = (taskData, base = {}) => ({
-    ...base,
-    title: taskData?.title || base.title || "",
-    priorityVal: Number.isFinite(taskData?.priority) ? taskData.priority : (base.priorityVal ?? null),
-    priorityRaw: taskData?.priority != null ? String(taskData.priority) : (base.priorityRaw || ""),
-    technicianId: Number(taskData?.technicianId || base.technicianId || 0),
-    technicianName: base.technicianName || "",
-    startAt: taskData?.startAt ? taskData.startAt.substring(0, 16) : (base.startAt || ""),
-    endAt: taskData?.endAt ? taskData.endAt.substring(0, 16) : (base.endAt || ""),
-    skillLevel: taskData?.skillLevel || base.skillLevel || "",
-    instructions: taskData?.instructions || base.instructions || "",
-    technicianComment: taskData?.technicianComment || base.technicianComment || "",
-    objectId: taskData?.objectId ?? base.objectId ?? null,
-    objectName: taskData?.objectName || base.objectName || "",
-    addressId: base.addressId ?? null,
-    objectAddress: taskData?.objectAddress || taskData?.location || base.objectAddress || "",
-    sourceBacklogItemId: Number(taskData?.sourceBacklogItemId || base.sourceBacklogItemId || 0) || null,
-    draftTaskId: Number(taskData?.id || base.draftTaskId || 0) || null,
-    draftTaskVersion: Number(taskData?.version || base.draftTaskVersion || 0),
-    isMaterialized: true,
-    isUserLocked: base.isUserLocked === true,
-    isAutoManaged: base.isAutoManaged !== false,
-    _planningRevision: Number(base._planningRevision || 0),
-    _appliedPlanningRevision: Number(base._appliedPlanningRevision || 0),
-    _lastSavedRevision: Number(base._lastSavedRevision || 0),
-    _lastAutoPlanFingerprint: base._lastAutoPlanFingerprint || "",
-    _visited: base._visited === true,
-    _dirty: base._dirty === true,
-    _autoPlanned: base._autoPlanned === true,
-    _autoPlanLocked: base._autoPlanLocked === true,
-  });
+  backlog.bulkSync.taskToBulkSnapshot = (taskData, base = {}) =>
+    backlog.bulkState.composeSnapshot({
+      base,
+      data: backlog.bulkState.mapTaskDataToSnapshotFields(taskData, base),
+    });
   backlog.bulkSync.findBulkIndexByTaskId = (taskId) =>
     state._bulkScheduledData.findIndex((snapshot) => Number(snapshot?.draftTaskId || 0) === Number(taskId || 0));
   backlog.bulkSync.findBulkIndexBySourceBacklogItemId = (sourceBacklogItemId) =>
@@ -401,10 +485,12 @@
   backlog.bulkSync.lockBulkSnapshotFromTask = (taskData, idx = backlog.bulkSync.findBulkIndexForTask(taskData)) => {
     if (!taskData || idx < 0) return -1;
     const current = backlog.bulkState.ensurePlanningMetadata(state._bulkScheduledData[idx] || {});
-    state._bulkScheduledData[idx] = backlog.bulkState.ensurePlanningMetadata({
-      ...backlog.bulkSync.taskToBulkSnapshot(taskData, current),
-      isUserLocked: true,
-      isAutoManaged: false,
+    state._bulkScheduledData[idx] = backlog.bulkState.composeSnapshot({
+      base: backlog.bulkSync.taskToBulkSnapshot(taskData, current),
+      data: {
+        isUserLocked: true,
+        isAutoManaged: false,
+      },
     });
     return idx;
   };
@@ -640,14 +726,9 @@
     if (!suggestion) return false;
     const current = backlog.bulkState.getItemState(idx);
     if (current.isUserLocked === true || current.isAutoManaged === false) return false;
-    state._bulkScheduledData[idx] = backlog.bulkState.ensurePlanningMetadata({
-      ...current,
-      technicianId: Number(suggestion.technicianId || 0),
-      technicianName: suggestion.technicianName || current.technicianName || "",
-      startAt: suggestion.startAt || current.startAt || "",
-      endAt: suggestion.endAt || current.endAt || "",
-      isUserLocked: false,
-      isAutoManaged: true,
+    state._bulkScheduledData[idx] = backlog.bulkState.composeSnapshot({
+      base: current,
+      data: backlog.bulkState.mapSuggestionToPlanningFields(suggestion, current),
     });
     backlog.bulkState.markBulkItemAutoPlanned(idx);
     return true;
@@ -1010,6 +1091,7 @@
   backlog.bulkUi.resetFreshItemPanel = async (panel, item, { neutralizePlanningFields = false } = {}) => {
     if (!panel) return;
     const set = (selector, value) => backlog.bulkUi.setFieldValue(panel, selector, value);
+    const defaultPlacement = state.getEarliestCreatableRangeForScheduleDate?.() || null;
     if (neutralizePlanningFields) {
       set("#taskDetailAssignee", "");
       set("#taskDetailStart", "");
@@ -1020,9 +1102,8 @@
     set("#taskDetailSkill", "");
     set("#taskDetailInstructions", "");
     set("#taskDetailTechnicianComment", "");
-    const roundedNow = state.getRoundedLocalNowRange();
-    set("#taskDetailStart", roundedNow?.start ?? state._localNow ?? "");
-    set("#taskDetailEnd", roundedNow?.end ?? "");
+    set("#taskDetailStart", defaultPlacement?.start ?? "");
+    set("#taskDetailEnd", defaultPlacement?.end ?? "");
     backlog.bulkUi.clearAssigneeSelection(panel);
 
     const modal = window.schedule?.tasks?.modal;
@@ -1058,7 +1139,7 @@
 
   backlog.planningSession.handleBulkSchedule = backlog.bulkFlow;
   backlog.bulkFlow.buildQueueFromSelection = () => {
-    const selectedIds = [...state._selectedIds].map((id) => String(id));
+    const selectedIds = state.getSelectedIdsInOrder().map((id) => String(id));
     if (!selectedIds.length && state._isBulkMode && state._bulkQueue.length) {
       return state._bulkQueue.slice();
     }
@@ -1138,10 +1219,21 @@
         return;
       }
     }
+    if (reopeningExistingDraft) {
+      backlog.bulkState.persistCurrentBulkSnapshot();
+      const reconciled = await backlog.bulkSync.reconcileDeselectedDraftTasks(nextQueue, { silent: false });
+      if (!reconciled) return;
+    }
     backlog.bulkFlow.mergeQueueSelectionIntoDraftState(nextQueue);
     state._isBulkMode = true;
     if (!reopeningExistingDraft) state._bulkPlanMode = "rankinis";
-    await window.schedule?.tasks?.openTaskPanel?.({});
+    backlog.bulkFlow.hideBulkConfirmView();
+    const initialPlacement = state.getEarliestCreatableRangeForScheduleDate?.() || {};
+    await window.schedule?.tasks?.openTaskPanel?.({
+      targetDate: initialPlacement.targetDate,
+      startMinutes: initialPlacement.startMinutes,
+      endMinutes: initialPlacement.endMinutes,
+    });
     const panel = state.getPanelEl();
     if (!panel) return;
     panel.dataset.bulkMode = "true";

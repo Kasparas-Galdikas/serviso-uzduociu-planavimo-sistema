@@ -805,14 +805,20 @@
     let resolvedEnd = endMinutes;
 
     if (!allowEmptySchedule && (!resolvedDate || resolvedStart == null || resolvedEnd == null)) {
-      const tz = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
-      const nowLocal = new Date(Date.now() + tz * 60000);
-      const slotSize = grid.getConfig?.()?.slotSizeMinutes ?? 30;
-      const nowMins = nowLocal.getUTCHours() * 60 + nowLocal.getUTCMinutes();
-      const snappedStart = Math.ceil(nowMins / slotSize) * slotSize;
-      resolvedDate   = resolvedDate   ?? nowLocal.toISOString().slice(0, 10);
-      resolvedStart  = resolvedStart  ?? snappedStart;
-      resolvedEnd    = resolvedEnd    ?? (snappedStart + slotSize);
+      const placement = window.schedule?.backlog?.state?.getEarliestCreatableRangeForScheduleDate?.();
+      if (placement) {
+        resolvedDate = resolvedDate ?? placement.targetDate;
+        resolvedStart = resolvedStart ?? placement.startMinutes;
+        resolvedEnd = resolvedEnd ?? placement.endMinutes;
+      } else {
+        const nowLocal = new Date();
+        const slotSize = grid.getConfig?.()?.slotSizeMinutes ?? 30;
+        const nowMins = nowLocal.getHours() * 60 + nowLocal.getMinutes();
+        const snappedStart = Math.ceil(nowMins / slotSize) * slotSize;
+        resolvedDate   = resolvedDate   ?? nowLocal.toISOString().slice(0, 10);
+        resolvedStart  = resolvedStart  ?? snappedStart;
+        resolvedEnd    = resolvedEnd    ?? (snappedStart + slotSize);
+      }
     }
 
     if (resolvedDate && resolvedStart != null && resolvedEnd != null) {

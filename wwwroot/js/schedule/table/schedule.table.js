@@ -62,6 +62,12 @@
         const infoType = query.get("info") || tables.dataset.informationType || "apkrova";
         tables.dataset.informationType = infoType;
       }
+      const earliestCreatableDate = response.headers.get("X-Schedule-Earliest-Creatable-Date");
+      const earliestCreatableStart = response.headers.get("X-Schedule-Earliest-Creatable-Start-Minutes");
+      const earliestCreatableEnd = response.headers.get("X-Schedule-Earliest-Creatable-End-Minutes");
+      if (earliestCreatableDate) tables.dataset.earliestCreatableDate = earliestCreatableDate;
+      if (earliestCreatableStart) tables.dataset.earliestCreatableStartMinutes = earliestCreatableStart;
+      if (earliestCreatableEnd) tables.dataset.earliestCreatableEndMinutes = earliestCreatableEnd;
       logEvent("ui.table.fetch.ok", { url, status: response.status, length: html.length });
 
       // Restore scroll position after refresh

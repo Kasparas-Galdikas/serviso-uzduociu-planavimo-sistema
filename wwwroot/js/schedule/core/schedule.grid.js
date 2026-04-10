@@ -141,6 +141,29 @@
     return dayStartMinutes;
   };
 
+  /**
+   * Get the backend-computed earliest creatable placement for the currently selected schedule date.
+   * @returns {{ targetDate: string, startMinutes: number, endMinutes: number } | null}
+   */
+  const getEarliestCreatablePlacement = () => {
+    const tables = document.getElementById("scheduleTables");
+    if (!tables) return null;
+
+    const targetDate = String(tables.dataset.earliestCreatableDate || "").trim();
+    const startMinutes = parseIntSafe(tables.dataset.earliestCreatableStartMinutes);
+    const endMinutes = parseIntSafe(tables.dataset.earliestCreatableEndMinutes);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate) || startMinutes == null || endMinutes == null) {
+      return null;
+    }
+
+    return {
+      targetDate,
+      startMinutes,
+      endMinutes,
+    };
+  };
+
   // Export module
   window.schedule.grid = {
     parseIntSafe,
@@ -154,5 +177,6 @@
     isToday,
     getCurrentTimeMinutes,
     getMinStartMinutes,
+    getEarliestCreatablePlacement,
   };
 })();

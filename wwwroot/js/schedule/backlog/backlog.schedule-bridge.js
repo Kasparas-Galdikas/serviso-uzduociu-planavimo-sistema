@@ -58,7 +58,12 @@
     cardEl.addEventListener("dragstart", (e) => {
       if (state._selectionMode) { e.preventDefault(); return; }
       state._draggingBacklogId = item.id;
-      backlog._draggingItem = { id: item.id, _lastSlotMinutes: null, _lastRow: null };
+      backlog._draggingItem = {
+        id: item.id,
+        itemType: item.itemType ?? null,
+        _lastSlotMinutes: null,
+        _lastRow: null,
+      };
       e.dataTransfer.effectAllowed = "copy";
       e.dataTransfer.setData("application/x-backlog-id", item.id);
       e.dataTransfer.setData("text/plain", item.id);
@@ -123,8 +128,18 @@
     document.getElementById("backlogSelectToggle")?.addEventListener("click", () => { backlog.list.enterSelectionMode(); backlog.list.renderList(); });
     document.getElementById("backlogSelectCancel")?.addEventListener("click", () => { backlog.list.exitSelectionMode(); backlog.list.renderList(); });
     document.getElementById("backlogSelectAll")?.addEventListener("change", (e) => {
-      if (e.target.checked) state._items.forEach((item) => state._selectedIds.add(String(item.id)));
-      else state._selectedIds.clear();
+      if (e.target.checked) {
+        const nextOrder = state.getSelectedIdsInOrder();
+        const seen = new Set(nextOrder);
+        state._items.forEach((item) => {
+          const itemId = String(item?.id ?? "");
+          if (!itemId || seen.has(itemId)) return;
+          seen.add(itemId);
+          nextOrder.push(itemId);
+        });
+        state.replaceSelectionOrder(nextOrder);
+      }
+      else state.clearSelection();
       backlog.list.renderList();
       backlog.list.updateBulkBar();
     });

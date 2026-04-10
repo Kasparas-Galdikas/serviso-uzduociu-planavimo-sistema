@@ -619,6 +619,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentAsync(
             DateTime targetDate,
             int durationMinutes,
+            long? objectId,
             string objectName,
             TaskPriority priority,
             int timezoneOffsetMinutes,
@@ -628,6 +629,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             => _assignmentMatching.SuggestAutoAssignmentAsync(
                 targetDate,
                 durationMinutes,
+                objectId,
                 objectName,
                 priority,
                 timezoneOffsetMinutes,

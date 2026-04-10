@@ -37,6 +37,7 @@
     _activeTypeTab: ITEM_TYPE.Permanent,
     _selectionMode: false,
     _selectedIds: new Set(),
+    _selectedOrder: [],
     _page: 1,
     _hasMore: false,
     _scroll: null,
@@ -102,6 +103,46 @@
     };
   };
 
+  state.getActiveScheduleDate = () => {
+    const query = window.schedule?.state?.getQuery?.();
+    const rawDate = query?.get?.("date") || "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) return rawDate;
+
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  };
+
+  state.getEarliestCreatableRangeForScheduleDate = (requestedDate = state.getActiveScheduleDate()) => {
+    const grid = window.schedule?.grid;
+    const serverPlacement = grid?.getEarliestCreatablePlacement?.();
+    if (serverPlacement) {
+      return {
+        targetDate: serverPlacement.targetDate,
+        startMinutes: serverPlacement.startMinutes,
+        endMinutes: serverPlacement.endMinutes,
+        start: state.toLocalDateTimeValue(serverPlacement.targetDate, serverPlacement.startMinutes),
+        end: state.toLocalDateTimeValue(serverPlacement.targetDate, serverPlacement.endMinutes),
+      };
+    }
+
+    const config = grid?.getConfig?.() || {
+      slotSizeMinutes: 30,
+      dayStartMinutes: 8 * 60,
+    };
+    const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate || "") ? requestedDate : state.getActiveScheduleDate();
+    const startMinutes = config.dayStartMinutes || 8 * 60;
+    const endMinutes = startMinutes + (config.slotSizeMinutes || 30);
+
+    return {
+      targetDate,
+      startMinutes,
+      endMinutes,
+      start: state.toLocalDateTimeValue(targetDate, startMinutes),
+      end: state.toLocalDateTimeValue(targetDate, endMinutes),
+    };
+  };
+
   state.priorityParam = () => state._priority !== null ? `&priority=${state._priority}` : "";
 
   state.escapeHtml = (str) => {
@@ -162,6 +203,51 @@
   state.clearSchedulingContext = () => {
     state._schedulingFromBacklogId = null;
     state._schedulingFromBacklogItemType = null;
+  };
+
+  state.clearSelection = () => {
+    state._selectedIds.clear();
+    state._selectedOrder = [];
+  };
+
+  state.selectBacklogItem = (id) => {
+    const normalizedId = String(id ?? "");
+    if (!normalizedId) return false;
+    if (!state._selectedIds.has(normalizedId)) {
+      state._selectedIds.add(normalizedId);
+      state._selectedOrder.push(normalizedId);
+      return true;
+    }
+    return false;
+  };
+
+  state.unselectBacklogItem = (id) => {
+    const normalizedId = String(id ?? "");
+    if (!normalizedId) return false;
+    const hadItem = state._selectedIds.delete(normalizedId);
+    if (hadItem) {
+      state._selectedOrder = state._selectedOrder.filter((entry) => entry !== normalizedId);
+    }
+    return hadItem;
+  };
+
+  state.replaceSelectionOrder = (ids = []) => {
+    const normalized = [];
+    const seen = new Set();
+    (ids || []).forEach((id) => {
+      const normalizedId = String(id ?? "");
+      if (!normalizedId || seen.has(normalizedId)) return;
+      seen.add(normalizedId);
+      normalized.push(normalizedId);
+    });
+    state._selectedIds = new Set(normalized);
+    state._selectedOrder = normalized;
+  };
+
+  state.getSelectedIdsInOrder = () => {
+    const ordered = state._selectedOrder.filter((id) => state._selectedIds.has(id));
+    if (ordered.length === state._selectedIds.size) return ordered.slice();
+    return [...state._selectedIds].map((id) => String(id));
   };
 
   state.getDefaultBulkSaveOptions = () => ({
