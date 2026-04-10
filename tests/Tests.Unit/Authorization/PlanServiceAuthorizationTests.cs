@@ -66,7 +66,9 @@ public class PlanServiceAuthorizationTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult { IsFeasible = true });
     }
 
@@ -251,7 +253,9 @@ public class PlanServiceAuthorizationTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult
             {
                 IsFeasible = true,
@@ -317,6 +321,9 @@ public class PlanServiceAuthorizationTests
         using var db = CreateContext();
         var plan = SeedPlan(db);
         var task = SeedTask(db, plan.Id, technicianId: 1);
+        task.StartAt = DateTime.SpecifyKind(DateTime.Today.AddHours(10), DateTimeKind.Utc);
+        task.EndAt = DateTime.SpecifyKind(DateTime.Today.AddHours(11), DateTimeKind.Utc);
+        db.SaveChanges();
         _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
             .Returns(Task.FromResult(true));
         _time.GetUserLocalToday(0).Returns(DateTime.Today);
@@ -331,7 +338,9 @@ public class PlanServiceAuthorizationTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult
             {
                 IsFeasible = true,
@@ -406,7 +415,9 @@ public class PlanServiceAuthorizationTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult
             {
                 IsFeasible = true,
@@ -479,7 +490,9 @@ public class PlanServiceAuthorizationTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult
             {
                 IsFeasible = true,

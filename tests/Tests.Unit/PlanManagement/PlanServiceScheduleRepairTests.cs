@@ -79,7 +79,9 @@ public sealed class PlanServiceScheduleRepairTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult { IsFeasible = true });
 
         var sut = CreateService(db);
@@ -118,7 +120,9 @@ public sealed class PlanServiceScheduleRepairTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult { IsFeasible = false, Message = "travel fail" });
         _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ScheduleRepairPlan(
@@ -170,7 +174,9 @@ public sealed class PlanServiceScheduleRepairTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult { IsFeasible = true });
 
         var sut = CreateService(db);
@@ -210,7 +216,9 @@ public sealed class PlanServiceScheduleRepairTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult { IsFeasible = true });
         _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ScheduleRepairPlan(
@@ -266,7 +274,9 @@ public sealed class PlanServiceScheduleRepairTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult
             {
                 IsFeasible = false,
@@ -333,7 +343,9 @@ public sealed class PlanServiceScheduleRepairTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult
             {
                 IsFeasible = false,
@@ -379,7 +391,9 @@ public sealed class PlanServiceScheduleRepairTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult
             {
                 IsFeasible = false,
@@ -439,7 +453,9 @@ public sealed class PlanServiceScheduleRepairTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult
             {
                 IsFeasible = false,
@@ -499,7 +515,9 @@ public sealed class PlanServiceScheduleRepairTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult
             {
                 IsFeasible = false,

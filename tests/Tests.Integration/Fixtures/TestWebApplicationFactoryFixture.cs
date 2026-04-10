@@ -28,8 +28,10 @@ public sealed class TestWebApplicationFactoryFixture : IAsyncLifetime
             {
                 services.RemoveAll<ILocationApiClient>();
                 services.RemoveAll<IDistanceApiClient>();
+                services.RemoveAll<ISnapApiClient>();
                 services.AddSingleton<ILocationApiClient, NoNetworkLocationApiClient>();
                 services.AddSingleton<IDistanceApiClient, NoNetworkDistanceApiClient>();
+                services.AddSingleton<ISnapApiClient, NoNetworkSnapApiClient>();
             },
             configOverrides: new Dictionary<string, string?>
             {
@@ -58,5 +60,14 @@ public sealed class TestWebApplicationFactoryFixture : IAsyncLifetime
     {
         public Task<MatrixResult> GetMatrixAsync(IReadOnlyList<GeoPoint> coordinates, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("External distance matrix is disabled in integration tests.");
+    }
+
+    private sealed class NoNetworkSnapApiClient : ISnapApiClient
+    {
+        public Task<IReadOnlyList<GeoPoint?>> SnapAsync(
+            IReadOnlyList<GeoPoint> coordinates,
+            int radiusMeters = 500,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("External route snapping is disabled in integration tests.");
     }
 }

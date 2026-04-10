@@ -56,19 +56,19 @@ namespace ServiceTaskPlanningSystem.Services.Time
             var requestedEndDate = requestedEnd?.Date;
             var today = _timeService.GetLocalToday();
 
-            if ((requestedStartDate.HasValue && requestedStartDate.Value < today) ||
-                (requestedEndDate.HasValue && requestedEndDate.Value < today))
+            if ((requestedStartDate.HasValue && requestedStartDate.Value < boundary.FirstFreeDate) ||
+                (requestedEndDate.HasValue && requestedEndDate.Value < boundary.FirstFreeDate))
             {
-                throw new InvalidOperationException($"Drafts may start from {today:yyyy-MM-dd}.");
+                throw new InvalidOperationException($"Drafts may start from {boundary.FirstFreeDate:yyyy-MM-dd}.");
             }
 
             var requestedSpanDays = requestedStartDate.HasValue && requestedEndDate.HasValue && requestedEndDate.Value >= requestedStartDate.Value
                 ? (requestedEndDate.Value - requestedStartDate.Value).Days + 1
                 : 0;
 
-            var startDate = requestedStartDate.HasValue && requestedStartDate.Value >= today
+            var startDate = requestedStartDate.HasValue && requestedStartDate.Value >= boundary.FirstFreeDate
                 ? requestedStartDate.Value
-                : today;
+                : boundary.FirstFreeDate;
 
             var plannedSpanDays = requestedSpanDays > 0
                 ? requestedSpanDays
