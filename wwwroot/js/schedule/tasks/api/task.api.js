@@ -52,6 +52,14 @@
    * @returns {Promise<{ success: boolean, id?: number, version?: number, error?: string, validationErrors?: Object }>}
    */
   const createTask = async (taskData) => {
+    return await createTaskViaEndpoint("/api/tasks", "api.task.create", taskData);
+  };
+
+  const createDraftTask = async (taskData) => {
+    return await createTaskViaEndpoint("/api/tasks/draft", "api.task.create.draft", taskData);
+  };
+
+  const createTaskViaEndpoint = async (url, eventName, taskData) => {
     const timezoneOffset = grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
 
     const body = {
@@ -73,8 +81,8 @@
 
     try {
       const resp = await (api?.post
-        ? api.post("/api/tasks", body, {}, { event: "api.task.create", techId: taskData.technicianId })
-        : fetch("/api/tasks", {
+        ? api.post(url, body, {}, { event: eventName, techId: taskData.technicianId })
+        : fetch(url, {
             method: "POST",
             headers: { "X-Requested-With": "XMLHttpRequest", "Content-Type": "application/json" },
             body: JSON.stringify(body)
@@ -115,9 +123,9 @@
         id: responseData?.id,
         version: responseData?.version,
         message: responseData?.message,
-      };
+        };
     } catch (err) {
-      logEvent("api.task.create.error", { error: err?.message }, "error");
+      logEvent(`${eventName}.error`, { error: err?.message }, "error");
       return { success: false, error: err?.message || "Ivyko nenumatyta klaida.", errorType: "exception" };
     }
   };
@@ -686,6 +694,7 @@
   window.schedule.tasks.api = {
     fetchTask,
     createTask,
+    createDraftTask,
     updateTask,
     updateTaskAsTechnician,
     updateTaskTime,

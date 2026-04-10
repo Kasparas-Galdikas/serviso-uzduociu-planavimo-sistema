@@ -17,6 +17,7 @@ namespace ServiceTaskPlanningSystem.Data
         public string TechnicianComment { get; set; } = string.Empty; // Technician can update this field
         public string SkillLevel { get; set; } = string.Empty;
         public string Instructions { get; set; } = string.Empty;
+        public long? SourceTaskId { get; set; }
         public long? SourceBacklogItemId { get; set; }
 
         /// <summary>

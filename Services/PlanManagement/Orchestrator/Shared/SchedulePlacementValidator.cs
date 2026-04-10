@@ -128,7 +128,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             long? excludeTaskId,
             CancellationToken cancellationToken,
             IReadOnlyList<ProposedRouteStop>? simulatedStops = null,
-            bool checkOverlap = false)
+            bool checkOverlap = false,
+            long? planId = null)
         {
             var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
             if (taskDateLocal < userLocalToday)
@@ -164,7 +165,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                 excludeTaskId,
                 checkOverlap,
                 cancellationToken,
-                simulatedStops);
+                simulatedStops,
+                planId);
 
             if (!travelCheck.IsFeasible)
             {
@@ -210,12 +212,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             long? excludeTaskId,
             CancellationToken cancellationToken,
             IReadOnlyList<ProposedRouteStop>? simulatedStops = null,
-            bool checkOverlap = false)
+            bool checkOverlap = false,
+            long? planId = null)
         {
             var result = await CheckTimingAndTravelAsync(
                 taskDateLocal, startMinutesLocal, timezoneOffsetMinutes,
                 technicianId, startAtUtc, endAtUtc, serviceAddressId, excludeTaskId, cancellationToken,
-                simulatedStops, checkOverlap);
+                simulatedStops, checkOverlap, planId);
 
             if (result.ViolationKind == TimingTravelViolationKind.TravelInfeasible)
             {
@@ -226,6 +229,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                     serviceAddressId,
                     timezoneOffsetMinutes,
                     excludeTaskId,
+                    planId,
                     result.RepairContext,
                     cancellationToken);
                 return result with { RepairPlan = repairPlan };
@@ -241,6 +245,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             long serviceAddressId,
             int timezoneOffsetMinutes,
             long? excludeTaskId,
+            long? planId,
             TravelRepairContext repairContext,
             CancellationToken cancellationToken)
         {
@@ -261,6 +266,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                     serviceAddressId,
                     timezoneOffsetMinutes,
                     excludeTaskId,
+                    planId,
                     cancellationToken,
                     allowBlockedIntervalShift: true,
                     simulatedBlockedIntervalStart: repairContext.BlockedInterval.StartAtUtc,
@@ -282,6 +288,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                     serviceAddressId,
                     timezoneOffsetMinutes,
                     excludeTaskId,
+                    planId,
                     cancellationToken,
                     allowBlockedIntervalShift: true,
                     simulatedBlockedIntervalStart: repairContext.BlockedInterval.StartAtUtc,
@@ -300,6 +307,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                 serviceAddressId,
                 timezoneOffsetMinutes,
                 excludeTaskId,
+                planId,
                 cancellationToken);
         }
 
@@ -323,6 +331,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
             long serviceAddressId,
             int timezoneOffsetMinutes,
             long? excludeTaskId,
+            long? planId,
             CancellationToken cancellationToken,
             bool allowBlockedIntervalShift = false,
             DateTime? simulatedBlockedIntervalStart = null,
@@ -336,6 +345,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                     DayUtc = startAtUtc.Date,
                     TimezoneOffsetMinutes = timezoneOffsetMinutes,
                     ExcludeTaskId = excludeTaskId,
+                    FilterByPlanId = planId.HasValue,
+                    PlanId = planId,
                     AllowBlockedIntervalShift = allowBlockedIntervalShift,
                     SimulatedBlockedIntervalStart = simulatedBlockedIntervalStart,
                     SimulatedBlockedIntervalEnd = simulatedBlockedIntervalEnd,
@@ -392,6 +403,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
                 serviceAddressId,
                 timezoneOffsetMinutes,
                 excludeTaskId,
+                null,
                 cancellationToken,
                 allowBlockedIntervalShift: true,
                 simulatedBlockedIntervalStart: blockingPeriodStartUtc,

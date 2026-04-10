@@ -54,20 +54,21 @@ namespace ServiceTaskPlanningSystem.Services.Time
             var boundary = await GetBoundaryAsync(cancellationToken);
             var requestedStartDate = requestedStart?.Date;
             var requestedEndDate = requestedEnd?.Date;
+            var today = _timeService.GetLocalToday();
 
-            if ((requestedStartDate.HasValue && requestedStartDate.Value < boundary.FirstFreeDate) ||
-                (requestedEndDate.HasValue && requestedEndDate.Value < boundary.FirstFreeDate))
+            if ((requestedStartDate.HasValue && requestedStartDate.Value < today) ||
+                (requestedEndDate.HasValue && requestedEndDate.Value < today))
             {
-                throw new InvalidOperationException($"Drafts may start from {boundary.FirstFreeDate:yyyy-MM-dd}.");
+                throw new InvalidOperationException($"Drafts may start from {today:yyyy-MM-dd}.");
             }
 
             var requestedSpanDays = requestedStartDate.HasValue && requestedEndDate.HasValue && requestedEndDate.Value >= requestedStartDate.Value
                 ? (requestedEndDate.Value - requestedStartDate.Value).Days + 1
                 : 0;
 
-            var startDate = requestedStartDate.HasValue && requestedStartDate.Value >= boundary.FirstFreeDate
+            var startDate = requestedStartDate.HasValue && requestedStartDate.Value >= today
                 ? requestedStartDate.Value
-                : boundary.FirstFreeDate;
+                : today;
 
             var plannedSpanDays = requestedSpanDays > 0
                 ? requestedSpanDays
@@ -83,7 +84,7 @@ namespace ServiceTaskPlanningSystem.Services.Time
             var endDate = startDate.AddDays(plannedSpanDays - 1);
             var weeks = Math.Max(1, (int)Math.Ceiling(plannedSpanDays / 7.0));
 
-            _logger.LogInformation("svc.plan.calendar.window start={Start} end={End} days={Days} weeks={Weeks} firstFree={FirstFree}", startDate, endDate, plannedSpanDays, weeks, boundary.FirstFreeDate);
+            _logger.LogInformation("svc.plan.calendar.window start={Start} end={End} days={Days} weeks={Weeks} firstFree={FirstFree} today={Today}", startDate, endDate, plannedSpanDays, weeks, boundary.FirstFreeDate, today);
 
             return new PlanningWindow(startDate, endDate, plannedSpanDays, weeks, boundary.FirstFreeDate);
         }

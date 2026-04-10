@@ -35,8 +35,7 @@ namespace ServiceTaskPlanningSystem.Services.Authorization
         {
             var (canEdit, reason) = EvaluatePermission(task, user, timezoneOffsetMinutes);
 
-            // Audit logging: Track all authorization decisions
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Authorization decision: User={UserId} Tech={TechnicianId} Role={Role} Task={TaskId} " +
                 "PlanStatus={PlanStatus} Decision={Decision} Reason={Reason}",
                 user.UserId, user.TechnicianId, user.Role, task.Id, task.Plan?.Status,
@@ -49,7 +48,7 @@ namespace ServiceTaskPlanningSystem.Services.Authorization
         {
             var (canDelete, reason) = EvaluateDeletePermission(task, user, timezoneOffsetMinutes);
 
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Authorization decision: User={UserId} Tech={TechnicianId} Role={Role} Task={TaskId} " +
                 "PlanStatus={PlanStatus} Decision={Decision} Reason={Reason} Action=Delete",
                 user.UserId, user.TechnicianId, user.Role, task.Id, task.Plan?.Status,

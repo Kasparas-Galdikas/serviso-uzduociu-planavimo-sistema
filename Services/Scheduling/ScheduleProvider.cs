@@ -35,11 +35,12 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             _logger = logger;
         }
 
-        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? workload, string? status, string? informationType, long? technicianId, PlanEntity? activePlan, PlanEntity? draftPlan, UserContext user, int timezoneOffsetMinutes)
+        public async Task<SchedulePageViewModel> GetScheduleAsync(string view, string? date, string? location, string? workload, string? status, string? informationType, string? planScope, long? technicianId, PlanEntity? activePlan, PlanEntity? draftPlan, UserContext user, int timezoneOffsetMinutes)
         {
             var selectedDate = DateResolver.ParseOrToday(date);
             var viewMode = NormalizeView(view);
             var infoType = NormalizeInformationType(informationType);
+            var draftOnly = string.Equals(planScope, "draft", StringComparison.OrdinalIgnoreCase);
             if (string.Equals(viewMode, "week", StringComparison.OrdinalIgnoreCase))
             {
                 infoType = "apkrova";
@@ -75,6 +76,22 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             var taskBaseQuery = _db.Tasks
                 .AsNoTracking()
                 .Where(t => t.StartAt < weekEndUtcExclusive && t.EndAt > weekStartUtc);
+
+            if (draftOnly)
+            {
+                if (draftPlan == null)
+                {
+                    taskBaseQuery = taskBaseQuery.Where(t => false);
+                }
+                else
+                {
+                    taskBaseQuery = taskBaseQuery.Where(t => t.PlanId == draftPlan.Id);
+                }
+            }
+            else
+            {
+                taskBaseQuery = taskBaseQuery.Where(t => t.Plan == null || t.Plan.Status != PlanStatus.Draft);
+            }
 
             if (!includeCanceled)
             {
@@ -139,6 +156,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 var planStatus = t.Plan?.Status ?? PlanStatus.Active;
                 var source = planStatus switch
                 {
+                    PlanStatus.Draft when draftOnly && t.SourceTaskId.HasValue => TaskPlanSource.Active,
                     PlanStatus.Draft => TaskPlanSource.Draft,
                     PlanStatus.Superseded => TaskPlanSource.Superseded,
                     _ => TaskPlanSource.Active
@@ -223,7 +241,8 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
             }
             (technicians, tasks) = ApplyTechnicianFilter(technicianId, technicians, tasks);
 
-            var planStatusText = draftPlan?.Status.ToString() ?? activePlan?.Status.ToString();
+            var currentPlan = draftOnly ? (draftPlan ?? activePlan) : activePlan;
+            var planStatusText = currentPlan?.Status.ToString() ?? activePlan?.Status.ToString();
 
             return new SchedulePageViewModel
             {
@@ -239,10 +258,10 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 AvailableLocations = availableLocations,
                 AvailableStatuses = availableWorkloadLevels,
                 Summary = summary,
-                IsPreviewMode = draftPlan != null,
-                HasDraft = draftPlan != null,
-                IsPlanningMode = draftPlan != null,
-                CurrentPlanId = (draftPlan ?? activePlan)?.Id,
+                IsPreviewMode = draftOnly && draftPlan != null,
+                HasDraft = draftOnly && draftPlan != null,
+                IsPlanningMode = draftOnly && draftPlan != null,
+                CurrentPlanId = currentPlan?.Id,
                 CurrentPlanStatus = planStatusText,
                 PlannedPeriodStart = draftPlan?.PeriodStart ?? activePlan?.PeriodStart ?? lastPlanPeriod?.PeriodStart ?? default,
                 PlannedPeriodEnd = plannedPeriodEnd,

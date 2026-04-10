@@ -79,52 +79,76 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             return Task.FromResult(effectiveItems);
         }
 
-        public async Task<TaskCreateResult> CreateTaskAsync(long technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, long? sourceBacklogItemId = null, CancellationToken cancellationToken = default)
+        private enum CreateTaskTargetScope
         {
-            var taskDate = targetDate.Date;
+            Active,
+            Draft,
+        }
 
-            var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
+        private async Task<PlanEntity> ResolveCreateTargetPlanAsync(
+            CreateTaskTargetScope targetScope,
+            DateTime taskDate,
+            int timezoneOffsetMinutes,
+            CancellationToken cancellationToken)
+        {
+            if (targetScope == CreateTaskTargetScope.Draft)
+            {
+                var draftPlan = await _db.Plans
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
 
-            var draftPlan = await _db.Plans
-                .AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
+                if (draftPlan == null)
+                {
+                    throw new InvalidOperationException("Juodrastinis planas nerastas.");
+                }
+
+                if (taskDate < draftPlan.PeriodStart.Date || taskDate > draftPlan.PeriodEnd.Date)
+                {
+                    throw new InvalidOperationException("Uzduoties data nepatenka i juodrascio plano langa.");
+                }
+
+                _logger.LogInformation("svc.plan.create-task.target plan=Draft planId={PlanId}", draftPlan.Id);
+                return draftPlan;
+            }
+
             var activePlan = await _db.Plans
                 .AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Status == PlanStatus.Active, cancellationToken);
-            var supersededPlans = await _db.Plans
-                .AsNoTracking()
-                .Where(p => p.Status == PlanStatus.Superseded)
-                .OrderByDescending(p => p.CreatedAt)
-                .ToListAsync(cancellationToken);
 
-            PlanEntity? targetPlan = null;
-
-            if (draftPlan != null && taskDate >= draftPlan.PeriodStart.Date && taskDate <= draftPlan.PeriodEnd.Date)
+            if (activePlan != null && taskDate >= activePlan.PeriodStart.Date && taskDate <= activePlan.PeriodEnd.Date)
             {
-                targetPlan = draftPlan;
-                _logger.LogInformation("svc.plan.create-task.target plan=Draft planId={PlanId}", draftPlan.Id);
-            }
-            else if (activePlan != null && taskDate >= activePlan.PeriodStart.Date && taskDate <= activePlan.PeriodEnd.Date)
-            {
-                targetPlan = activePlan;
                 _logger.LogInformation("svc.plan.create-task.target plan=Active planId={PlanId}", activePlan.Id);
-            }
-            else
-            {
-                var matchingSuperseded = supersededPlans
-                    .FirstOrDefault(p => taskDate >= p.PeriodStart.Date && taskDate <= p.PeriodEnd.Date);
-                if (matchingSuperseded != null)
-                {
-                    targetPlan = matchingSuperseded;
-                    _logger.LogInformation("svc.plan.create-task.target plan=Superseded planId={PlanId}", matchingSuperseded.Id);
-                }
-                else
-                {
-                    targetPlan = await _planLifecycle.GetOrExtendActivePlanAsync(activePlan, taskDate, userLocalToday, cancellationToken);
-                    _logger.LogInformation("svc.plan.create-task.target plan=Extended/New planId={PlanId}", targetPlan.Id);
-                }
+                return activePlan;
             }
 
+            var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
+            var resolvedActivePlan = await _planLifecycle.GetOrExtendActivePlanAsync(activePlan, taskDate, userLocalToday, cancellationToken);
+            _logger.LogInformation("svc.plan.create-task.target plan=Extended/New planId={PlanId}", resolvedActivePlan.Id);
+            return resolvedActivePlan;
+        }
+
+        private async Task<TaskCreateResult> CreateTaskInternalAsync(
+            CreateTaskTargetScope targetScope,
+            long technicianId,
+            DateTime targetDate,
+            int startMinutes,
+            int endMinutes,
+            string title,
+            TaskPriority priority,
+            ScheduleTaskStatus status,
+            string skillLevel,
+            string objectName,
+            string objectAddress,
+            string instructions,
+            UserContext user,
+            int timezoneOffsetMinutes,
+            long? sourceBacklogItemId = null,
+            CancellationToken cancellationToken = default)
+        {
+            var taskDate = targetDate.Date;
+            var targetPlan = await ResolveCreateTargetPlanAsync(targetScope, taskDate, timezoneOffsetMinutes, cancellationToken);
+
+        
             var normalizedTitle = string.IsNullOrWhiteSpace(title) ? "Nauja uzduotis" : title.Trim();
             var normalizedSkill = string.IsNullOrWhiteSpace(skillLevel) ? string.Empty : skillLevel.Trim();
             var normalizedInstructions = string.IsNullOrWhiteSpace(instructions) ? string.Empty : instructions.Trim();
@@ -266,7 +290,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 endAtUtc: task.EndAt,
                 serviceAddressId: serviceObjectMeta.AddressId,
                 excludeTaskId: task.Id,
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken,
+                planId: task.PlanId);
             if (!timingTravelValidation.IsValid)
             {
                 if (!timingTravelValidation.IsInvalidWindow && await _placementValidator.TryApplyTimingTravelRepairAsync(task, timingTravelValidation, cancellationToken))
@@ -316,6 +341,74 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 new { technicianId = task.TechnicianId, startAt = task.StartAt, endAt = task.EndAt }, cancellationToken: cancellationToken);
             return _rOk;
         }
+
+        public Task<TaskCreateResult> CreateTaskAsync(
+            long technicianId,
+            DateTime targetDate,
+            int startMinutes,
+            int endMinutes,
+            string title,
+            TaskPriority priority,
+            ScheduleTaskStatus status,
+            string skillLevel,
+            string objectName,
+            string objectAddress,
+            string instructions,
+            UserContext user,
+            int timezoneOffsetMinutes,
+            long? sourceBacklogItemId = null,
+            CancellationToken cancellationToken = default)
+            => CreateTaskInternalAsync(
+                CreateTaskTargetScope.Active,
+                technicianId,
+                targetDate,
+                startMinutes,
+                endMinutes,
+                title,
+                priority,
+                status,
+                skillLevel,
+                objectName,
+                objectAddress,
+                instructions,
+                user,
+                timezoneOffsetMinutes,
+                sourceBacklogItemId,
+                cancellationToken);
+
+        public Task<TaskCreateResult> CreateDraftTaskAsync(
+            long technicianId,
+            DateTime targetDate,
+            int startMinutes,
+            int endMinutes,
+            string title,
+            TaskPriority priority,
+            ScheduleTaskStatus status,
+            string skillLevel,
+            string objectName,
+            string objectAddress,
+            string instructions,
+            UserContext user,
+            int timezoneOffsetMinutes,
+            long? sourceBacklogItemId = null,
+            CancellationToken cancellationToken = default)
+            => CreateTaskInternalAsync(
+                CreateTaskTargetScope.Draft,
+                technicianId,
+                targetDate,
+                startMinutes,
+                endMinutes,
+                title,
+                priority,
+                status,
+                skillLevel,
+                objectName,
+                objectAddress,
+                instructions,
+                user,
+                timezoneOffsetMinutes,
+                sourceBacklogItemId,
+                cancellationToken);
 
         private sealed class BulkCreateContext
         {

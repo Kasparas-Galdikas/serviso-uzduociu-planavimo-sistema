@@ -44,6 +44,14 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
         [HttpPost]
         [Authorize(Policy = "CanEditTask")]
         public async Task<IActionResult> CreateTask([FromBody] CreateTaskRequestDto dto, CancellationToken cancellationToken)
+            => await CreateTaskInternalAsync(dto, useDraftPlan: false, cancellationToken);
+
+        [HttpPost("draft")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> CreateDraftTask([FromBody] CreateTaskRequestDto dto, CancellationToken cancellationToken)
+            => await CreateTaskInternalAsync(dto, useDraftPlan: true, cancellationToken);
+
+        private async Task<IActionResult> CreateTaskInternalAsync(CreateTaskRequestDto dto, bool useDraftPlan, CancellationToken cancellationToken)
         {
             if (!ModelState.IsValid)
             {
@@ -78,7 +86,24 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var normalizedObjectAddress = dto.ObjectAddress.Trim();
 
             var user = _userContextResolver.GetCurrentUser();
-            var result = await _planService.CreateTaskAsync(
+            var result = useDraftPlan
+                ? await _planService.CreateDraftTaskAsync(
+                    dto.TechnicianId,
+                    targetDate,
+                    dto.StartMinutes,
+                    dto.EndMinutes,
+                    dto.Title,
+                    dto.Priority,
+                    dto.Status,
+                    normalizedSkillLevel,
+                    normalizedObjectName,
+                    normalizedObjectAddress,
+                    dto.Instructions ?? string.Empty,
+                    user,
+                    dto.TimezoneOffsetMinutes,
+                    sourceBacklogItemId: dto.SourceBacklogItemId,
+                    cancellationToken)
+                : await _planService.CreateTaskAsync(
                 dto.TechnicianId,
                 targetDate,
                 dto.StartMinutes,
@@ -144,6 +169,8 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             var response = new TaskDetailResponseDto
             {
                 Id = task.Id,
+                SourceTaskId = task.SourceTaskId,
+                SourceBacklogItemId = task.SourceBacklogItemId,
                 Version = version,
                 PlanId = task.PlanId,
                 TechnicianId = task.TechnicianId,
@@ -790,6 +817,21 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
 
             var user = _userContextResolver.GetCurrentUser();
             var result = await _planService.BulkValidateTasksAsync(dto.Items, dto.PlanMode, user, cancellationToken);
+            return Ok(result);
+        }
+
+        [HttpPost("bulk/preview-schedule")]
+        [Authorize(Policy = "CanEditTask")]
+        public async Task<IActionResult> PreviewBulkSchedule([FromBody] BulkCreateTaskRequestDto dto, CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return ValidationProblem(ModelState);
+
+            if (dto.Items == null || dto.Items.Count == 0)
+                return UnprocessableEntity(new { message = "Nenurodyti elementai." });
+
+            var user = _userContextResolver.GetCurrentUser();
+            var result = await _planService.PreviewBulkScheduleAsync(dto.Items, dto.PlanMode, user, cancellationToken);
             return Ok(result);
         }
 

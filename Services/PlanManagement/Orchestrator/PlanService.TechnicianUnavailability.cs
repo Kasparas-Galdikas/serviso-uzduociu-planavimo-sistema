@@ -688,7 +688,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     endAtUtc: restoredTask.EndAt,
                     serviceAddressId: addressId,
                     excludeTaskId: restoredTask.Id,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken,
+                    planId: restoredTask.PlanId);
 
                 if (!timingTravelValidation.IsValid)
                 {

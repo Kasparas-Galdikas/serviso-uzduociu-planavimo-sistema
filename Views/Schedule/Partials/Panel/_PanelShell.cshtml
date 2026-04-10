@@ -17,10 +17,10 @@
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Uždaryti"></button>
     </div>
 
-    <div class="offcanvas-body">
+    <div class="offcanvas-body" data-panel-body>
 
         <!-- Backlog tab bar — visible only in backlog mode -->
-        <div id="backlogTabBar" class="d-none mb-2">
+        <div id="backlogTabBar" class="d-none mb-2" data-panel-region="backlog-tabs">
             <p class="backlog-section-label mb-1">Veiksmas</p>
             <div class="btn-group w-100" role="group" aria-label="Laukiančių darbų valdymas">
                 <button type="button" class="btn btn-primary active backlog-tab-btn" id="backlogTabCreate" data-backlog-tab="create">
@@ -43,7 +43,7 @@
         @await Html.PartialAsync("~/Views/Schedule/Partials/Panel/_TechnicianPanelContent.cshtml")
 
         <!-- Bulk confirm view — shown instead of form sections during confirm phase -->
-        <div id="taskBulkConfirmView" class="d-none px-1 py-2">
+        <div id="taskBulkConfirmView" class="d-none px-1 py-2" data-panel-view="bulk-confirm">
             <div class="fw-semibold mb-3">Plano santrauka</div>
             <div id="taskBulkConfirmList"></div>
         </div>
@@ -53,21 +53,21 @@
         @await Html.PartialAsync("~/Views/Schedule/Partials/Panel/Templates/_TasksPanelCardTemplate.cshtml")
 
         <!-- FOOTER -->
-        <div id="taskDetailFooter" class="d-flex justify-content-between gap-2 border-top pt-3 mt-4">
-            <button type="button" class="btn btn-secondary" id="taskFooterClose" data-bs-dismiss="offcanvas">
+        <div id="taskDetailFooter" class="d-flex justify-content-between gap-2 border-top pt-3 mt-4" data-panel-region="footer">
+            <button type="button" class="btn btn-secondary" id="taskFooterClose" data-bs-dismiss="offcanvas" data-panel-footer-action="close">
                 Uždaryti
             </button>
-            <button type="button" class="btn btn-outline-secondary d-none" id="taskBulkBack">
+            <button type="button" class="btn btn-outline-secondary d-none" id="taskBulkBack" data-panel-footer-action="bulk-back">
                 <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Atgal
             </button>
             <div class="d-flex gap-2">
-                <button type="button" class="btn btn-primary" id="taskDetailSave">
+                <button type="button" class="btn btn-primary" id="taskDetailSave" data-panel-footer-action="task-save">
                     Išsaugoti
                 </button>
-                <button type="button" class="btn btn-primary d-none" id="backlogSaveBtn">
+                <button type="button" class="btn btn-primary d-none" id="backlogSaveBtn" data-panel-footer-action="backlog-save">
                     <i class="bi bi-inbox me-1" aria-hidden="true"></i>Įtraukti į sąrašą
                 </button>
-                <button type="button" class="btn btn-primary d-none" id="taskBulkNext">
+                <button type="button" class="btn btn-primary d-none" id="taskBulkNext" data-panel-footer-action="bulk-next">
                     Kitas <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
                 </button>
             </div>

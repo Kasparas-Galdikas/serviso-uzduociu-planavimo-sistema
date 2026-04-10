@@ -31,7 +31,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
 
         [HttpGet("", Name = "ScheduleView")]
         [HttpGet("Index")]
-        public async Task<IActionResult> Index(string view = "day", string? date = null, string? location = null, string? workload = null, string? status = null, string? info = null, long? technicianId = null)
+        public async Task<IActionResult> Index(string view = "day", string? date = null, string? location = null, string? workload = null, string? status = null, string? info = null, string? planScope = null, long? technicianId = null)
         {
             var activePlan = await _planService.GetActivePlanAsync();
             var draftPlan = await _planService.GetDraftPlanAsync();
@@ -44,7 +44,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             }
 
             var timezoneOffset = _timeService.GetBrowserTimezoneOffset(Request);
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, status, info, technicianId, activePlan, draftPlan, user, timezoneOffset);
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, status, info, planScope, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
             vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
             vm.EarliestStartMinutes = _timeService.GetEarliestCreatableStartMinutes(
@@ -75,7 +75,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
         }
 
         [HttpGet("Table", Name = "ScheduleTable")]
-        public async Task<IActionResult> Table(string view = "day", string? date = null, string? location = null, string? workload = null, string? status = null, string? info = null, long? technicianId = null)
+        public async Task<IActionResult> Table(string view = "day", string? date = null, string? location = null, string? workload = null, string? status = null, string? info = null, string? planScope = null, long? technicianId = null)
         {
             var activePlan = await _planService.GetActivePlanAsync();
             var draftPlan = await _planService.GetDraftPlanAsync();
@@ -88,7 +88,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             }
 
             var timezoneOffset = _timeService.GetBrowserTimezoneOffset(Request);
-            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, status, info, technicianId, activePlan, draftPlan, user, timezoneOffset);
+            var vm = await _scheduleProvider.GetScheduleAsync(view, date, location, workload, status, info, planScope, technicianId, activePlan, draftPlan, user, timezoneOffset);
             vm.IsManager = isManager;
             vm.CurrentUserId = user.IsTechnician ? user.TechnicianId : user.UserId;
             vm.EarliestStartMinutes = _timeService.GetEarliestCreatableStartMinutes(

@@ -85,21 +85,39 @@
     if (!overlay || !container || !startTd) return;
     const actualEndTd = endTd || startTd;
 
-    const { leftNudge = 1, widthShrink = 2 } = offsets;
+    const {
+      leftNudge = 1,
+      widthShrink = 2,
+      expandToContent = false,
+      minVisualWidth = 0,
+    } = offsets;
 
     const containerRect = container.getBoundingClientRect();
     const startRect = startTd.getBoundingClientRect();
     const endRect = actualEndTd.getBoundingClientRect();
 
-    const left = startRect.left - containerRect.left + container.scrollLeft + leftNudge;
+    let left = startRect.left - containerRect.left + container.scrollLeft + leftNudge;
     const top = startRect.top - containerRect.top + container.scrollTop;
-    const width = Math.max(1, endRect.right - startRect.left - widthShrink);
+    const baseWidth = Math.max(1, endRect.right - startRect.left - widthShrink);
     const height = Math.max(1, startRect.height);
+
+    overlay.style.height = `${height}px`;
+
+    let width = baseWidth;
+    if (expandToContent) {
+      overlay.style.width = `${baseWidth}px`;
+      const contentWidth = Math.ceil(overlay.scrollWidth || 0);
+      const desiredWidth = Math.max(baseWidth, minVisualWidth || 0, contentWidth);
+      if (desiredWidth > baseWidth) {
+        const maxLeft = Math.max(0, (container.scrollWidth || container.clientWidth || 0) - desiredWidth);
+        left = Math.min(Math.max(0, left - ((desiredWidth - baseWidth) / 2)), maxLeft);
+        width = desiredWidth;
+      }
+    }
 
     overlay.style.left = `${left}px`;
     overlay.style.top = `${top}px`;
     overlay.style.width = `${width}px`;
-    overlay.style.height = `${height}px`;
   };
 
   /**

@@ -18,7 +18,8 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             long? excludeTaskId,
             bool checkOverlap,
             CancellationToken cancellationToken = default,
-            IReadOnlyList<ProposedRouteStop>? simulatedStops = null);
+            IReadOnlyList<ProposedRouteStop>? simulatedStops = null,
+            long? planId = null);
 
         /// <summary>
         /// Returns travel feasibility for every technician for a proposed task slot.

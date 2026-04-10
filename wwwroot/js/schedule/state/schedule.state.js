@@ -11,6 +11,8 @@
   const normalizeView = (view) => ((view || "").toLowerCase() === "week" ? "week" : "day");
   const getQuery = () => new URLSearchParams(window.location.search || "");
   const cloneQuery = (query) => new URLSearchParams((query || "").toString());
+  const isDraftMode = (query = getQuery()) =>
+    String((query instanceof URLSearchParams ? query : cloneQuery(query)).get("planScope") || "").toLowerCase() === "draft";
 
   const getView = (query = getQuery()) =>
     normalizeView(query.get("view") || tables.dataset.currentView || "day");
@@ -22,6 +24,11 @@
   const emitViewChanged = (query = getQuery()) => {
     const q = cloneQuery(query);
     emit("schedule:view:changed", { view: getView(q), query: q });
+  };
+
+  const emitDraftModeChanged = (query = getQuery()) => {
+    const q = cloneQuery(query);
+    emit("schedule:draft-mode-changed", { enabled: isDraftMode(q), query: q });
   };
 
   const emitTableUpdated = (query = getQuery()) => {
@@ -68,12 +75,14 @@
     }
 
     emitViewChanged(query);
+    emitDraftModeChanged(query);
     return query;
   };
 
   const setQuery = (query, { replace } = { replace: true }) => {
     writeUrl(query, { replace });
     emitViewChanged(query);
+    emitDraftModeChanged(query);
   };
 
   const assertDayView = (reason) => {
@@ -87,9 +96,11 @@
     normalizeView,
     getQuery,
     getView,
+    isDraftMode,
     ensureUrlDefaults,
     setQuery,
     emitViewChanged,
+    emitDraftModeChanged,
     emitTableUpdated,
     assertDayView,
   };

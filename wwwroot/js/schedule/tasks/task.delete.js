@@ -33,6 +33,8 @@
     toast?.showWarning?.(message || fallback) || alert(message || fallback);
   const showSuccess = (message, fallback = "Uzduotis istrinta.") =>
     toast?.showSuccess?.(message || fallback) || alert(message || fallback);
+  const notifyActionCompleted = (detail = {}) =>
+    document.dispatchEvent(new CustomEvent("schedule:action-completed", { detail }));
 
   // ========== Helpers ==========
 
@@ -154,7 +156,7 @@
           updateTaskVersion(taskId, result.newVersion);
         }
         (result.errorType === "conflict" || result.errorType === "forbidden" || result.errorType === "not_found" ? showWarning : showError)(result.error, "Nepavyko istrinti uzduoties.");
-        document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+        notifyActionCompleted({ action: "delete", primaryTaskId: Number(taskId), taskIds: [Number(taskId)], deleted: false });
         return false;
       }
 
@@ -164,7 +166,7 @@
       panel?.hide?.();
       clearActiveCards();
       showSuccess(result.message || "Uzduotis istrinta.");
-      document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+      notifyActionCompleted({ action: "delete", primaryTaskId: Number(taskId), taskIds: [Number(taskId)], deleted: true });
       return true;
     }
 
@@ -187,28 +189,28 @@
       const body = await resp.json().catch(() => ({}));
       updateTaskVersion(taskId, body?.version);
       showWarning(body.message, "Uzduotis pasikeite. Atnaujinkite lentele.");
-      document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+      notifyActionCompleted({ action: "delete", primaryTaskId: Number(taskId), taskIds: [Number(taskId)], deleted: false });
       return false;
     }
 
     if (resp.status === 403) {
       const body = await resp.json().catch(() => ({}));
       showWarning(body.message, "Neturite teisiu istrinti sios uzduoties.");
-      document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+      notifyActionCompleted({ action: "delete", primaryTaskId: Number(taskId), taskIds: [Number(taskId)], deleted: false });
       return false;
     }
 
     if (resp.status === 404) {
       const body = await resp.json().catch(() => ({}));
       showWarning(body.message, "Uzduotis nerasta.");
-      document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+      notifyActionCompleted({ action: "delete", primaryTaskId: Number(taskId), taskIds: [Number(taskId)], deleted: false });
       return false;
     }
 
     if (!resp.ok) {
       const body = await resp.json().catch(() => ({}));
       showError(body.message, "Nepavyko istrinti uzduoties.");
-      document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+      notifyActionCompleted({ action: "delete", primaryTaskId: Number(taskId), taskIds: [Number(taskId)], deleted: false });
       return false;
     }
 
@@ -220,7 +222,7 @@
     panel?.hide?.();
     clearActiveCards();
     showSuccess(body.message || "Uzduotis istrinta.");
-    document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+    notifyActionCompleted({ action: "delete", primaryTaskId: Number(taskId), taskIds: [Number(taskId)], deleted: true });
   };
 
   // ========== Event Wiring ==========
@@ -268,7 +270,7 @@
         const errorMsg = err?.message || "Nepavyko istrinti uzduoties.";
         logEvent("ui.task.delete.error", { taskId, error: errorMsg }, "error");
         showError(errorMsg, "Nepavyko istrinti uzduoties.");
-        document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+        notifyActionCompleted({ action: "delete", primaryTaskId: Number(taskId), taskIds: [Number(taskId)], deleted: false });
       } finally {
         confirmBtn.disabled = false;
         confirmBtn.removeAttribute("aria-busy");

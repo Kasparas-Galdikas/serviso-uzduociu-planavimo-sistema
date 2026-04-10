@@ -30,8 +30,8 @@
 
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
-  const notifyActionCompleted = () => {
-    document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+  const notifyActionCompleted = (detail = {}) => {
+    document.dispatchEvent(new CustomEvent("schedule:action-completed", { detail }));
   };
   const showError = (message, fallback = "Ivyko klaida.") =>
     toast?.showError?.(message || fallback) || alert(message || fallback);
@@ -73,6 +73,20 @@
 
   const fetchTask = async (taskId) => {
     return getTaskApi().fetchTask(taskId);
+  };
+
+  const resolveBulkDraftOpenMode = (taskData) => {
+    const backlogState = window.schedule?.backlog?.state;
+    const bulkSync = window.schedule?.backlog?.bulkSync;
+    if (!backlogState?._isBulkMode || !taskData?.id) return { type: "default", idx: -1 };
+
+    const idx = typeof bulkSync?.findBulkIndexByTaskId === "function"
+      ? bulkSync.findBulkIndexByTaskId(taskData.id)
+      : -1;
+
+    if (idx < 0) return { type: "default", idx: -1 };
+    if (Number(taskData.sourceTaskId || 0) > 0) return { type: "default", idx };
+    return { type: "bulk-live", idx };
   };
 
   // ========== Task Save ==========
@@ -147,7 +161,12 @@
           }
           showSuccess(result.message, "Uzduotis sukurta.");
           document.dispatchEvent(new CustomEvent("schedule:task:created", { detail: { id: result.id } }));
-          notifyActionCompleted();
+          notifyActionCompleted({
+            action: "create",
+            primaryTaskId: Number(result.id || 0),
+            taskIds: result.id ? [Number(result.id)] : [],
+            version: Number(result.version || 0),
+          });
         } else if (result?.validationErrors) {
           const fieldMapping = modal?.CREATE_FIELD_MAPPING || {};
           modal?.displayValidationErrors?.(modalEl, result.validationErrors, fieldMapping);
@@ -197,7 +216,12 @@
             const refreshed = await refreshOpenTask(taskId);
             if (!refreshed) panel?.hide?.();
             showSuccess(result.message, "Uzduotis issaugota.");
-            notifyActionCompleted();
+            notifyActionCompleted({
+              action: "update",
+              primaryTaskId: Number(taskId),
+              taskIds: [Number(taskId)],
+              version: Number(result.version || 0),
+            });
           } else if (result?.validationErrors) {
             const fieldMapping = modal?.UPDATE_FIELD_MAPPING || {};
             modal?.displayValidationErrors?.(modalEl, result.validationErrors, fieldMapping);
@@ -221,7 +245,14 @@
 
   // ========== Panel Operations ==========
 
-  const openTaskPanel = async ({ taskId = null, technicianId, targetDate, startMinutes, endMinutes }) => {
+  const openTaskPanel = async ({
+    taskId = null,
+    technicianId,
+    targetDate,
+    startMinutes,
+    endMinutes,
+    allowEmptySchedule = false,
+  }) => {
     const modal = getModal();
     const detailPanel = document.getElementById("taskDetailModal");
     if (!detailPanel) return;
@@ -237,6 +268,17 @@
       // EDIT MODE
       try {
         const data = await fetchTask(taskId);
+        const bulkOpenMode = resolveBulkDraftOpenMode(data);
+        if (bulkOpenMode.type === "bulk-live") {
+          const backlogState = window.schedule?.backlog?.state;
+          window.schedule?.backlog?.bulkFlow?.hideBulkConfirmView?.();
+          if (backlogState) backlogState._bulkQueueIdx = bulkOpenMode.idx;
+          await window.schedule?.backlog?.bulkFlow?.activateBulkQueueItem?.(bulkOpenMode.idx, { skipAutoPlanning: true });
+          setActiveCardByTaskId(taskId);
+          logEvent("ui.task.panel.open", { mode: "bulk-live", taskId, bulkQueueIdx: bulkOpenMode.idx });
+          panel?.show?.();
+          return;
+        }
         if (modal?.populateTaskModal) {
           await modal.populateTaskModal(detailPanel, data, data.isEditable, {
             onSave: () => saveTask(detailPanel)
@@ -258,6 +300,7 @@
           targetDate,
           startMinutes,
           endMinutes,
+          allowEmptySchedule,
           onSave: () => saveTask(detailPanel)
         });
       }
@@ -269,6 +312,7 @@
         targetDate,
         startMinutes,
         endMinutes,
+        allowEmptySchedule,
       });
     }
   };
@@ -346,10 +390,9 @@
 
       const taskId = card.getAttribute("data-task-id");
       const version = parseInt(card.getAttribute("data-task-version") || "0", 10);
-      if (!taskId) return;
 
       // Delete action can work even if card is not editable
-      if (action.classList.contains("task-card-action-delete")) {
+      if (taskId && action.classList.contains("task-card-action-delete")) {
         const deleteModule = getDelete();
         deleteModule?.openDeleteModal?.({ taskId, version, sourceEl: card });
         return;
@@ -364,13 +407,15 @@
 
       if (action.classList.contains("task-card-action-edit")) {
         const resizeModule = getResize();
-        resizeModule?.startInlineResize?.(card, {
-          taskId,
-          version,
-          date,
-          startMinutes,
-          durationMinutes
-        });
+        if (taskId) {
+          resizeModule?.startInlineResize?.(card, {
+            taskId,
+            version,
+            date,
+            startMinutes,
+            durationMinutes
+          });
+        }
       }
     });
 

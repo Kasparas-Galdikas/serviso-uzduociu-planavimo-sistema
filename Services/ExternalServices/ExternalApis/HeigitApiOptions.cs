@@ -7,6 +7,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.ExternalApis
     {
         public const string Geocode = "geocode";
         public const string Matrix = "matrix";
+        public const string Snap   = "snap";
     }
 
     public sealed class HeigitEndpointRule
@@ -26,6 +27,10 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.ExternalApis
                 [HeigitEndpoints.Matrix] = new HeigitEndpointRule
                 {
                     PerMinute = 30
+                },
+                [HeigitEndpoints.Snap] = new HeigitEndpointRule
+                {
+                    PerMinute = 100
                 }
             };
 

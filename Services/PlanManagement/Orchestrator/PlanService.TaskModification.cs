@@ -167,7 +167,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 endAtUtc: task.EndAt,
                 serviceAddressId: finalAddressId,
                 excludeTaskId: taskId,
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken,
+                planId: task.PlanId);
             if (!timingTravelValidation.IsValid)
             {
                 if (!timingTravelValidation.IsInvalidWindow && await _placementValidator.TryApplyTimingTravelRepairAsync(task, timingTravelValidation, cancellationToken))
@@ -318,7 +319,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 endAtUtc: placementValidation.EndAtUtc,
                 serviceAddressId: timeServiceAddressId,
                 excludeTaskId: task.Id,
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken,
+                planId: task.PlanId);
             if (!timeTimingTravelValidation.IsValid)
             {
                 if (!timeTimingTravelValidation.IsInvalidWindow && await _placementValidator.TryApplyTimingTravelRepairAsync(task, timeTimingTravelValidation, cancellationToken))
@@ -492,7 +494,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 endAtUtc: placementValidation.EndAtUtc,
                 serviceAddressId: moveServiceAddressId,
                 excludeTaskId: taskId,
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken,
+                planId: task.PlanId);
             if (!moveTimingTravelValidation.IsValid)
             {
                 if (!moveTimingTravelValidation.IsInvalidWindow && await _placementValidator.TryApplyTimingTravelRepairAsync(task, moveTimingTravelValidation, cancellationToken))
@@ -581,6 +584,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         {
             ITaskHistoryWriter hw = recordHistory ? _historyWriter : new NoopTaskHistoryWriter();
 
+            _logger.LogInformation(
+                "svc.task.swap.requested sourceTaskId={SourceTaskId} targetTaskId={TargetTaskId} sourceExpectedVersion={SourceExpectedVersion} targetExpectedVersion={TargetExpectedVersion}",
+                sourceTaskId,
+                targetTaskId,
+                sourceExpectedVersion,
+                targetExpectedVersion);
+
             if (sourceTaskId == targetTaskId)
             {
                 var _rSelf = new TaskSwapResult(TaskSwapError.InvalidSwap, "Negalima sukeisti uzduoties su pacia savimi.");
@@ -656,6 +666,12 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
             if (source.PlanId != target.PlanId)
             {
+                _logger.LogWarning(
+                    "svc.task.swap.cross_plan sourceTaskId={SourceTaskId} targetTaskId={TargetTaskId} sourcePlanId={SourcePlanId} targetPlanId={TargetPlanId}",
+                    source.Id,
+                    target.Id,
+                    source.PlanId,
+                    target.PlanId);
                 var _rDp = new TaskSwapResult(TaskSwapError.InvalidSwap, "Sukeitimas galimas tik to paties plano viduje.");
                 var (_mDp, _oDp) = TaskHistoryMessages.ForSwap(_rDp, source.Title, target.Title);
                 await hw.RecordAsync(sourceTaskId, source.PlanId, "swap", _oDp, _mDp, user.UserId, user.Role.ToString().ToLower(), cancellationToken: cancellationToken);
@@ -884,7 +900,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 sourceStartMinutes,
                 source.Id,
                 checkOverlap: false,
-                cancellationToken);
+                cancellationToken,
+                planId: source.PlanId);
             if (!sourceTravelCheck.IsFeasible)
             {
                 if (transaction != null)
@@ -907,7 +924,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 targetStartMinutes,
                 target.Id,
                 checkOverlap: false,
-                cancellationToken);
+                cancellationToken,
+                planId: target.PlanId);
             if (!targetTravelCheck.IsFeasible)
             {
                 if (transaction != null)
@@ -1112,7 +1130,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                         startMinutesLocal,
                         task.Id,
                         checkOverlap: false,
-                        cancellationToken);
+                        cancellationToken,
+                        planId: task.PlanId);
                     if (!travelCheck.IsFeasible)
                     {
                         if (transaction != null) await transaction.RollbackAsync(cancellationToken);

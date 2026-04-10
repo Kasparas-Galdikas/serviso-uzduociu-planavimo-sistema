@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +16,7 @@ using ServiceTaskPlanningSystem.Services.Authorization.Models;
 using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Matching;
 using ServiceTaskPlanningSystem.Services.Travel;
+using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
@@ -28,6 +30,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         private readonly SchedulePlacementValidator _placementValidator;
         private readonly RoutePreviewLookupBuilder _routePreviewLookupBuilder;
         private readonly TechnicianUnavailabilityImpactResolver _unavailabilityImpactResolver;
+        private readonly PlanServiceAssignmentMatching _assignmentMatching;
         private readonly ILogger<PlanServiceTaskPreview> _logger;
 
         public PlanServiceTaskPreview(
@@ -38,6 +41,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             SchedulePlacementValidator placementValidator,
             RoutePreviewLookupBuilder routePreviewLookupBuilder,
             TechnicianUnavailabilityImpactResolver unavailabilityImpactResolver,
+            PlanServiceAssignmentMatching assignmentMatching,
             ILogger<PlanServiceTaskPreview> logger)
         {
             _db = db;
@@ -47,6 +51,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             _placementValidator = placementValidator;
             _routePreviewLookupBuilder = routePreviewLookupBuilder;
             _unavailabilityImpactResolver = unavailabilityImpactResolver;
+            _assignmentMatching = assignmentMatching;
             _logger = logger;
         }
 
@@ -230,7 +235,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     endAtUtc: targetEndAt,
                     serviceAddressId: targetTask.ServiceObject.AddressId,
                     excludeTaskId: targetTask.Id,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken,
+                    planId: targetTask.PlanId);
             }
 
             foreach (var tech in visibleTechs)
@@ -295,6 +301,246 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 targetTask.Id, targetTask.PlanId, targetTechnicianId, dayStart, response.PreviewStates.Count);
 
             return new DragPreviewResult(DragPreviewError.None, Response: response);
+        }
+
+        public async Task<BulkSchedulePreviewResponseDto> PreviewBulkScheduleAsync(
+            IReadOnlyList<CreateTaskRequestDto> items,
+            string? planMode,
+            UserContext user,
+            CancellationToken cancellationToken = default)
+        {
+            var response = new BulkSchedulePreviewResponseDto();
+            if (items == null || items.Count == 0)
+            {
+                return response;
+            }
+
+            var effectiveItems = items.Select(CloneCreateTaskRequest).ToList();
+            if ("automatinis".Equals(planMode, StringComparison.OrdinalIgnoreCase) &&
+                effectiveItems.Any(NeedsAutomaticResolution))
+            {
+                var suggestions = await _assignmentMatching.SuggestBulkAutoAssignmentsAsync(effectiveItems, cancellationToken);
+                for (var i = 0; i < effectiveItems.Count; i++)
+                {
+                    var suggestion = suggestions[i];
+                    if (!NeedsAutomaticResolution(effectiveItems[i]) || suggestion == null)
+                    {
+                        continue;
+                    }
+
+                    effectiveItems[i].TechnicianId = suggestion.TechnicianId;
+                    effectiveItems[i].TargetDate = suggestion.TargetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                    effectiveItems[i].StartMinutes = suggestion.StartMinutes;
+                    effectiveItems[i].EndMinutes = suggestion.EndMinutes;
+                }
+            }
+
+            var technicians = await _db.Technicians
+                .AsNoTracking()
+                .Include(t => t.User)
+                .ToListAsync(cancellationToken);
+
+            var validDates = effectiveItems
+                .Select(item => TryParseDate(item.TargetDate, out var parsed) ? parsed.Date : (DateTime?)null)
+                .Where(date => date.HasValue)
+                .Select(date => date!.Value)
+                .ToList();
+
+            var rangeStart = validDates.Count > 0
+                ? validDates.Min()
+                : DateTime.UtcNow.Date;
+            var rangeEnd = validDates.Count > 0
+                ? validDates.Max()
+                : rangeStart;
+
+            var loadRangeStart = _timeService.GetWeekStart(rangeStart);
+            var loadRangeEndExclusive = _timeService.GetWeekEnd(rangeEnd).AddDays(1);
+
+            var persistedTasks = await _db.Tasks
+                .AsNoTracking()
+                .Include(t => t.Technician)
+                    .ThenInclude(t => t.User)
+                .Include(t => t.ServiceObject)
+                .Where(t => t.StartAt >= loadRangeStart && t.StartAt < loadRangeEndExclusive)
+                .ToListAsync(cancellationToken);
+
+            var objectNames = effectiveItems
+                .Select(item => item.ObjectName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var objectAddresses = effectiveItems
+                .Select(item => item.ObjectAddress)
+                .Where(address => !string.IsNullOrWhiteSpace(address))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var serviceObjects = await _db.ServiceObjects
+                .AsNoTracking()
+                .Include(o => o.Address)
+                .Where(o => objectNames.Contains(o.Name) || objectAddresses.Contains(o.Address.FullAddress))
+                .ToListAsync(cancellationToken);
+
+            var serviceObjectByName = serviceObjects
+                .GroupBy(o => o.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            var serviceObjectByAddress = serviceObjects
+                .GroupBy(o => o.Address.FullAddress, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+            var addressIds = persistedTasks
+                .Where(t => t.ServiceObject != null)
+                .Select(t => t.ServiceObject!.AddressId)
+                .Concat(technicians.Select(t => t.WorkplaceAddressId))
+                .Concat(serviceObjects.Select(o => o.AddressId))
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList();
+
+            var routeLookup = await _routePreviewLookupBuilder.BuildAsync(addressIds, cancellationToken);
+            var simulatedPreviewTasks = new List<TaskEntity>();
+
+            for (var index = 0; index < effectiveItems.Count; index++)
+            {
+                var item = effectiveItems[index];
+                var technician = technicians.FirstOrDefault(t => t.Id == item.TechnicianId);
+                var serviceObject = ResolveServiceObject(item, serviceObjectByName, serviceObjectByAddress);
+
+                var previewItem = new BulkSchedulePreviewItemDto
+                {
+                    Index = index,
+                    SourceBacklogItemId = item.SourceBacklogItemId,
+                    TechnicianId = item.TechnicianId,
+                    TechnicianName = technician?.User?.Name ?? string.Empty,
+                    TargetDate = item.TargetDate ?? string.Empty,
+                    StartMinutes = item.StartMinutes,
+                    EndMinutes = item.EndMinutes,
+                    Title = string.IsNullOrWhiteSpace(item.Title) ? "Be pavadinimo" : item.Title.Trim(),
+                    Priority = (int)item.Priority,
+                    ObjectName = item.ObjectName ?? string.Empty,
+                    ObjectAddress = item.ObjectAddress ?? string.Empty,
+                    LoadState = "Conflict",
+                    IsPlacementAllowed = false,
+                };
+
+                response.Items.Add(previewItem);
+
+                if (technician == null)
+                {
+                    previewItem.RejectionCode = "TechnicianNotFound";
+                    previewItem.RejectionMessage = "Technikas nerastas.";
+                    continue;
+                }
+
+                if (serviceObject == null || serviceObject.AddressId <= 0)
+                {
+                    previewItem.RejectionCode = "ObjectNotFound";
+                    previewItem.RejectionMessage = "Nepavyko nustatyti objekto vietos perziurai.";
+                    continue;
+                }
+
+                if (!TryParseDate(item.TargetDate, out var targetDate))
+                {
+                    previewItem.RejectionCode = "InvalidDate";
+                    previewItem.RejectionMessage = "Netinkamas datos formatas.";
+                    continue;
+                }
+
+                if (item.EndMinutes <= item.StartMinutes)
+                {
+                    previewItem.RejectionCode = "InvalidTime";
+                    previewItem.RejectionMessage = "Pabaigos laikas turi buti veliau uz pradzios laika.";
+                    continue;
+                }
+
+                var startAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate.Date, item.StartMinutes, item.TimezoneOffsetMinutes);
+                var endAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate.Date, item.EndMinutes, item.TimezoneOffsetMinutes);
+                var dayStartUtc = startAtUtc.Date;
+                var runningTasks = persistedTasks.Concat(simulatedPreviewTasks).ToList();
+                var simulatedStops = BuildSimulatedStops(simulatedPreviewTasks, technician.Id, dayStartUtc);
+
+                var placement = await _placementValidator.ValidateTimingAndTravelAsync(
+                    taskDateLocal: targetDate.Date,
+                    startMinutesLocal: item.StartMinutes,
+                    timezoneOffsetMinutes: item.TimezoneOffsetMinutes,
+                    technicianId: technician.Id,
+                    startAtUtc: startAtUtc,
+                    endAtUtc: endAtUtc,
+                    serviceAddressId: serviceObject.AddressId,
+                    excludeTaskId: null,
+                    cancellationToken: cancellationToken,
+                    simulatedStops: simulatedStops,
+                    checkOverlap: true);
+
+                var previewTask = new TaskEntity
+                {
+                    Id = -1000000 - index,
+                    PlanId = 0,
+                    TechnicianId = technician.Id,
+                    Technician = technician,
+                    ServiceObjectId = serviceObject.Id,
+                    ServiceObject = serviceObject,
+                    Title = previewItem.Title,
+                    StartAt = startAtUtc,
+                    EndAt = endAtUtc,
+                    Priority = item.Priority,
+                    Status = ScheduleTaskStatus.InProgress,
+                    CreatedAt = DateTime.UtcNow,
+                    SourceBacklogItemId = item.SourceBacklogItemId
+                };
+
+                runningTasks.Add(previewTask);
+
+                var loadSnapshot = BuildLoadSnapshotForSimulation(
+                    technician.Id,
+                    dayStartUtc,
+                    runningTasks,
+                    technicians);
+
+                var fallbackTravelHours = ComputeTravelHoursForSimulation(
+                    technician.Id,
+                    dayStartUtc,
+                    runningTasks,
+                    technicians,
+                    routeLookup,
+                    strictRouteCoverage: false);
+
+                var projectedTravelHours = ComputeTravelHoursForSimulation(
+                    technician.Id,
+                    dayStartUtc,
+                    runningTasks,
+                    technicians,
+                    routeLookup,
+                    strictRouteCoverage: true);
+
+                previewItem.LoadState = loadSnapshot.LoadState;
+                previewItem.HasConflict = loadSnapshot.HasConflict;
+                previewItem.IsDailyLimitExceeded = loadSnapshot.IsDailyLimitExceeded;
+                previewItem.IsWeeklyLimitExceeded = loadSnapshot.IsWeeklyLimitExceeded;
+                previewItem.DailyHours = Math.Round(loadSnapshot.DailyHours, 2);
+                previewItem.WeeklyHours = Math.Round(loadSnapshot.WeeklyHours, 2);
+                previewItem.DailyLimit = loadSnapshot.DailyLimit;
+                previewItem.WeeklyLimit = loadSnapshot.WeeklyLimit;
+                previewItem.DailyUtilization = Math.Round(loadSnapshot.DailyUtilization, 2);
+                previewItem.WeeklyUtilization = Math.Round(loadSnapshot.WeeklyUtilization, 2);
+                previewItem.TravelTimeHours = Math.Round(projectedTravelHours ?? fallbackTravelHours ?? loadSnapshot.TravelTimeHours, 2);
+                previewItem.RequiredInboundTravelMinutes = ComputeRequiredInboundTravelMinutesForTask(
+                    technician.Id,
+                    dayStartUtc,
+                    previewTask.Id,
+                    runningTasks,
+                    technicians,
+                    routeLookup);
+                previewItem.IsPlacementAllowed = placement.IsValid;
+                previewItem.RejectionCode = placement.IsValid
+                    ? null
+                    : (placement.IsInvalidWindow ? "InvalidWindow" : "TravelInfeasible");
+                previewItem.RejectionMessage = placement.IsValid ? null : placement.Message;
+
+                simulatedPreviewTasks.Add(previewTask);
+            }
+
+            return response;
         }
 
         public async Task<SwapSmartPreviewResult> PreviewSwapSmartAsync(
@@ -492,5 +738,90 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
         private int LocalMinutes(DateTime utcDateTime, int timezoneOffsetMinutes) =>
             (int)_timeService.ConvertUtcToLocal(utcDateTime, timezoneOffsetMinutes).TimeOfDay.TotalMinutes;
+
+        private static bool NeedsAutomaticResolution(CreateTaskRequestDto item) =>
+            item.TechnicianId <= 0 ||
+            string.IsNullOrWhiteSpace(item.TargetDate) ||
+            item.EndMinutes <= item.StartMinutes;
+
+        private static CreateTaskRequestDto CloneCreateTaskRequest(CreateTaskRequestDto item) =>
+            new()
+            {
+                TechnicianId = item.TechnicianId,
+                TargetDate = item.TargetDate,
+                StartMinutes = item.StartMinutes,
+                EndMinutes = item.EndMinutes,
+                Title = item.Title,
+                Priority = item.Priority,
+                Status = item.Status,
+                TimezoneOffsetMinutes = item.TimezoneOffsetMinutes,
+                SkillLevel = item.SkillLevel,
+                ObjectName = item.ObjectName,
+                ObjectAddress = item.ObjectAddress,
+                Instructions = item.Instructions,
+                SourceBacklogItemId = item.SourceBacklogItemId,
+                SimulatedAssignments = item.SimulatedAssignments == null
+                    ? null
+                    : new List<SimulatedTaskAssignmentDto>(item.SimulatedAssignments.Select(assignment => new SimulatedTaskAssignmentDto
+                    {
+                        TechnicianId = assignment.TechnicianId,
+                        StartAt = assignment.StartAt,
+                        EndAt = assignment.EndAt,
+                        AddressId = assignment.AddressId,
+                        ServiceObjectId = assignment.ServiceObjectId,
+                        SourceBacklogItemId = assignment.SourceBacklogItemId
+                    }))
+            };
+
+        private static bool TryParseDate(string? value, out DateTime parsed)
+        {
+            if (!string.IsNullOrWhiteSpace(value) &&
+                DateTime.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var resolved))
+            {
+                parsed = resolved.Date;
+                return true;
+            }
+
+            parsed = default;
+            return false;
+        }
+
+        private static ServiceObjectEntity? ResolveServiceObject(
+            CreateTaskRequestDto item,
+            IReadOnlyDictionary<string, ServiceObjectEntity> serviceObjectByName,
+            IReadOnlyDictionary<string, ServiceObjectEntity> serviceObjectByAddress)
+        {
+            if (!string.IsNullOrWhiteSpace(item.ObjectName) &&
+                serviceObjectByName.TryGetValue(item.ObjectName, out var byName))
+            {
+                return byName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.ObjectAddress) &&
+                serviceObjectByAddress.TryGetValue(item.ObjectAddress, out var byAddress))
+            {
+                return byAddress;
+            }
+
+            return null;
+        }
+
+        private static IReadOnlyList<ProposedRouteStop> BuildSimulatedStops(
+            IEnumerable<TaskEntity> previewTasks,
+            long technicianId,
+            DateTime dayStartUtc)
+        {
+            return previewTasks
+                .Where(task => task.TechnicianId == technicianId && task.StartAt.Date == dayStartUtc.Date)
+                .Where(task => task.ServiceObject != null && WorkloadCalculator.CountsTowardsWorkload(task.Status))
+                .OrderBy(task => task.StartAt)
+                .Select(task => new ProposedRouteStop
+                {
+                    StartAt = task.StartAt,
+                    EndAt = task.EndAt,
+                    AddressId = task.ServiceObject!.AddressId
+                })
+                .ToList();
+        }
     }
 }

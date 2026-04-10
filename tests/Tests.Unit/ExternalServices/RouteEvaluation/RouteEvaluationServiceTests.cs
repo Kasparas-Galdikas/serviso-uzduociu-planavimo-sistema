@@ -11,6 +11,7 @@ using NSubstitute;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 using Xunit;
 
@@ -22,6 +23,8 @@ public class RouteEvaluationServiceTests
     private readonly ILogger<RouteEvaluationService> _logger = Substitute.For<ILogger<RouteEvaluationService>>();
     private readonly ILocationApiClient _location = Substitute.For<ILocationApiClient>();
     private readonly IDistanceApiClient _distance = Substitute.For<IDistanceApiClient>();
+    private readonly ISnapApiClient _snap = Substitute.For<ISnapApiClient>();
+    private readonly IScheduleTimeService _timeService = Substitute.For<IScheduleTimeService>();
 
     public RouteEvaluationServiceTests()
     {
@@ -43,6 +46,14 @@ public class RouteEvaluationServiceTests
                     new List<double> { 0d, 1500d },
                     new List<double> { 1500d, 0d }
                 })));
+        // Snap returns input coords unchanged by default (identity — same as E2E test client)
+        _snap.SnapAsync(Arg.Any<IReadOnlyList<GeoPoint>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var coords = ci.Arg<IReadOnlyList<GeoPoint>>();
+                IReadOnlyList<GeoPoint?> result = coords.Select(c => (GeoPoint?)c).ToList();
+                return Task.FromResult(result);
+            });
     }
 
     [Fact]
@@ -136,7 +147,7 @@ public class RouteEvaluationServiceTests
             .Build();
 
         var routeChainBuilder = new RouteChainBuilder(db);
-        return new RouteEvaluationService(db, _evaluation, _logger, config, _location, _distance, routeChainBuilder);
+        return new RouteEvaluationService(db, _evaluation, _logger, config, _location, _distance, _snap, routeChainBuilder, _timeService);
     }
 
     private static ScheduleDbContext CreateContext()

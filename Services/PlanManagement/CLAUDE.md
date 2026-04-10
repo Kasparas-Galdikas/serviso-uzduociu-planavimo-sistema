@@ -73,6 +73,7 @@ Primary concern ownership:
 | `HasTaskOverlapAsync` | `TaskQuery` |
 | `GetSuggestedNextSlotAsync` | `TaskQuery` |
 | `CreateTaskAsync` | `TaskCreation` |
+| `CreateDraftTaskAsync` | `TaskCreation` |
 | `BulkValidateTasksAsync` | `TaskCreation` |
 | `BulkCreateTasksAsync` | `TaskCreation` |
 | `UpdateTaskAsync` | `TaskModification` |

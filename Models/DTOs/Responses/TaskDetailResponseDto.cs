@@ -10,6 +10,8 @@ namespace ServiceTaskPlanningSystem.Models.DTOs.Responses;
 public class TaskDetailResponseDto
 {
     public long Id { get; set; }
+    public long? SourceTaskId { get; set; }
+    public long? SourceBacklogItemId { get; set; }
 
     /// <summary>
     /// Entity version (from PostgreSQL xmin) for optimistic concurrency control.
