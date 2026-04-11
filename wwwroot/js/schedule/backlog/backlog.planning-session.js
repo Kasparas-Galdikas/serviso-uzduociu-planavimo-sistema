@@ -465,6 +465,12 @@
   backlog.bulkSync.refreshDraftScheduleTable = async () => {
     const query = window.schedule?.state?.getQuery?.();
     if (!query) return false;
+    const stack = new Error().stack ?? "";
+    const callers = stack.split("\n").slice(2, 7).map((l) => l.trim()).join(" | ");
+    window.scheduleLogger?.log("info", "bulk.refreshDraftScheduleTable", {
+      idx: state._bulkQueueIdx,
+      callers,
+    });
     query.set("planScope", "draft");
     return await window.schedule?.table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
   };
@@ -788,9 +794,10 @@
     return await backlog.bulkSync.flushPendingAutoPersist("immediate");
   };
 
-  backlog.bulkSync.commitCurrentBulkItemForNavigation = async () => {
+  backlog.bulkSync.commitCurrentBulkItemForNavigation = async ({ refreshSchedule = true } = {}) => {
     const panel = state.getPanelEl();
     if (!panel || state._bulkQueueIdx < 0) return false;
+    window.scheduleLogger?.log("info", "bulk.commitCurrentForNavigation.start", { idx: state._bulkQueueIdx, refreshSchedule });
 
     backlog.bulkSync.clearPendingBulkTimers();
 
@@ -812,7 +819,7 @@
     }
 
     state._bulkScheduledData[state._bulkQueueIdx] = backlog.bulkState.collectMergedBulkSnapshot(panel, state._bulkQueueIdx);
-    return await backlog.bulkSync.flushCurrentBulkLiveSave({ refreshSchedule: true, silent: true });
+    return await backlog.bulkSync.flushCurrentBulkLiveSave({ refreshSchedule, silent: true });
   };
 
   // ============================================================================
@@ -901,7 +908,10 @@
         state._bulkQueue,
         state._bulkScheduledData,
       );
-      if (ensureResult.changed && refreshSchedule) {
+      // Only refresh here when not persisting — if persist=true, materializeOrUpdateBulkItem
+      // will refresh after placing the task at the correct auto-planned position, avoiding
+      // a premature render at the stale DB position before the task is moved.
+      if (ensureResult.changed && refreshSchedule && !persist) {
         await backlog.bulkSync.refreshDraftScheduleTable();
       }
     } catch (error) {
@@ -918,6 +928,7 @@
   };
   backlog.planningSession.runAutomaticPlanningForCurrentItem = async ({ usePrefetch = true, persist = true, refreshSchedule = false } = {}) => {
     if (!state._isBulkMode || state._bulkQueueIdx < 0) return false;
+    window.scheduleLogger?.log("info", "bulk.runAutoPlan.start", { idx: state._bulkQueueIdx, persist, refreshSchedule });
     const idx = state._bulkQueueIdx;
     backlog.bulkState.persistCurrentBulkSnapshot();
     const revision = backlog.bulkState.getSnapshotPlanningRevision(idx);
@@ -1005,11 +1016,16 @@
         continue;
       }
       backlog.planningSession.applyAutomaticSuggestionToSnapshot(idx, suggestion);
-      const ok = await backlog.bulkSync.materializeOrUpdateBulkItem(idx, { refreshSchedule: false, silent: true });
-      if (!ok) {
-        hasErrors = true;
-        backlog.planningSession.setConfirmItemStatus(idx, "error", state._bulkLastSyncError || "Nepavyko issaugoti perskaiciuotos uzduoties.");
-        continue;
+      // Only push to DB for items already materialized (visited). Unvisited items keep
+      // the updated snapshot in memory and are materialized when the user navigates to
+      // them, avoiding a premature render with the wrong technician in the schedule.
+      if (Number(snapshot.draftTaskId || 0)) {
+        const ok = await backlog.bulkSync.materializeOrUpdateBulkItem(idx, { refreshSchedule: false, silent: true });
+        if (!ok) {
+          hasErrors = true;
+          backlog.planningSession.setConfirmItemStatus(idx, "error", state._bulkLastSyncError || "Nepavyko issaugoti perskaiciuotos uzduoties.");
+          continue;
+        }
       }
       anyChanged = true;
       if (state._bulkConfirmPhase) backlog.planningSession.setConfirmItemStatus(idx, "ok", "Gerai");
@@ -1064,6 +1080,14 @@
   };
   backlog.planningSession.validateBulkQueueForConfirm = async () => {
     await backlog.planningSession.recomputeAutoManagedItemsAfterLockedEdits({ refreshSchedule: false });
+    // Materialize any items that were never visited (skipped during downstream recompute).
+    // All items must be in the draft plan before apply-to-active runs.
+    for (let idx = 0; idx < state._bulkQueue.length; idx++) {
+      const snap = backlog.bulkState.getItemState(idx);
+      if (!Number(snap.draftTaskId || 0) && backlog.bulkState.isBulkSnapshotSchedulable(snap, state._bulkQueue[idx])) {
+        await backlog.bulkSync.materializeOrUpdateBulkItem(idx, { refreshSchedule: false, silent: true });
+      }
+    }
     for (let idx = 0; idx < state._bulkQueue.length; idx++) {
       backlog.planningSession.setConfirmItemStatus(idx, "pending", "Apdorojama");
     }
@@ -1323,8 +1347,8 @@
     !backlog.bulkState.hasVisitedBulkItem(idx);
   backlog.bulkFlow.activateTargetItem = async (idx, options = {}) =>
     await backlog.bulkFlow.activateBulkQueueItemAndSettle(idx, options);
-  backlog.bulkFlow.commitCurrentBeforeTraversal = async () =>
-    await backlog.bulkSync.commitCurrentBulkItemForNavigation();
+  backlog.bulkFlow.commitCurrentBeforeTraversal = async (options = {}) =>
+    await backlog.bulkSync.commitCurrentBulkItemForNavigation(options);
 
   backlog.planningSession.handleBulkSchedule = backlog.bulkFlow;
   backlog.bulkFlow.buildQueueFromSelection = () => {
@@ -1433,6 +1457,14 @@
   backlog.bulkFlow.startBulkQueueItem = async (idx, { neutralizePlanningFields = false } = {}) => {
     const item = state._bulkQueue[idx];
     if (!item) return;
+    window.scheduleLogger?.log("info", "bulk.startBulkQueueItem", {
+      idx,
+      neutralizePlanningFields,
+      hasDraftTaskId: !!state._bulkScheduledData[idx]?.draftTaskId,
+      visited: !!state._bulkScheduledData[idx]?._visited,
+      autoPlanned: !!state._bulkScheduledData[idx]?._autoPlanned,
+      autoPlanLocked: !!state._bulkScheduledData[idx]?._autoPlanLocked,
+    });
     backlog.bulkState.markBulkItemVisited(idx);
     state._schedulingFromBacklogId = item.id;
     state._schedulingFromBacklogItemType = item.itemType;
@@ -1444,7 +1476,7 @@
     if (existingSnapshot?.draftTaskId) {
       await backlog.bulkSync.fetchAndSyncBulkTask(existingSnapshot.draftTaskId);
     }
-    if (state._bulkScheduledData[idx]?.draftTaskId || state._bulkScheduledData[idx]?.title || state._bulkScheduledData[idx]?.technicianId) {
+    if (!neutralizePlanningFields && (state._bulkScheduledData[idx]?.draftTaskId || state._bulkScheduledData[idx]?.title || state._bulkScheduledData[idx]?.technicianId)) {
       await backlog.bulkSync.restoreBulkPanelFromSnapshot(idx);
     } else {
       await backlog.bulkUi.resetFreshItemPanel(panel, item, { neutralizePlanningFields });
@@ -1463,6 +1495,7 @@
     await backlog.bulkFlow.startBulkQueueItem(idx, { neutralizePlanningFields });
     if (backlog.bulkState.shouldAutoPlanItemOnActivation(idx, { skipAutoPlanning })) {
       await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: true, persist: true, refreshSchedule: true });
+      backlog.bulkSync.clearPendingBulkTimers();
       await backlog.bulkSync.flushPendingAutoPersist("navigation-settle");
       if (state._bulkAutoPlanPromise && state._bulkAutoPlanInFlight?.idx === idx) {
         await state._bulkAutoPlanPromise;
@@ -1481,7 +1514,22 @@
         await backlog.bulkFlow.confirmAndCreateAll();
         return;
       }
-      await backlog.bulkFlow.commitCurrentBeforeTraversal();
+      const nextIdx = state._bulkQueueIdx + 1;
+      const nextWillAutoplan =
+        nextIdx < state._bulkQueue.length &&
+        backlog.bulkState.shouldAutoPlanItemOnActivation(nextIdx, { skipAutoPlanning: false });
+      window.scheduleLogger?.log("info", "bulk.onBulkNext", {
+        currentIdx: state._bulkQueueIdx,
+        nextIdx,
+        nextWillAutoplan,
+        nextSnapshot: nextIdx < state._bulkQueue.length ? {
+          draftTaskId: state._bulkScheduledData[nextIdx]?.draftTaskId,
+          visited: state._bulkScheduledData[nextIdx]?._visited,
+          autoPlanned: state._bulkScheduledData[nextIdx]?._autoPlanned,
+          autoPlanLocked: state._bulkScheduledData[nextIdx]?._autoPlanLocked,
+        } : null,
+      });
+      await backlog.bulkFlow.commitCurrentBeforeTraversal({ refreshSchedule: !nextWillAutoplan });
       if (state._bulkQueueIdx < state._bulkQueue.length - 1) {
         state._bulkQueueIdx++;
         await backlog.bulkFlow.activateTargetItem(state._bulkQueueIdx, {

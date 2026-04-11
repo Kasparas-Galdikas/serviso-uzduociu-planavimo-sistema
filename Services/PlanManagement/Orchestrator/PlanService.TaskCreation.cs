@@ -703,7 +703,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 }
 
                 reservedSlots.Add((dto.TechnicianId, placement.StartAtUtc, placement.EndAtUtc));
-                context.SimulatedBatchStops.Add((dto.TechnicianId, addressId.Value, placement.StartAtUtc, placement.EndAtUtc));
+                // Only add to simulated stops when the task doesn't already exist in the DB.
+                // Already-materialized tasks are picked up by the route chain builder as real tasks,
+                // so adding them here too would create duplicates that cause false travel failures.
+                if (!dto.IgnoreTaskId.HasValue)
+                {
+                    context.SimulatedBatchStops.Add((dto.TechnicianId, addressId.Value, placement.StartAtUtc, placement.EndAtUtc));
+                }
             }
 
             _logger.LogInformation(

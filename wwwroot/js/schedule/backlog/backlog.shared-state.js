@@ -281,10 +281,10 @@
   });
 
   state.mergeBulkSaveOptions = (next = {}) => {
-    const base = state._bulkQueuedSaveOptions || state.getDefaultBulkSaveOptions();
+    const base = state._bulkQueuedSaveOptions || {};
     state._bulkQueuedSaveOptions = {
-      refreshSchedule: base.refreshSchedule || next.refreshSchedule === true,
-      silent: base.silent && next.silent !== false,
+      refreshSchedule: base.refreshSchedule === true || next.refreshSchedule === true,
+      silent: base.silent !== false && next.silent !== false,
     };
   };
 
