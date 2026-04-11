@@ -138,7 +138,14 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             {
                 var hadDraftBefore = await _planService.GetDraftPlanAsync(cancellationToken) != null;
                 var draft = await _planService.EnsureBacklogDraftAsync(request?.StartDate, request?.EndDate, request?.Weeks, cancellationToken);
-                _logger.LogInformation("api.plan.backlog-draft.ensure.ok planId={PlanId} refreshed={Refreshed}", draft.Id, hadDraftBefore);
+                _logger.LogInformation(
+                    "api.plan.backlog-draft.ensure.ok planId={PlanId} refreshed={Refreshed} requestedStart={RequestedStart} requestedEnd={RequestedEnd} periodStart={PeriodStart} periodEnd={PeriodEnd}",
+                    draft.Id,
+                    hadDraftBefore,
+                    request?.StartDate,
+                    request?.EndDate,
+                    draft.PeriodStart,
+                    draft.PeriodEnd);
                 return Ok(new
                 {
                     draftPlanId = draft.Id,
@@ -155,20 +162,21 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             }
         }
 
+        [HttpPost("backlog-draft/apply-to-active")]
         [HttpPost("backlog-draft/publish")]
         [Authorize(Policy = "RequireManager")]
-        public async Task<IActionResult> PublishBacklogDraft(CancellationToken cancellationToken)
+        public async Task<IActionResult> ApplyBacklogDraftToActive(CancellationToken cancellationToken)
         {
             try
             {
-                await _planService.PublishBacklogDraftAsync(cancellationToken);
-                _logger.LogInformation("api.plan.backlog-draft.publish.ok");
-                Response.Headers["X-Trace-Summary"] = "plan.backlog-draft.publish.ok";
+                await _planService.ApplyDraftToActiveAsync(cancellationToken);
+                _logger.LogInformation("api.plan.backlog-draft.apply.ok");
+                Response.Headers["X-Trace-Summary"] = "plan.backlog-draft.apply.ok";
                 return Ok();
             }
             catch (InvalidOperationException ex)
             {
-                _logger.LogWarning(ex, "api.plan.backlog-draft.publish.failed");
+                _logger.LogWarning(ex, "api.plan.backlog-draft.apply.failed");
                 return BadRequest(new { message = ex.Message });
             }
         }

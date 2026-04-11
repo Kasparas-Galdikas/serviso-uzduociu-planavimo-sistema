@@ -73,6 +73,9 @@
     _bulkPrecomputedSuggestions: null,
     _bulkPrecomputePromise: null,
     _bulkPrecomputeAbortCtrl: null,
+    _bulkDraftPlanId: null,
+    _bulkDraftPeriodStart: "",
+    _bulkDraftPeriodEnd: "",
   };
 
   state.getPanelEl = () => document.getElementById("taskDetailModal");
@@ -199,6 +202,28 @@
 
   state.toLocalDateTimeValue = (date, minutes) =>
     `${date}T${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+  state.setBulkDraftContext = ({ draftPlanId = null, periodStart = "", periodEnd = "" } = {}) => {
+    state._bulkDraftPlanId = Number.isFinite(Number(draftPlanId)) ? Number(draftPlanId) : null;
+    state._bulkDraftPeriodStart = /^\d{4}-\d{2}-\d{2}$/.test(periodStart || "") ? periodStart : "";
+    state._bulkDraftPeriodEnd = /^\d{4}-\d{2}-\d{2}$/.test(periodEnd || "") ? periodEnd : "";
+  };
+
+  state.clearBulkDraftContext = () => state.setBulkDraftContext({});
+
+  state.getBulkDraftContext = () => ({
+    draftPlanId: state._bulkDraftPlanId,
+    periodStart: state._bulkDraftPeriodStart,
+    periodEnd: state._bulkDraftPeriodEnd,
+  });
+
+  state.isBulkDraftRangeCovered = (startDate, endDate = startDate) => {
+    const normalizedStart = /^\d{4}-\d{2}-\d{2}$/.test(startDate || "") ? startDate : "";
+    const normalizedEnd = /^\d{4}-\d{2}-\d{2}$/.test(endDate || "") ? endDate : "";
+    if (!normalizedStart || !normalizedEnd) return false;
+    if (!state._bulkDraftPeriodStart || !state._bulkDraftPeriodEnd) return false;
+    return normalizedStart >= state._bulkDraftPeriodStart && normalizedEnd <= state._bulkDraftPeriodEnd;
+  };
 
   state.clearSchedulingContext = () => {
     state._schedulingFromBacklogId = null;
@@ -331,6 +356,7 @@
       state._bulkPrecomputeAbortCtrl.abort();
       state._bulkPrecomputeAbortCtrl = null;
     }
+    state.clearBulkDraftContext();
     const panel = state.getPanelEl();
     if (!panel) return;
     delete panel.dataset.bulkMode;

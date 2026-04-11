@@ -140,6 +140,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 TaskCreateError.Overlap => Conflict(new { message = result.Message }),
                 TaskCreateError.NotEditable => StatusCode(403, new { message = result.Message }),
                 TaskCreateError.TechnicianNotFound => UnprocessableEntity(new { message = result.Message }),
+                TaskCreateError.DraftWindowMismatch => UnprocessableEntity(new { message = result.Message, errorCode = "draft_window_mismatch" }),
                 _ => UnprocessableEntity(new { message = result.Message ?? "Netinkamas laiko langas." })
             };
         }
@@ -816,7 +817,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 return UnprocessableEntity(new { message = "Nenurodyti elementai." });
 
             var user = _userContextResolver.GetCurrentUser();
-            var result = await _planService.BulkValidateTasksAsync(dto.Items, dto.PlanMode, user, cancellationToken);
+            var result = await _planService.BulkValidateTasksAsync(dto.Items, dto.PlanMode, user, dto.PlanScope, cancellationToken);
             return Ok(result);
         }
 

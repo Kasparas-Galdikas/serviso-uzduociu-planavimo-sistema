@@ -90,30 +90,30 @@
 
       if (resp.status === 409) {
         const data = await readJsonSafe(resp);
-        return { success: false, error: data.message || "Laiko langas uzimtas.", errorType: "conflict"};
+        return { success: false, error: data.message || "Laiko langas uzimtas.", errorCode: data.errorCode || null, errorType: "conflict"};
       }
 
       if (resp.status === 400) {
         const errorData = await readJsonSafe(resp);
         if (errorData.errors && typeof errorData.errors === "object") {
-          return { success: false, validationErrors: errorData.errors, errorType: "validation"};
+          return { success: false, validationErrors: errorData.errors, errorCode: errorData.errorCode || null, errorType: "validation"};
         }
-        return { success: false, error: errorData.message || "Patikrinkite ivestus duomenis.", errorType: "validation"};
+        return { success: false, error: errorData.message || "Patikrinkite ivestus duomenis.", errorCode: errorData.errorCode || null, errorType: "validation"};
       }
 
       if (resp.status === 422) {
         const data = await readJsonSafe(resp);
-        return { success: false, error: data.message || "Netinkamas laiko langas.", errorType: "unprocessable"};
+        return { success: false, error: data.message || "Netinkamas laiko langas.", errorCode: data.errorCode || null, errorType: "unprocessable"};
       }
 
       if (resp.status === 403) {
         const data = await readJsonSafe(resp);
-        return { success: false, error: data.message || "Neturite teisiu.", errorType: "forbidden"};
+        return { success: false, error: data.message || "Neturite teisiu.", errorCode: data.errorCode || null, errorType: "forbidden"};
       }
 
       if (!resp.ok) {
         const data = await readJsonSafe(resp);
-        return { success: false, error: data.message || "Ivyko klaida kuriant uzduoti.", errorType: "unknown"};
+        return { success: false, error: data.message || "Ivyko klaida kuriant uzduoti.", errorCode: data.errorCode || null, errorType: "unknown"};
       }
 
       const responseData = await readJsonSafe(resp);

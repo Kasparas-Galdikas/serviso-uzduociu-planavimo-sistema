@@ -42,6 +42,12 @@ public class CreateTaskRequestDto : BacklogItemDto
     public long? SourceBacklogItemId { get; set; }
 
     /// <summary>
+    /// When re-validating an already-persisted task (e.g. a draft task during bulk confirm),
+    /// pass its ID here so the placement validator ignores it when checking for overlaps.
+    /// </summary>
+    public long? IgnoreTaskId { get; set; }
+
+    /// <summary>
     /// Optional effective bulk-plan simulation passed by the frontend so automatic
     /// planning can evaluate against already resolved but not yet persisted items.
     /// </summary>

@@ -347,6 +347,121 @@
   // ============================================================================
 
   backlog.bulkSync = backlog.bulkSync || {};
+  backlog.bulkState.getBulkTargetDateForEntry = (item, snapshot, fallbackDate = state.getActiveScheduleDate()) => {
+    const start = state.parseDatetimeComponents(snapshot?.startAt);
+    if (start?.date) return start.date;
+    const end = state.parseDatetimeComponents(snapshot?.endAt);
+    if (end?.date) return end.date;
+    return /^\d{4}-\d{2}-\d{2}$/.test(fallbackDate || "") ? fallbackDate : state.getActiveScheduleDate();
+  };
+  backlog.bulkState.getBulkDraftRangeForQueue = (
+    queue = state._bulkQueue,
+    snapshots = state._bulkScheduledData,
+    fallbackDate = state.getActiveScheduleDate(),
+  ) => {
+    const dates = (queue || [])
+      .map((item, idx) => backlog.bulkState.getBulkTargetDateForEntry(item, snapshots?.[idx] || {}, fallbackDate))
+      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date || ""));
+    if (!dates.length) return null;
+    dates.sort();
+    return {
+      startDate: dates[0],
+      endDate: dates[dates.length - 1],
+    };
+  };
+  backlog.bulkSync.ensureDraftCoverageForQueue = async (
+    queue = state._bulkQueue,
+    snapshots = state._bulkScheduledData,
+    { force = false } = {},
+  ) => {
+    const range = backlog.bulkState.getBulkDraftRangeForQueue(queue, snapshots);
+    if (!range) return { changed: false, data: state.getBulkDraftContext() };
+    const alreadyCovered = state.isBulkDraftRangeCovered(range.startDate, range.endDate);
+    if (!force && alreadyCovered) {
+      return { changed: false, data: state.getBulkDraftContext() };
+    }
+
+    const data = await backlog.scheduleBridge.ensureBacklogDraftSandbox(range);
+    return { changed: true, data };
+  };
+  backlog.bulkSync.getBulkEarliestCreatablePlacementForDate = (targetDate) => {
+    const grid = window.schedule?.grid;
+    const config = grid?.getConfig?.() || {
+      slotSizeMinutes: 30,
+      dayStartMinutes: 8 * 60,
+      dayEndMinutes: 20 * 60,
+    };
+    const normalizedTargetDate = /^\d{4}-\d{2}-\d{2}$/.test(targetDate || "") ? targetDate : state.getActiveScheduleDate();
+    const slotSizeMinutes = Number(config.slotSizeMinutes || 30);
+    const dayStartMinutes = Number(config.dayStartMinutes || 8 * 60);
+    const dayEndMinutes = Number(config.dayEndMinutes || 20 * 60);
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    if (normalizedTargetDate !== today) {
+      return {
+        targetDate: normalizedTargetDate,
+        startMinutes: dayStartMinutes,
+        dayEndMinutes,
+      };
+    }
+
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const roundedNow = Math.ceil(nowMinutes / slotSizeMinutes) * slotSizeMinutes;
+    const earliestStartMinutes = Math.max(dayStartMinutes, roundedNow);
+    if (earliestStartMinutes <= dayEndMinutes) {
+      return {
+        targetDate: today,
+        startMinutes: earliestStartMinutes,
+        dayEndMinutes,
+      };
+    }
+
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return {
+      targetDate: `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`,
+      startMinutes: dayStartMinutes,
+      dayEndMinutes,
+    };
+  };
+  backlog.bulkSync.isBulkSnapshotPlacementStale = (snapshot) => {
+    const start = state.parseDatetimeComponents(snapshot?.startAt);
+    const end = state.parseDatetimeComponents(snapshot?.endAt);
+    if (!start?.date || !end?.date) return false;
+    const earliestPlacement = backlog.bulkSync.getBulkEarliestCreatablePlacementForDate(start.date);
+    if (start.date < earliestPlacement.targetDate) return true;
+    if (start.date > earliestPlacement.targetDate) return false;
+    return start.minutes < earliestPlacement.startMinutes;
+  };
+  backlog.bulkSync.normalizeBulkSnapshotPlacementForMaterialization = async (idx) => {
+    const item = state._bulkQueue[idx];
+    const snapshot = backlog.bulkState.getItemState(idx);
+    if (!item || !backlog.bulkSync.isBulkSnapshotPlacementStale(snapshot)) return true;
+
+    if (snapshot.isUserLocked === true || snapshot.isAutoManaged === false) {
+      state._bulkLastSyncError = "Suplanuotas laikas jau praejo. Pasirinkite nauja laika.";
+      return false;
+    }
+
+    const suggestion = await backlog.planningSession.fetchAutoSuggestionForIndex(idx);
+    if (!suggestion) {
+      state._bulkLastSyncError = "Nepavyko perskaiciuoti automatines uzduoties laiko.";
+      return false;
+    }
+
+    const changed = backlog.planningSession.applyAutomaticSuggestionToSnapshot(idx, suggestion);
+    if (!changed) {
+      state._bulkLastSyncError = "Nepavyko atnaujinti automatines uzduoties laiko.";
+      return false;
+    }
+
+    if (state._bulkQueueIdx === idx && backlog.bulkSync.shouldRestoreBulkPanel()) {
+      await backlog.bulkSync.restoreBulkPanelFromSnapshot(idx);
+    }
+
+    return true;
+  };
   backlog.bulkSync.refreshDraftScheduleTable = async () => {
     const query = window.schedule?.state?.getQuery?.();
     if (!query) return false;
@@ -414,6 +529,18 @@
     }
     if (!backlog.bulkState.isBulkSnapshotSchedulable(snap, item)) {
       state._bulkLastSyncError = "Nepakanka planavimo duomenu.";
+      return false;
+    }
+    const normalized = await backlog.bulkSync.normalizeBulkSnapshotPlacementForMaterialization(idx);
+    if (!normalized) {
+      if (!silent && state._bulkLastSyncError) window.schedule?.ui?.toast?.showWarning?.(state._bulkLastSyncError);
+      return false;
+    }
+    try {
+      await backlog.bulkSync.ensureDraftCoverageForQueue(state._bulkQueue, state._bulkScheduledData);
+    } catch (error) {
+      state._bulkLastSyncError = error?.message || "Nepavyko paruosti juodrascio plano lango.";
+      if (!silent) window.schedule?.ui?.toast?.showWarning?.(state._bulkLastSyncError);
       return false;
     }
     if (!snap.draftTaskId) {
@@ -769,8 +896,24 @@
     } finally {
       state._autoPlanningInProgress = false;
     }
-    if (persist) await backlog.bulkSync.flushCurrentBulkLiveSave({ refreshSchedule, silent: true });
-    else if (refreshSchedule) await backlog.bulkSync.queueAutomaticBulkPersist();
+    try {
+      const ensureResult = await backlog.bulkSync.ensureDraftCoverageForQueue(
+        state._bulkQueue,
+        state._bulkScheduledData,
+      );
+      if (ensureResult.changed && refreshSchedule) {
+        await backlog.bulkSync.refreshDraftScheduleTable();
+      }
+    } catch (error) {
+      state._bulkLastSyncError = error?.message || "Nepavyko atnaujinti juodrascio plano lango.";
+      return false;
+    }
+    if (persist) {
+      const saved = await backlog.bulkSync.materializeOrUpdateBulkItem(idx, { refreshSchedule, silent: false });
+      if (!saved) return false;
+    } else if (refreshSchedule) {
+      await backlog.bulkSync.queueAutomaticBulkPersist();
+    }
     return true;
   };
   backlog.planningSession.runAutomaticPlanningForCurrentItem = async ({ usePrefetch = true, persist = true, refreshSchedule = false } = {}) => {
@@ -813,7 +956,7 @@
     state._bulkAutoPlanTimer = setTimeout(async () => {
       state._bulkAutoPlanTimer = null;
       if (!state._isBulkMode || state._restoringSnapshot || state._autoPlanningInProgress) return;
-      await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: false, persist: false, refreshSchedule: true });
+      await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: false, persist: true, refreshSchedule: true });
     }, delay);
   };
   backlog.planningSession.handlePlanModeChanged = async (mode) => {
@@ -834,12 +977,15 @@
           _dirty: false,
           _autoPlanLocked: true,
         });
+        if (!Number(snapshot.draftTaskId || 0)) {
+          await backlog.bulkSync.flushCurrentBulkLiveSave({ refreshSchedule: true, silent: true });
+        }
         backlog.bulkFlow.updateBulkNavButtons();
         return;
       }
 
       backlog.bulkState.markBulkItemDirty(idx, true);
-      await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: true, persist: false, refreshSchedule: true });
+      await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: true, persist: true, refreshSchedule: true });
     } else {
       backlog.bulkState.markBulkItemDirty(state._bulkQueueIdx, false);
       await backlog.bulkSync.flushCurrentBulkLiveSave({ refreshSchedule: true, silent: true });
@@ -890,23 +1036,66 @@
   };
   backlog.planningSession.hasConfirmErrors = () =>
     state._bulkConfirmStatuses.some((item) => item?.status === "error");
+  backlog.planningSession.buildBulkValidationPayload = () => {
+    const timezoneOffsetMinutes = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
+    return state._bulkQueue.map((item, idx) => {
+      const snapshot = backlog.bulkState.getItemState(idx);
+      const createPayload = backlog.bulkState.buildMaterializedTaskCreatePayload(idx);
+      const start = state.parseDatetimeComponents(snapshot?.startAt);
+      const end = state.parseDatetimeComponents(snapshot?.endAt);
+      const existingDraftTaskId = Number(snapshot?.draftTaskId || 0) || null;
+      return {
+        technicianId: Number(snapshot?.technicianId || createPayload?.technicianId || 0),
+        targetDate: start?.date || createPayload?.targetDate || item?.dueDate || state.getActiveScheduleDate(),
+        startMinutes: start?.minutes ?? createPayload?.startMinutes ?? 0,
+        endMinutes: end?.minutes ?? createPayload?.endMinutes ?? 0,
+        title: snapshot?.title || item?.title || "",
+        priority: snapshot?.priorityVal ?? item?.priority ?? 0,
+        status: 0,
+        timezoneOffsetMinutes,
+        skillLevel: snapshot?.skillLevel || item?.skillLevel || "",
+        objectName: snapshot?.objectName || item?.objectName || "",
+        objectAddress: snapshot?.objectAddress || item?.locationText || "",
+        instructions: snapshot?.instructions || item?.instructions || "",
+        sourceBacklogItemId: item?.id ? Number(item.id) : null,
+        ignoreTaskId: existingDraftTaskId,
+      };
+    });
+  };
   backlog.planningSession.validateBulkQueueForConfirm = async () => {
     await backlog.planningSession.recomputeAutoManagedItemsAfterLockedEdits({ refreshSchedule: false });
-    let anySuccess = false;
     for (let idx = 0; idx < state._bulkQueue.length; idx++) {
       backlog.planningSession.setConfirmItemStatus(idx, "pending", "Apdorojama");
-      const ok = await backlog.bulkSync.materializeOrUpdateBulkItem(idx, { refreshSchedule: false, silent: true });
-      if (ok) {
-        anySuccess = true;
-        backlog.planningSession.setConfirmItemStatus(idx, "ok", "Gerai");
-      } else {
-        backlog.planningSession.setConfirmItemStatus(idx, "error", state._bulkLastSyncError || "Nepavyko patikrinti uzduoties.");
+    }
+
+    const payload = backlog.planningSession.buildBulkValidationPayload();
+    const resp = await fetch("/api/tasks/bulk/validate", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+      body: JSON.stringify({
+        planMode: backlog.bulkState.getBulkPlanMode(),
+        planScope: "draft",
+        items: payload,
+      }),
+    }).catch(() => null);
+
+    const data = await resp?.json?.().catch(() => null);
+    if (!resp?.ok) {
+      const message = data?.message || "Nepavyko patikrinti uzduociu paketo.";
+      for (let idx = 0; idx < state._bulkQueue.length; idx++) {
+        backlog.planningSession.setConfirmItemStatus(idx, "error", message);
       }
+      backlog.bulkFlow.updateBulkNavButtons();
+      return false;
     }
-    if (anySuccess) {
-      await backlog.bulkSync.refreshDraftScheduleTable();
-      await backlog.bulkSync.syncAllMaterializedBulkItems();
+
+    const errorsByIndex = new Map((Array.isArray(data?.errors) ? data.errors : []).map((error) => [Number(error.index), error.message || "Nepavyko patikrinti uzduoties."]));
+    for (let idx = 0; idx < state._bulkQueue.length; idx++) {
+      const errorMessage = errorsByIndex.get(idx);
+      backlog.planningSession.setConfirmItemStatus(idx, errorMessage ? "error" : "ok", errorMessage || "Gerai");
     }
+
     backlog.bulkFlow.updateBulkNavButtons();
     return !backlog.planningSession.hasConfirmErrors();
   };
@@ -1199,32 +1388,30 @@
     const nextQueue = backlog.bulkFlow.buildQueueFromSelection();
     if (!nextQueue.length) return;
     // Determine BEFORE merging state whether we're resuming an existing draft.
-    // ensureBacklogDraftSandbox deletes all future draft tasks and re-seeds from the
-    // active plan — calling it on an existing draft would wipe tasks the user already
-    // created in this session.
+    // Reopened bulk sessions should preserve the current draft session context and
+    // only re-ensure when the queue expands outside the already ensured range.
     const reopeningExistingDraft = state._isBulkMode && state._bulkQueue.length > 0;
-    if (!reopeningExistingDraft) {
-      try {
-        await backlog.scheduleBridge.ensureBacklogDraftSandbox();
-        await backlog.scheduleBridge.setBacklogDraftScheduleView(true);
-      } catch (error) {
-        window.schedule?.ui?.toast?.showError?.(error?.message || "Nepavyko paruosti juodrascio aplinkos.");
-        return;
-      }
-    } else if (!backlog.scheduleBridge.isBacklogDraftScheduleActive()) {
-      try {
-        await backlog.scheduleBridge.setBacklogDraftScheduleView(true);
-      } catch (error) {
-        window.schedule?.ui?.toast?.showError?.(error?.message || "Nepavyko atnaujinti juodrascio vaizdo.");
-        return;
-      }
-    }
     if (reopeningExistingDraft) {
       backlog.bulkState.persistCurrentBulkSnapshot();
       const reconciled = await backlog.bulkSync.reconcileDeselectedDraftTasks(nextQueue, { silent: false });
       if (!reconciled) return;
     }
     backlog.bulkFlow.mergeQueueSelectionIntoDraftState(nextQueue);
+    try {
+      const ensureResult = await backlog.bulkSync.ensureDraftCoverageForQueue(
+        state._bulkQueue,
+        state._bulkScheduledData,
+        { force: !reopeningExistingDraft },
+      );
+      if (!reopeningExistingDraft || !backlog.scheduleBridge.isBacklogDraftScheduleActive()) {
+        await backlog.scheduleBridge.setBacklogDraftScheduleView(true);
+      } else if (ensureResult.changed) {
+        await backlog.bulkSync.refreshDraftScheduleTable();
+      }
+    } catch (error) {
+      window.schedule?.ui?.toast?.showError?.(error?.message || "Nepavyko paruosti juodrascio aplinkos.");
+      return;
+    }
     state._isBulkMode = true;
     if (!reopeningExistingDraft) state._bulkPlanMode = "rankinis";
     backlog.bulkFlow.hideBulkConfirmView();
@@ -1268,14 +1455,14 @@
   backlog.bulkFlow.activateBulkQueueItem = async (idx, { skipAutoPlanning = false } = {}) => {
     await backlog.bulkFlow.startBulkQueueItem(idx);
     if (backlog.bulkState.shouldAutoPlanItemOnActivation(idx, { skipAutoPlanning })) {
-      await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: true, persist: false, refreshSchedule: true });
+      await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: true, persist: true, refreshSchedule: true });
     }
     backlog.bulkFlow.updateBulkNavButtons();
   };
   backlog.bulkFlow.activateBulkQueueItemAndSettle = async (idx, { skipAutoPlanning = false, neutralizePlanningFields = false } = {}) => {
     await backlog.bulkFlow.startBulkQueueItem(idx, { neutralizePlanningFields });
     if (backlog.bulkState.shouldAutoPlanItemOnActivation(idx, { skipAutoPlanning })) {
-      await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: true, persist: false, refreshSchedule: true });
+      await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: true, persist: true, refreshSchedule: true });
       await backlog.bulkSync.flushPendingAutoPersist("navigation-settle");
       if (state._bulkAutoPlanPromise && state._bulkAutoPlanInFlight?.idx === idx) {
         await state._bulkAutoPlanPromise;
@@ -1374,29 +1561,17 @@
       return;
     }
     backlog.bulkState.persistCurrentBulkSnapshot();
-    for (let idx = 0; idx < state._bulkQueue.length; idx++) {
-      const item = state._bulkQueue[idx];
-      const snap = state._bulkScheduledData[idx] || {};
-      backlog.planningSession.setConfirmItemStatus(idx, "pending", "Apdorojama");
-      if (!backlog.bulkState.isBulkSnapshotSchedulable(snap, item)) {
-        backlog.planningSession.setConfirmItemStatus(idx, "error", "Nepakanka planavimo duomenu.");
-        backlog.bulkFlow.updateBulkNavButtons();
-        return;
-      }
-      const ok = await backlog.bulkSync.materializeOrUpdateBulkItem(idx, { refreshSchedule: false, silent: false });
-      if (!ok) {
-        backlog.planningSession.setConfirmItemStatus(idx, "error", state._bulkLastSyncError || "Nepavyko issaugoti uzduoties.");
-        backlog.bulkFlow.updateBulkNavButtons();
-        return;
-      }
-      backlog.planningSession.setConfirmItemStatus(idx, "ok", "Gerai");
-    }
-    const publishResp = await fetch("/api/plans/backlog-draft/publish", {
+    const applyResp = await fetch("/api/plans/backlog-draft/apply-to-active", {
       method: "POST",
       credentials: "same-origin",
       headers: { "X-Requested-With": "XMLHttpRequest" },
     }).catch(() => null);
-    if (!publishResp?.ok) return;
+    if (!applyResp?.ok) {
+      const data = await applyResp?.json?.().catch(() => null);
+      window.schedule?.ui?.toast?.showError?.(data?.message || "Nepavyko pritaikyti juodrascio aktyviam planui.");
+      backlog.bulkFlow.updateBulkNavButtons();
+      return;
+    }
     for (const item of state._bulkQueue) {
       if (item.itemType === state.ITEM_TYPE.Temporary) {
         try { await backlog.api.apiRemoveItem(item.id); } catch { }

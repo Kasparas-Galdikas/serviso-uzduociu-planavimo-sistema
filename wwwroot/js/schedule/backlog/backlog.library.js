@@ -302,11 +302,19 @@
     });
   };
 
+  backlog.list.syncTypeTabButtons = () => {
+    const isTemporary = state._activeTypeTab === state.ITEM_TYPE.Temporary;
+    document.getElementById("backlogTypeTabTemp")?.classList.toggle("active", isTemporary);
+    document.getElementById("backlogTypeTabPerm")?.classList.toggle("active", !isTemporary);
+  };
+
   backlog.list.loadTypeTab = async (itemType) => {
     state._scroll?.disconnect();
     state._page = 1;
     state._hasMore = false;
     state._items = [];
+    state._activeTypeTab = itemType;
+    backlog.list.syncTypeTabButtons();
     const data = await backlog.api.loadItemsFromApi(itemType, 1);
     if (data) {
       state._items = (data.items ?? []).map(backlog.api.normalizeServerItem);
@@ -324,6 +332,7 @@
     state._page = 1;
     state._hasMore = false;
     state._items = [];
+    backlog.list.syncTypeTabButtons();
     const [tempData, permData] = await Promise.all([
       backlog.api.loadItemsFromApi(state.ITEM_TYPE.Temporary, 1),
       backlog.api.loadItemsFromApi(state.ITEM_TYPE.Permanent, 1),

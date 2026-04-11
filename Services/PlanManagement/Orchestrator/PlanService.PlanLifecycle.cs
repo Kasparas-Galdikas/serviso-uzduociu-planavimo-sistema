@@ -139,14 +139,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             int? requestedWeeks = null,
             CancellationToken cancellationToken = default)
         {
-            var existingDraft = await _db.Plans
-                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
-
-            if (existingDraft == null)
-            {
-                return await CreateDraftFromActiveAsync(requestedStart, requestedEnd, requestedWeeks, cancellationToken);
-            }
-
             var activePlan = await _db.Plans
                 .Include(p => p.Tasks)
                 .FirstOrDefaultAsync(p => p.Status == PlanStatus.Active, cancellationToken);
@@ -157,48 +149,143 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             }
 
             var fallbackWeeks = activePlan.Weeks > 0 ? activePlan.Weeks : 4;
-            var window = await _planningCalendar.BuildWindowAsync(requestedStart, requestedEnd, requestedWeeks, fallbackWeeks, cancellationToken);
-            var nowUtc = _timeService.GetCurrentUtcTime();
+            var window = BuildBacklogDraftWindow(requestedStart, requestedEnd, requestedWeeks, fallbackWeeks);
+            var existingDraft = await _db.Plans
+                .Include(p => p.Tasks)
+                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
 
             await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
-            var deletedDraftRows = await _db.Tasks
-                .Where(t => t.PlanId == existingDraft.Id)
-                .Where(t => t.EndAt >= nowUtc)
-                .ExecuteDeleteAsync(cancellationToken);
+            PlanEntity draftPlan;
+            if (existingDraft == null)
+            {
+                draftPlan = new PlanEntity
+                {
+                    PeriodStart = window.Start,
+                    PeriodEnd = window.End,
+                    Weeks = window.Weeks,
+                    Status = PlanStatus.Draft,
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedBy = activePlan.CreatedBy
+                };
 
-            var seededTasks = await GenerateTasksFromActivePlanAsync(activePlan, window.Start, window.End, existingDraft.Id, cancellationToken);
+                _db.Plans.Add(draftPlan);
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            else
+            {
+                draftPlan = existingDraft;
+            }
+
+            var requestedRangeStart = window.Start.Date;
+            var requestedRangeEnd = window.End.Date;
+            var ensuredStart = draftPlan.Tasks.Any()
+                ? new[] { requestedRangeStart, draftPlan.PeriodStart.Date, draftPlan.Tasks.Min(t => t.StartAt.Date) }.Min()
+                : new[] { requestedRangeStart, draftPlan.PeriodStart.Date }.Min();
+            var ensuredEnd = draftPlan.Tasks.Any()
+                ? new[] { requestedRangeEnd, draftPlan.PeriodEnd.Date, draftPlan.Tasks.Max(t => t.EndAt.Date) }.Max()
+                : new[] { requestedRangeEnd, draftPlan.PeriodEnd.Date }.Max();
+
+            var existingSourceTaskIds = draftPlan.Tasks
+                .Where(t => t.SourceTaskId.HasValue)
+                .Select(t => t.SourceTaskId!.Value)
+                .ToHashSet();
+
+            var generatedTasks = await GenerateTasksFromActivePlanAsync(activePlan, ensuredStart, ensuredEnd, draftPlan.Id, cancellationToken);
+            var seededTasks = generatedTasks
+                .Where(t => !t.SourceTaskId.HasValue || !existingSourceTaskIds.Contains(t.SourceTaskId.Value))
+                .ToList();
+
             if (seededTasks.Count > 0)
             {
                 _db.Tasks.AddRange(seededTasks);
                 await _db.SaveChangesAsync(cancellationToken);
-
-                existingDraft.PeriodStart = seededTasks.Min(t => t.StartAt.Date);
-                existingDraft.PeriodEnd = seededTasks.Max(t => t.EndAt.Date);
-                var totalDays = (existingDraft.PeriodEnd - existingDraft.PeriodStart).Days + 1;
-                existingDraft.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
-            }
-            else
-            {
-                existingDraft.PeriodStart = window.Start;
-                existingDraft.PeriodEnd = window.End;
-                existingDraft.Weeks = window.Weeks;
             }
 
-            _db.Plans.Update(existingDraft);
+            var currentTaskSpan = await _db.Tasks
+                .Where(t => t.PlanId == draftPlan.Id)
+                .Select(t => new { Start = t.StartAt.Date, End = t.EndAt.Date })
+                .ToListAsync(cancellationToken);
+
+            draftPlan.PeriodStart = currentTaskSpan.Any()
+                ? new[] { ensuredStart, currentTaskSpan.Min(t => t.Start) }.Min()
+                : ensuredStart;
+            draftPlan.PeriodEnd = currentTaskSpan.Any()
+                ? new[] { ensuredEnd, currentTaskSpan.Max(t => t.End) }.Max()
+                : ensuredEnd;
+            var totalDays = (draftPlan.PeriodEnd - draftPlan.PeriodStart).Days + 1;
+            draftPlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
+
+            _db.Plans.Update(draftPlan);
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            await _evaluationEngine.RecalculatePlanAsync(existingDraft.Id, cancellationToken);
+            await _evaluationEngine.RecalculatePlanAsync(draftPlan.Id, cancellationToken);
 
             _logger.LogInformation(
-                "svc.plan.backlog-draft.ensure planId={PlanId} deletedDraftRows={DeletedDraftRows} seededTasks={SeededTasks} start={Start} end={End}",
-                existingDraft.Id,
-                deletedDraftRows,
+                "svc.plan.backlog-draft.ensure planId={PlanId} requestedStart={RequestedStart} requestedEnd={RequestedEnd} seededTasks={SeededTasks} start={Start} end={End}",
+                draftPlan.Id,
+                requestedRangeStart,
+                requestedRangeEnd,
                 seededTasks.Count,
-                existingDraft.PeriodStart,
-                existingDraft.PeriodEnd);
+                draftPlan.PeriodStart,
+                draftPlan.PeriodEnd);
 
-            return existingDraft;
+            return draftPlan;
+        }
+
+        private PlanningWindow BuildBacklogDraftWindow(
+            DateTime? requestedStart,
+            DateTime? requestedEnd,
+            int? requestedWeeks,
+            int fallbackWeeks)
+        {
+            var today = _timeService.GetLocalToday().Date;
+            var requestedStartDate = requestedStart?.Date;
+            var requestedEndDate = requestedEnd?.Date;
+
+            if ((requestedStartDate.HasValue && requestedStartDate.Value < today) ||
+                (requestedEndDate.HasValue && requestedEndDate.Value < today))
+            {
+                throw new InvalidOperationException($"Drafts may start from {today:yyyy-MM-dd}.");
+            }
+
+            var startDate = requestedStartDate ?? today;
+            if (startDate < today)
+            {
+                startDate = today;
+            }
+
+            var requestedSpanDays = requestedStartDate.HasValue &&
+                                    requestedEndDate.HasValue &&
+                                    requestedEndDate.Value >= requestedStartDate.Value
+                ? (requestedEndDate.Value - requestedStartDate.Value).Days + 1
+                : 0;
+
+            var plannedSpanDays = requestedSpanDays > 0
+                ? requestedSpanDays
+                : requestedWeeks.HasValue && requestedWeeks.Value > 0
+                    ? requestedWeeks.Value * 7
+                    : fallbackWeeks * 7;
+
+            if (plannedSpanDays < 1)
+            {
+                plannedSpanDays = 1;
+            }
+
+            var endDate = startDate.AddDays(plannedSpanDays - 1);
+            var weeks = Math.Max(1, (int)Math.Ceiling(plannedSpanDays / 7.0));
+
+            _logger.LogInformation(
+                "svc.plan.backlog-draft.window start={Start} end={End} days={Days} weeks={Weeks} today={Today} requestedStart={RequestedStart} requestedEnd={RequestedEnd}",
+                startDate,
+                endDate,
+                plannedSpanDays,
+                weeks,
+                today,
+                requestedStartDate,
+                requestedEndDate);
+
+            return new PlanningWindow(startDate, endDate, plannedSpanDays, weeks, today);
         }
 
         internal async Task<PlanEntity> GetOrExtendActivePlanAsync(PlanEntity? activePlan, DateTime taskDate, DateTime userLocalToday, CancellationToken cancellationToken)
@@ -334,7 +421,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             _logger.LogInformation("svc.plan.publish.ok draftId={DraftId} superseded={ActiveId}", draft.Id, active?.Id);
         }
 
-        public async Task PublishBacklogDraftAsync(CancellationToken cancellationToken = default)
+        public async Task ApplyDraftToActiveAsync(CancellationToken cancellationToken = default)
         {
             var draft = await _db.Plans
                 .Include(p => p.Tasks)
@@ -416,7 +503,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             await transaction.CommitAsync(cancellationToken);
 
             _logger.LogInformation(
-                "svc.plan.backlog-publish.ok draftId={DraftId} activeId={ActiveId} deletedActiveTasks={DeletedActiveTasks} movedDraftTasks={MovedDraftTasks} deletedRemainingDraftTasks={DeletedRemainingDraftTasks} replacementStartUtc={ReplacementStartUtc} replacementEndUtcExclusive={ReplacementEndUtcExclusive} nowUtc={NowUtc}",
+                "svc.plan.draft-apply.ok draftId={DraftId} activeId={ActiveId} deletedActiveTasks={DeletedActiveTasks} movedDraftTasks={MovedDraftTasks} deletedRemainingDraftTasks={DeletedRemainingDraftTasks} replacementStartUtc={ReplacementStartUtc} replacementEndUtcExclusive={ReplacementEndUtcExclusive} nowUtc={NowUtc}",
                 draft.Id,
                 targetActivePlan.Id,
                 deletedActiveTasks,

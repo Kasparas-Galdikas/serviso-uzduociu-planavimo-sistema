@@ -85,7 +85,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             Draft,
         }
 
-        private async Task<PlanEntity> ResolveCreateTargetPlanAsync(
+        private async Task<(PlanEntity? plan, TaskCreateResult? failure)> ResolveCreateTargetPlanAsync(
             CreateTaskTargetScope targetScope,
             DateTime taskDate,
             int timezoneOffsetMinutes,
@@ -94,21 +94,37 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             if (targetScope == CreateTaskTargetScope.Draft)
             {
                 var draftPlan = await _db.Plans
-                    .AsNoTracking()
                     .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
 
                 if (draftPlan == null)
                 {
-                    throw new InvalidOperationException("Juodrastinis planas nerastas.");
+                    _logger.LogWarning("svc.plan.create-task.target draft-missing taskDate={TaskDate}", taskDate);
+                    return (null, new TaskCreateResult(TaskCreateError.InvalidWindow, "Juodrastinis planas nerastas."));
                 }
 
                 if (taskDate < draftPlan.PeriodStart.Date || taskDate > draftPlan.PeriodEnd.Date)
                 {
-                    throw new InvalidOperationException("Uzduoties data nepatenka i juodrascio plano langa.");
+                    var nextStart = taskDate < draftPlan.PeriodStart.Date ? taskDate : draftPlan.PeriodStart.Date;
+                    var nextEnd = taskDate > draftPlan.PeriodEnd.Date ? taskDate : draftPlan.PeriodEnd.Date;
+                    var totalDays = (nextEnd - nextStart).Days + 1;
+
+                    draftPlan.PeriodStart = nextStart;
+                    draftPlan.PeriodEnd = nextEnd;
+                    draftPlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
+
+                    _db.Plans.Update(draftPlan);
+                    await _db.SaveChangesAsync(cancellationToken);
+
+                    _logger.LogInformation(
+                        "svc.plan.create-task.target draft-window-expanded taskDate={TaskDate} planId={PlanId} planStart={PlanStart} planEnd={PlanEnd}",
+                        taskDate,
+                        draftPlan.Id,
+                        draftPlan.PeriodStart,
+                        draftPlan.PeriodEnd);
                 }
 
                 _logger.LogInformation("svc.plan.create-task.target plan=Draft planId={PlanId}", draftPlan.Id);
-                return draftPlan;
+                return (draftPlan, null);
             }
 
             var activePlan = await _db.Plans
@@ -118,13 +134,13 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             if (activePlan != null && taskDate >= activePlan.PeriodStart.Date && taskDate <= activePlan.PeriodEnd.Date)
             {
                 _logger.LogInformation("svc.plan.create-task.target plan=Active planId={PlanId}", activePlan.Id);
-                return activePlan;
+                return (activePlan, null);
             }
 
             var userLocalToday = _timeService.GetUserLocalToday(timezoneOffsetMinutes);
             var resolvedActivePlan = await _planLifecycle.GetOrExtendActivePlanAsync(activePlan, taskDate, userLocalToday, cancellationToken);
             _logger.LogInformation("svc.plan.create-task.target plan=Extended/New planId={PlanId}", resolvedActivePlan.Id);
-            return resolvedActivePlan;
+            return (resolvedActivePlan, null);
         }
 
         private async Task<TaskCreateResult> CreateTaskInternalAsync(
@@ -146,7 +162,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             CancellationToken cancellationToken = default)
         {
             var taskDate = targetDate.Date;
-            var targetPlan = await ResolveCreateTargetPlanAsync(targetScope, taskDate, timezoneOffsetMinutes, cancellationToken);
+            var (targetPlan, targetPlanFailure) = await ResolveCreateTargetPlanAsync(targetScope, taskDate, timezoneOffsetMinutes, cancellationToken);
+            if (targetPlan == null)
+            {
+                return targetPlanFailure ?? new TaskCreateResult(TaskCreateError.InvalidWindow, "Nepavyko nustatyti tikslinio plano.");
+            }
 
         
             var normalizedTitle = string.IsNullOrWhiteSpace(title) ? "Nauja uzduotis" : title.Trim();
@@ -497,7 +517,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             IReadOnlyList<CreateTaskRequestDto> items,
             UserContext user,
             BulkCreateContext context,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string? planScope = null)
         {
             var outcome = new BulkValidationOutcome();
             var reservedSlots = new List<(long TechId, DateTime StartUtc, DateTime EndUtc)>();
@@ -554,17 +575,28 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 var targetDate = parsedDate.Date;
                 context.ParsedDates[i] = targetDate;
 
-                PlanEntity? targetPlan = null;
-                if (context.DraftPlan != null && targetDate >= context.DraftPlan.PeriodStart.Date && targetDate <= context.DraftPlan.PeriodEnd.Date)
+                PlanEntity? targetPlan;
+                if ("draft".Equals(planScope, StringComparison.OrdinalIgnoreCase))
+                {
                     targetPlan = context.DraftPlan;
-                else if (context.ActivePlan != null && targetDate >= context.ActivePlan.PeriodStart.Date && targetDate <= context.ActivePlan.PeriodEnd.Date)
-                    targetPlan = context.ActivePlan;
+                }
                 else
-                    targetPlan = context.SupersededPlans.FirstOrDefault(p => targetDate >= p.PeriodStart.Date && targetDate <= p.PeriodEnd.Date);
+                {
+                    targetPlan = null;
+                    if (context.DraftPlan != null && targetDate >= context.DraftPlan.PeriodStart.Date && targetDate <= context.DraftPlan.PeriodEnd.Date)
+                        targetPlan = context.DraftPlan;
+                    else if (context.ActivePlan != null && targetDate >= context.ActivePlan.PeriodStart.Date && targetDate <= context.ActivePlan.PeriodEnd.Date)
+                        targetPlan = context.ActivePlan;
+                    else
+                        targetPlan = context.SupersededPlans.FirstOrDefault(p => targetDate >= p.PeriodStart.Date && targetDate <= p.PeriodEnd.Date);
+                }
                 context.TargetPlans[i] = targetPlan;
 
+                var ignoreIds = dto.IgnoreTaskId.HasValue
+                    ? (IReadOnlyCollection<long>)new[] { dto.IgnoreTaskId.Value }
+                    : null;
                 var placement = await _placementValidator.ValidatePlacementForActionAsync(
-                    ignoreTaskIds: null,
+                    ignoreTaskIds: ignoreIds,
                     targetTechnicianId: dto.TechnicianId,
                     targetDate: targetDate,
                     startMinutes: dto.StartMinutes,
@@ -1013,18 +1045,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             IReadOnlyList<CreateTaskRequestDto> items,
             string? planMode,
             UserContext user,
+            string? planScope = null,
             CancellationToken cancellationToken = default)
         {
             var effectiveItems = await PrepareBulkItemsForModeAsync(items, planMode, cancellationToken);
 
             _logger.LogInformation(
-                "svc.plan.bulk.validate-request itemCount={ItemCount} userId={UserId} planMode={PlanMode}",
+                "svc.plan.bulk.validate-request itemCount={ItemCount} userId={UserId} planMode={PlanMode} planScope={PlanScope}",
                 effectiveItems.Count,
                 user.UserId,
-                planMode ?? "rankinis");
+                planMode ?? "rankinis",
+                planScope ?? "active");
 
             var context = await LoadBulkCreateContextAsync(effectiveItems, cancellationToken);
-            var validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken);
+            var validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken, planScope);
             return new BulkCreateTaskResponseDto
             {
                 AllSucceeded = !validationOutcome.HasErrors,

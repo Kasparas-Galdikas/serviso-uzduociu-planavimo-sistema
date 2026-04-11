@@ -365,8 +365,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public Task PublishDraftAsync(CancellationToken cancellationToken = default)
             => _planLifecycle.PublishDraftAsync(cancellationToken);
 
-        public Task PublishBacklogDraftAsync(CancellationToken cancellationToken = default)
-            => _planLifecycle.PublishBacklogDraftAsync(cancellationToken);
+        public Task ApplyDraftToActiveAsync(CancellationToken cancellationToken = default)
+            => _planLifecycle.ApplyDraftToActiveAsync(cancellationToken);
 
         public Task DiscardDraftAsync(CancellationToken cancellationToken = default)
             => _planLifecycle.DiscardDraftAsync(cancellationToken);
@@ -470,8 +470,9 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             IReadOnlyList<CreateTaskRequestDto> items,
             string? planMode,
             UserContext user,
+            string? planScope = null,
             CancellationToken cancellationToken = default)
-            => _taskCreation.BulkValidateTasksAsync(items, planMode, user, cancellationToken);
+            => _taskCreation.BulkValidateTasksAsync(items, planMode, user, planScope, cancellationToken);
 
         public Task<BulkSchedulePreviewResponseDto> PreviewBulkScheduleAsync(
             IReadOnlyList<CreateTaskRequestDto> items,

@@ -111,6 +111,61 @@ public class PlanServiceAuthorizationTests
     }
 
     [Fact]
+    public async Task CreateDraftTask_OutsideDraftWindow_ExtendsDraftPlanAndCreatesTask()
+    {
+        using var db = CreateContext();
+        db.Plans.Add(new PlanEntity
+        {
+            Id = 24,
+            PeriodStart = new DateTime(2026, 4, 12),
+            PeriodEnd = new DateTime(2026, 4, 18),
+            Weeks = 1,
+            Status = PlanStatus.Draft,
+            CreatedAt = DateTime.UtcNow
+        });
+        db.Technicians.Add(new TechnicianEntity
+        {
+            Id = 1,
+            UserId = 1,
+            WorkplaceAddressId = 1
+        });
+        db.Addresses.Add(new AddressEntity
+        {
+            Id = 1,
+            City = "City",
+            Street = "Main",
+            FullAddress = "Main 1, City",
+            CreatedAt = DateTime.UtcNow
+        });
+        db.SaveChanges();
+
+        var service = CreateService(db);
+        var result = await service.CreateDraftTaskAsync(
+            technicianId: 1,
+            targetDate: new DateTime(2026, 4, 11),
+            startMinutes: 17 * 60 + 30,
+            endMinutes: 18 * 60,
+            title: "draft-outside-window",
+            priority: TaskPriority.Medium,
+            status: ScheduleTaskStatus.InProgress,
+            skillLevel: "Basic",
+            objectName: "Obj",
+            objectAddress: "Main 1, City",
+            instructions: string.Empty,
+            user: Manager(),
+            timezoneOffsetMinutes: 0,
+            cancellationToken: CancellationToken.None);
+
+        result.Ok.Should().BeTrue();
+        result.Task.Should().NotBeNull();
+        result.Task!.PlanId.Should().Be(24);
+
+        var updatedDraft = await db.Plans.SingleAsync(p => p.Id == 24);
+        updatedDraft.PeriodStart.Date.Should().Be(new DateTime(2026, 4, 11));
+        updatedDraft.PeriodEnd.Date.Should().Be(new DateTime(2026, 4, 18));
+    }
+
+    [Fact]
     public async Task MoveTask_PermissionDenied_ReturnsNotEditable()
     {
         using var db = CreateContext();

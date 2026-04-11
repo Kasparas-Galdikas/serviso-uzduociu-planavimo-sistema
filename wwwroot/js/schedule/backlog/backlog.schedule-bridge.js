@@ -13,8 +13,8 @@
     const panel = state.getPanelEl();
     if (!panel) return;
     state._activeTypeTab = state.ITEM_TYPE.Permanent;
-    document.getElementById("backlogTypeTabPerm")?.classList.add("active");
-    document.getElementById("backlogTypeTabTemp")?.classList.remove("active");
+    backlog.list.resetPriorityFilter?.();
+    backlog.list.syncTypeTabButtons?.();
     backlog.form.cancelEdit();
     const set = (id, val) => { const el = panel.querySelector(id); if (el) el.value = val; };
     set("#taskDetailTitle", "");
@@ -78,10 +78,25 @@
     });
   };
 
-  backlog.scheduleBridge.ensureBacklogDraftSandbox = async () => {
-    const resp = await fetch("/api/plans/backlog-draft/ensure", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+  backlog.scheduleBridge.ensureBacklogDraftSandbox = async (request = {}) => {
+    const payload = {
+      startDate: request?.startDate || null,
+      endDate: request?.endDate || null,
+      weeks: Number.isFinite(Number(request?.weeks)) ? Number(request.weeks) : null,
+    };
+    const resp = await fetch("/api/plans/backlog-draft/ensure", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data?.message || "Nepavyko paruosti juodrascio aplinkos.");
+    state.setBulkDraftContext({
+      draftPlanId: data?.draftPlanId ?? null,
+      periodStart: data?.periodStart ?? "",
+      periodEnd: data?.periodEnd ?? "",
+    });
     return data;
   };
   backlog.scheduleBridge.setBacklogDraftScheduleView = async (enabled) => {
@@ -123,6 +138,27 @@
     document.getElementById("backlogSaveBtn")?.addEventListener("click", backlog.form.handleSave);
     document.getElementById("backlogBulkSchedule")?.addEventListener("click", () => backlog.bulkFlow.handleBulkSchedule());
     document.getElementById("backlogBulkDelete")?.addEventListener("click", () => backlog.list.handleBulkDelete());
+    document.getElementById("backlogTypeTabTemp")?.addEventListener("click", () => {
+      if (state._activeTypeTab === state.ITEM_TYPE.Temporary) return;
+      backlog.list.exitSelectionMode();
+      backlog.list.loadTypeTab(state.ITEM_TYPE.Temporary);
+    });
+    document.getElementById("backlogTypeTabPerm")?.addEventListener("click", () => {
+      if (state._activeTypeTab === state.ITEM_TYPE.Permanent) return;
+      backlog.list.exitSelectionMode();
+      backlog.list.loadTypeTab(state.ITEM_TYPE.Permanent);
+    });
+    document.getElementById("backlogPriorityFilter")?.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-backlog-priority]");
+      if (!btn) return;
+      const value = btn.dataset.backlogPriority ?? "";
+      state._priority = value === "" ? null : Number(value);
+      document.querySelectorAll("#backlogPriorityFilter [data-backlog-priority]").forEach((b) => {
+        b.classList.toggle("active", b === btn);
+      });
+      backlog.list.exitSelectionMode();
+      await backlog.list.openBacklogList();
+    });
     document.getElementById("taskBulkNext")?.addEventListener("click", () => backlog.bulkFlow.onBulkNext());
     document.getElementById("taskBulkBack")?.addEventListener("click", () => backlog.bulkFlow.onBulkBack());
     document.getElementById("backlogSelectToggle")?.addEventListener("click", () => { backlog.list.enterSelectionMode(); backlog.list.renderList(); });
