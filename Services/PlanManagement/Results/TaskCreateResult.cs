@@ -7,6 +7,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         None,
         NotEditable,
         InvalidWindow,
+        DraftWindowMismatch,
         Overlap,
         TechnicianNotFound,
         TravelInfeasible

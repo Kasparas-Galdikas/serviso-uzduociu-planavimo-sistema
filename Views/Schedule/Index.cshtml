@@ -65,6 +65,9 @@
      data-day-end-minutes="@ScheduleGrid.DayEndMinutes"
      data-slot-size-minutes="@ScheduleGrid.SlotSizeMinutes"
      data-earliest-start-minutes="@Model.EarliestStartMinutes"
+     data-earliest-creatable-date="@Model.EarliestCreatableTargetDate.ToString("yyyy-MM-dd")"
+     data-earliest-creatable-start-minutes="@Model.EarliestCreatableStartMinutes"
+     data-earliest-creatable-end-minutes="@Model.EarliestCreatableEndMinutes"
      data-active-end="@(activeEnd.ToString("yyyy-MM-dd"))"
      data-first-free="@(firstFree.ToString("yyyy-MM-dd"))">
     @if (isWeekly)
@@ -131,6 +134,10 @@
         <script src="~/js/schedule/debug/schedule.debug.js" asp-append-version="true"></script>
     }
     <script src="~/js/schedule/infra/schedule.pagination.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/backlog/backlog.shared-state.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/backlog/backlog.library.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/backlog/backlog.planning-session.js" asp-append-version="true"></script>
+    <script src="~/js/schedule/backlog/backlog.schedule-bridge.js" asp-append-version="true"></script>
     <script src="~/js/schedule/backlog/schedule.backlog.js" asp-append-version="true"></script>
     <script src="~/js/schedule/tasks-panel/schedule.tasks-panel.js" asp-append-version="true"></script>
     <script src="~/js/schedule/unavailability/schedule.unavailability.js" asp-append-version="true"></script>

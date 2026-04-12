@@ -69,4 +69,17 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             return Task.FromResult(new MatrixResult(durations, distances));
         }
     }
+
+    public sealed class E2ETestSnapApiClient : ISnapApiClient
+    {
+        public Task<IReadOnlyList<GeoPoint?>> SnapAsync(
+            IReadOnlyList<GeoPoint> coordinates,
+            int radiusMeters = 500,
+            CancellationToken cancellationToken = default)
+        {
+            // Identity — no real road graph in E2E tests, return input coords unchanged
+            IReadOnlyList<GeoPoint?> result = coordinates.Select(c => (GeoPoint?)c).ToList();
+            return Task.FromResult(result);
+        }
+    }
 }

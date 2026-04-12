@@ -47,6 +47,114 @@
     barPointerEventsBeforeResize: null,
   };
 
+  const getLogicalColSpan = (td) => {
+    const original = parseInt(td?.dataset?.selectionOriginColspan || "", 10);
+    if (Number.isFinite(original) && original > 0) return original;
+    return getColSpan(td);
+  };
+
+  const clearSelectionPlacement = () => {
+    document.querySelectorAll("td[data-selection-origin-colspan]").forEach((td) => {
+      const originalColspan = td.dataset.selectionOriginColspan;
+      if (originalColspan) td.setAttribute("colspan", originalColspan);
+      else td.removeAttribute("colspan");
+      td.removeAttribute("data-selection-origin-colspan");
+      td.removeAttribute("data-selection-token");
+      td.querySelectorAll(".slot-selection-bar.selection-inline").forEach((el) => el.remove());
+      td.querySelectorAll(".schedule-slot[data-selection-slot-hidden='1']").forEach((slot) => {
+        slot.style.display = "";
+        slot.removeAttribute("data-selection-slot-hidden");
+      });
+    });
+
+    document.querySelectorAll("td[data-selection-hidden-by]").forEach((td) => {
+      td.style.display = "";
+      td.removeAttribute("data-selection-hidden-by");
+    });
+  };
+
+  const getSelectionRangeTds = (startTd, slots) => {
+    if (!startTd || !slots || slots <= 0) return [];
+    let remaining = slots;
+    let td = startTd;
+    const touched = [];
+
+    while (td && remaining > 0) {
+      touched.push(td);
+      remaining -= getLogicalColSpan(td);
+      td = td.nextElementSibling;
+    }
+
+    return remaining <= 0 ? touched : [];
+  };
+
+  const getSelectionLastTdInRange = (startTd, slots) => {
+    const cells = getSelectionRangeTds(startTd, slots);
+    return cells.length ? cells[cells.length - 1] : null;
+  };
+
+  const setSelectionColumnMinWidth = (td, minWidthPx) => {
+    if (!td || !Number.isFinite(minWidthPx) || minWidthPx <= 0) return;
+    const tdIndex = getTdIndexInRow(td);
+    if (tdIndex == null) return;
+
+    if (!td.dataset.selectionOriginMinWidth) {
+      td.dataset.selectionOriginMinWidth = td.style.minWidth || "";
+    }
+    td.style.minWidth = `${minWidthPx}px`;
+
+    document.querySelectorAll(".schedule-table thead tr").forEach((row) => {
+      const th = row.children?.[tdIndex + 1];
+      if (!th?.classList?.contains?.("time-header")) return;
+      if (!th.dataset.selectionOriginMinWidth) {
+        th.dataset.selectionOriginMinWidth = th.style.minWidth || "";
+      }
+      th.style.minWidth = `${minWidthPx}px`;
+    });
+  };
+
+  const clearSelectionColumnMinWidths = () => {
+    document.querySelectorAll("td[data-selection-origin-min-width]").forEach((td) => {
+      td.style.minWidth = td.dataset.selectionOriginMinWidth || "";
+      td.removeAttribute("data-selection-origin-min-width");
+    });
+    document.querySelectorAll(".schedule-table .time-header[data-selection-origin-min-width]").forEach((th) => {
+      th.style.minWidth = th.dataset.selectionOriginMinWidth || "";
+      th.removeAttribute("data-selection-origin-min-width");
+    });
+  };
+
+  const placeSelectionBarInCells = (cells, overlay) => {
+    if (!Array.isArray(cells) || !cells.length || !overlay) return false;
+    const startTd = cells[0];
+    if (!startTd || startTd.dataset.selectionToken) return false;
+    if (cells.some((td, idx) => idx > 0 && td.dataset.selectionHiddenBy)) return false;
+
+    const totalColspan = cells.reduce((sum, td) => sum + getLogicalColSpan(td), 0);
+    startTd.dataset.selectionOriginColspan = String(getLogicalColSpan(startTd));
+    startTd.dataset.selectionToken = "active";
+    startTd.setAttribute("colspan", String(Math.max(1, totalColspan)));
+
+    const startSlot = startTd.querySelector(".schedule-slot");
+    if (startSlot) {
+      startSlot.style.display = "none";
+      startSlot.setAttribute("data-selection-slot-hidden", "1");
+    }
+
+    for (let i = 1; i < cells.length; i++) {
+      cells[i].dataset.selectionHiddenBy = "active";
+      cells[i].style.display = "none";
+    }
+
+    overlay.classList.add("selection-inline");
+    overlay.style.left = "";
+    overlay.style.top = "";
+    overlay.style.width = "";
+    overlay.style.height = "";
+    startTd.appendChild(overlay);
+    return true;
+  };
+
   const clearChooser = () => {
     selection.chooserEl?.remove?.();
     selection.chooserEl = null;
@@ -54,6 +162,8 @@
 
   const clearSelection = (reason) => {
     clearChooser();
+    clearSelectionPlacement();
+    clearSelectionColumnMinWidths();
     slotOverlay.destroy(selection.barEl, () => {
       selection.barEl = null;
       selection.barContainerEl = null;
@@ -94,6 +204,68 @@
     if (endInput) endInput.value = `${date}T${endTime}`;
   };
 
+  const applySelectionToTaskPanel = () => {
+    const modal = document.getElementById("taskDetailModal");
+    if (!modal?.classList?.contains("show")) return false;
+
+    const { startMinutes, endMinutes, date, techId } = selection;
+    if (startMinutes == null || endMinutes == null || !date) return false;
+
+    const startTime = grid.minutesToTime(startMinutes);
+    const endTime = grid.minutesToTime(endMinutes);
+    const startInput = modal.querySelector("#taskDetailStart");
+    const endInput = modal.querySelector("#taskDetailEnd");
+    const assigneeEl = modal.querySelector("#taskDetailAssignee");
+
+    if (startInput) {
+      startInput.value = `${date}T${startTime}`;
+      startInput.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    if (endInput) {
+      endInput.value = `${date}T${endTime}`;
+      endInput.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    if (assigneeEl && techId) {
+      if (window.jQuery && window.jQuery.fn.select2) {
+        window.jQuery(assigneeEl).val(String(techId)).trigger("change");
+      } else {
+        assigneeEl.value = String(techId);
+        assigneeEl.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
+
+    modal.dataset.targetDate = date;
+    modal.dataset.startMinutes = String(startMinutes);
+    modal.dataset.endMinutes = String(endMinutes);
+    return true;
+  };
+
+  const getActiveTaskId = () => {
+    const modal = document.getElementById("taskDetailModal");
+    const modalTaskId = modal?.dataset?.taskId || "";
+    if (modalTaskId) return modalTaskId;
+    return document.querySelector(".task-card.is-active")?.getAttribute("data-task-id") || "";
+  };
+
+  const isReusableDraftPlanningPanel = () => {
+    if (!state?.isDraftMode?.()) return false;
+    const modal = document.getElementById("taskDetailModal");
+    if (!modal?.classList?.contains("show")) return false;
+    const variant = modal.dataset.panelVariant || "";
+    if (variant === "history" || variant === "tasks-panel" || variant === "technician") return false;
+    return !!(modal.dataset.taskId || modal.dataset.mode === "create" || window.schedule?.backlog?.getSchedulingBacklogId?.());
+  };
+
+  const getActiveDraftTask = async () => {
+    if (!state?.isDraftMode?.()) return null;
+    const taskId = getActiveTaskId();
+    if (!taskId) return null;
+    const taskData = await taskApi?.fetchTask?.(taskId).catch(() => null);
+    if (!taskData?.id) return null;
+    if (String(taskData.planStatus || "").toLowerCase() !== "draft") return null;
+    return taskData;
+  };
+
   // Called once when user finalizes a selection (click on hit area with panel already open).
   // Updates assignee from drawn slot and triggers route evaluation.
   const finalizeSelectionToPanel = () => {
@@ -114,6 +286,8 @@
 
   const applySelectionRange = (startTd, durationSlots) => {
     const { slotSizeMinutes } = grid.getConfig();
+    clearSelectionPlacement();
+    clearSelectionColumnMinWidths();
 
     if (!startTd || !durationSlots || durationSlots <= 0) return false;
     if (!isEmptySlotCell(startTd)) return false;
@@ -124,7 +298,7 @@
     let ok = true;
 
     while (td && remaining > 0) {
-      const span = getColSpan(td);
+      const span = getLogicalColSpan(td);
       const allowed = isEmptySlotCell(td);
       if (!allowed) ok = false;
       touched.push(td);
@@ -173,7 +347,7 @@
     let remaining = candidateDurationSlots;
     let td = candidateStartTd;
     while (td && remaining > 0) {
-      const span = getColSpan(td);
+      const span = getLogicalColSpan(td);
       if (!isEmptySlotCell(td)) return false;
       remaining -= span;
       td = td.nextElementSibling;
@@ -204,7 +378,7 @@
       nextEnd <= dayEndMinutes &&
       canApplyRange(selection.startTd, (selection.durationSlots || 1) + 1) &&
       (() => {
-        const lastTouchedTd = getLastTdInRange(selection.startTd, selection.durationSlots || 1);
+        const lastTouchedTd = getSelectionLastTdInRange(selection.startTd, selection.durationSlots || 1);
         const nextTd = lastTouchedTd?.nextElementSibling;
         const s = nextTd?.querySelector?.(".schedule-slot");
         const d = s && readSlotData(s);
@@ -240,17 +414,31 @@
     if (!selection.barEl || !selection.barContainerEl) return;
 
     const startTd = selection.startTd;
-    const endTd = getLastTdInRange(startTd, selection.durationSlots || 1) || startTd;
+    clearSelectionColumnMinWidths();
+    if ((selection.durationSlots || 1) === 1) {
+      setSelectionColumnMinWidth(startTd, 110);
+      // Force layout after the column/header min-width change so overlay sizing
+      // uses the expanded slot width instead of the previous narrow width.
+      void startTd.offsetWidth;
+    }
 
-    // Use shared slotOverlay.positionFromTds (stable load order)
-    slotOverlay.positionFromTds(selection.barEl, selection.barContainerEl, startTd, endTd);
-
-    // Update range label via slotOverlay (stable load order)
     slotOverlay.updateRangeLabel(selection.barEl, selection.startMinutes ?? 0, selection.endMinutes ?? 0);
+
+    const selectedCells = getSelectionRangeTds(startTd, selection.durationSlots || 1);
+    if (!selectedCells.length) return;
+
+    clearSelectionPlacement();
+    if (!selection.barEl.isConnected && selection.barContainerEl) {
+      selection.barEl.classList.remove("selection-inline");
+      selection.barContainerEl.appendChild(selection.barEl);
+    }
+    const endTd = getSelectionLastTdInRange(startTd, selection.durationSlots || 1) || startTd;
+    slotOverlay.positionFromTds(selection.barEl, selection.barContainerEl, startTd, endTd);
   };
 
   const stepExtend = (dir) => {
     if (!selection.active || !selection.startTd) return;
+    clearSelectionPlacement();
     const startTd = selection.startTd;
     const nextDuration = (selection.durationSlots || 1) + 1;
 
@@ -276,8 +464,9 @@
     if (!selection.active || !selection.startTd) return;
     if (!dir) return;
 
+    clearSelectionPlacement();
     const startTd = selection.startTd;
-    const endTd = getLastTdInRange(startTd, selection.durationSlots || 1) || startTd;
+    const endTd = getSelectionLastTdInRange(startTd, selection.durationSlots || 1) || startTd;
     const startIdx = getTdIndexInRow(startTd);
     const endIdx = getTdIndexInRow(endTd);
     if (startIdx == null || endIdx == null) return;
@@ -345,6 +534,7 @@
       selection.barPointerEventsBeforeResize = null;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      renderBar();
       syncHandleDisabled();
       logEvent("ui.slot.selection.resize.end", { dir });
     };
@@ -396,15 +586,39 @@
   const canCreateInCurrentContext = () => {
     const isManager = (tables.dataset.isManager || "false") === "true";
     const status = (tables.dataset.planStatus || "").toLowerCase();
-    return isManager && status === "draft";
+    return isManager && (status === "draft" || status === "active");
   };
 
   const createTaskInSelection = async () => {
     if (!selection.active) return;
-    if (!canCreateInCurrentContext()) {
-      alert("Uzduotis galima kurti tik juodrascio plane.");
+    if (!canCreateInCurrentContext()) return;
+
+    if (isReusableDraftPlanningPanel()) {
+      applySelectionToTaskPanel();
+      logEvent("ui.task.draft-plan.panel.reused", {
+        taskId: getActiveTaskId() || null,
+        techId: selection.techId,
+        date: selection.date,
+      });
       return;
     }
+
+    const activeDraftTask = await getActiveDraftTask();
+    if (activeDraftTask?.id) {
+      await schedule.tasks?.openTaskPanel?.({ taskId: activeDraftTask.id });
+      applySelectionToTaskPanel();
+      logEvent("ui.task.draft-plan.task.reused", {
+        taskId: activeDraftTask.id,
+        techId: selection.techId,
+        date: selection.date,
+      });
+      return;
+    }
+
+    const backlogTaskId = window.schedule?.backlog?.getSchedulingBacklogId?.();
+    const backlogItem = backlogTaskId
+      ? window.schedule?.backlog?.api?.getItemById?.(backlogTaskId)
+      : null;
 
     await schedule.tasks?.openTaskPanel?.({
       technicianId: selection.techId,
@@ -413,14 +627,19 @@
       endMinutes: selection.endMinutes,
     });
 
+    if (state?.isDraftMode?.() && backlogItem) {
+      await window.schedule?.backlog?.form?.applyPrefill?.(backlogItem);
+    }
+
     logEvent("ui.task.create.form.open", { techId: selection.techId, date: selection.date });
   };
 
   // Export the createTask function so tasks.js can call the API
   const submitCreateTask = async (formData) => {
+    const createFn = state?.isDraftMode?.() ? taskApi?.createDraftTask : taskApi?.createTask;
     // Use task.api module if available
-    if (taskApi?.createTask) {
-      const result = await taskApi.createTask({
+    if (createFn) {
+      const result = await createFn({
         technicianId: formData.technicianId,
         targetDate: formData.targetDate,
         startMinutes: formData.startMinutes,
@@ -454,6 +673,7 @@
 
     // Fallback: direct fetch
     const timezoneOffset = -new Date().getTimezoneOffset();
+    const createUrl = state?.isDraftMode?.() ? "/api/tasks/draft" : "/api/tasks";
 
     const body = JSON.stringify({
       technicianId: formData.technicianId,
@@ -474,11 +694,11 @@
     try {
       const resp =
         (await logger?.fetchWithTrace?.(
-          "/api/tasks",
+          createUrl,
           { method: "POST", headers: { "Content-Type": "application/json" }, body },
           { event: "ui.task.create", techId: formData.technicianId, date: formData.targetDate },
         )) ||
-        (await fetch("/api/tasks", {
+        (await fetch(createUrl, {
           method: "POST",
           headers: { "X-Requested-With": "XMLHttpRequest", "Content-Type": "application/json" },
           body,
@@ -660,12 +880,7 @@
     if (modal?.classList?.contains("show") && modal.dataset.panelMode === "technician") {
       return;
     }
-    schedule.tasks?.openTaskPanel?.({
-      technicianId: selection.techId,
-      targetDate: selection.date,
-      startMinutes: selection.startMinutes,
-      endMinutes: selection.endMinutes,
-    });
+    void createTaskInSelection();
     return;
   }
 

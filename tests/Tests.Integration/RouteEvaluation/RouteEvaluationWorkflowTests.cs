@@ -302,8 +302,10 @@ public sealed class RouteEvaluationWorkflowTests
             {
                 services.RemoveAll<ILocationApiClient>();
                 services.RemoveAll<IDistanceApiClient>();
+                services.RemoveAll<ISnapApiClient>();
                 services.AddSingleton<ILocationApiClient>(location);
                 services.AddSingleton<IDistanceApiClient>(distance);
+                services.AddSingleton<ISnapApiClient, E2ETestSnapApiClient>();
             },
             configOverrides: new Dictionary<string, string?>
             {
@@ -567,5 +569,4 @@ public sealed class RouteEvaluationWorkflowTests
         public void Reset() => Interlocked.Exchange(ref _callCount, 0);
     }
 }
-
 

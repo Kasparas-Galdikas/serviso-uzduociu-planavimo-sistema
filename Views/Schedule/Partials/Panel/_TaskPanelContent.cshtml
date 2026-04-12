@@ -1,15 +1,15 @@
 @using ServiceTaskPlanningSystem.Data
 <!-- Task Content Container -->
-<div id="taskPanelContent">
+<div id="taskPanelContent" data-panel-view="task-form">
 
 <!-- Bulk scheduling progress indicator — visible only during bulk queue -->
-<div id="taskBulkProgress" class="task-bulk-progress d-none">
+<div id="taskBulkProgress" class="task-bulk-progress d-none" data-panel-region="bulk-progress">
     <span id="taskBulkProgressStep" class="task-bulk-progress__step"></span>
     <span id="taskBulkProgressTitle" class="task-bulk-progress__title text-muted"></span>
 </div>
 
 <!-- PLANAVIMAS -->
-<section class="mb-4 task-section">
+<section class="mb-4 task-section" data-panel-section="planning">
     <div class="task-section-header" role="button" tabindex="0"
          data-bs-toggle="collapse"
          data-bs-target="#taskSecPlanning"
@@ -37,13 +37,13 @@
                 <input type="text" class="form-control" id="taskDetailTitle">
             </div>
 
-            <div class="col-md-6" id="taskFieldAssignee">
+            <div class="col-md-6" id="taskFieldAssignee" data-panel-field="assignee">
                 <label class="form-label small">Priskirtas darbuotojas</label>
                 <select class="form-select" id="taskDetailAssignee"
                         data-select2-dropdown="technician"></select>
             </div>
 
-            <div class="col-md-6 d-none" id="backlogTypeField">
+            <div class="col-md-6 d-none" id="backlogTypeField" data-panel-field="backlog-type">
                 <label class="form-label small">Šablono tipas</label>
                 <select class="form-select" id="backlogItemType">
                     <option value="" disabled selected>– Pasirinkite tipą –</option>
@@ -52,22 +52,22 @@
                 </select>
             </div>
 
-            <div class="col-md-6 d-none" id="backlogDueDateField">
+            <div class="col-md-6 d-none" id="backlogDueDateField" data-panel-field="backlog-due-date">
                 <label class="form-label small">Terminas <span class="text-muted">(nebūtinas)</span></label>
                 <input type="date" class="form-control" id="backlogDueDate">
             </div>
 
-            <div class="col-md-6" id="taskFieldStart">
+            <div class="col-md-6" id="taskFieldStart" data-panel-field="start">
                 <label class="form-label small">Pradžia</label>
                 <input type="datetime-local" class="form-control" id="taskDetailStart">
             </div>
 
-            <div class="col-md-6" id="taskFieldEnd">
+            <div class="col-md-6" id="taskFieldEnd" data-panel-field="end">
                 <label class="form-label small">Pabaiga</label>
                 <input type="datetime-local" class="form-control" id="taskDetailEnd">
             </div>
 
-            <div class="col-12 d-none" id="planModeField">
+            <div class="col-12 d-none" id="planModeField" data-panel-field="plan-mode">
                 <label class="form-label small">Planavimo režimas</label>
                 <div class="btn-group w-100" role="group" aria-label="Planavimo režimas">
                     <input type="radio" class="btn-check" name="taskPlanModeRadio" id="taskPlanModeRankinis" value="rankinis" autocomplete="off">
@@ -84,7 +84,7 @@
 </section>
 
 <!-- UŽDUOTIES PARAMETRAI -->
-<section class="mb-4 task-section">
+<section class="mb-4 task-section" data-panel-section="parameters">
     <div class="task-section-header" role="button" tabindex="0"
          data-bs-toggle="collapse"
          data-bs-target="#taskSecParams"
@@ -131,7 +131,7 @@
 </section>
 
 <!-- SAUGOMAS OBJEKTAS -->
-<section class="mb-4 task-section" id="taskSectionAsset">
+<section class="mb-4 task-section" id="taskSectionAsset" data-panel-section="asset">
     <div class="task-section-header" role="button" tabindex="0"
          data-bs-toggle="collapse"
          data-bs-target="#taskSecAsset">
@@ -168,7 +168,7 @@
 </section>
 
 <!-- INSTRUKCIJOS IR SAUGA -->
-<section class="mb-4 task-section" id="managerSection">
+<section class="mb-4 task-section" id="managerSection" data-panel-section="manager">
     <div class="task-section-header" role="button" tabindex="0"
          data-bs-toggle="collapse"
          data-bs-target="#taskSecSafety">
@@ -199,7 +199,7 @@
 </section>
 
 <!-- DARBUOTOJO PASTABOS -->
-<section class="mb-4 task-section" id="technicianSection">
+<section class="mb-4 task-section" id="technicianSection" data-panel-section="technician">
     <div class="task-section-header" role="button" tabindex="0"
          data-bs-toggle="collapse"
          data-bs-target="#taskSecTechnician">

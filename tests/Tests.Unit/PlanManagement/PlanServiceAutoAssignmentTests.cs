@@ -66,6 +66,7 @@ public sealed class PlanServiceAutoAssignmentTests
         var suggestion = await service.SuggestAutoAssignmentAsync(
             DateTime.UtcNow.Date.AddDays(1),
             60,
+            serviceObject.Id,
             "Obj-1",
             TaskPriority.Medium,
             0,
@@ -92,6 +93,7 @@ public sealed class PlanServiceAutoAssignmentTests
         var suggestion = await service.SuggestAutoAssignmentAsync(
             DateTime.UtcNow.Date.AddDays(1),
             60,
+            null,
             "Missing",
             TaskPriority.Medium,
             0,
@@ -162,6 +164,7 @@ public sealed class PlanServiceAutoAssignmentTests
         var firstSuggestion = await service.SuggestAutoAssignmentAsync(
             day,
             60,
+            serviceObject.Id,
             serviceObject.Name,
             TaskPriority.Medium,
             0,
@@ -177,6 +180,7 @@ public sealed class PlanServiceAutoAssignmentTests
         var secondSuggestion = await service.SuggestAutoAssignmentAsync(
             day,
             60,
+            serviceObject.Id,
             serviceObject.Name,
             TaskPriority.Medium,
             0,
@@ -219,6 +223,7 @@ public sealed class PlanServiceAutoAssignmentTests
         var suggestion = await service.SuggestAutoAssignmentAsync(
             day,
             60,
+            serviceObject.Id,
             serviceObject.Name,
             TaskPriority.Medium,
             0,
@@ -246,6 +251,7 @@ public sealed class PlanServiceAutoAssignmentTests
         await service.SuggestAutoAssignmentAsync(
             day,
             60,
+            10,
             "Obj-1",
             TaskPriority.Medium,
             0,
@@ -378,6 +384,7 @@ public sealed class PlanServiceAutoAssignmentTests
         var suggestion = await service.SuggestAutoAssignmentAsync(
             today,
             60,
+            serviceObject.Id,
             serviceObject.Name,
             TaskPriority.Medium,
             0,
@@ -422,6 +429,7 @@ public sealed class PlanServiceAutoAssignmentTests
         var suggestion = await service.SuggestAutoAssignmentAsync(
             day,
             60,
+            serviceObject.Id,
             serviceObject.Name,
             TaskPriority.Medium,
             0,
@@ -466,6 +474,7 @@ public sealed class PlanServiceAutoAssignmentTests
         var suggestion = await service.SuggestAutoAssignmentAsync(
             day,
             60,
+            serviceObject.Id,
             serviceObject.Name,
             TaskPriority.Medium,
             0,
@@ -513,6 +522,7 @@ public sealed class PlanServiceAutoAssignmentTests
             items,
             "automatinis",
             new UserContext { UserId = 1, Role = UserRole.Manager },
+            null,
             CancellationToken.None);
 
         result.AllSucceeded.Should().BeFalse();

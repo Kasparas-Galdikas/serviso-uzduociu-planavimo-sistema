@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -8,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Services.PlanManagement;
+using ServiceTaskPlanningSystem.Services.Time;
 using ServiceTaskPlanningSystem.Services.Travel.RouteChains;
 
 namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
@@ -19,7 +22,9 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
         private readonly ILogger<RouteEvaluationService> _logger;
         private readonly ILocationApiClient _locationApiClient;
         private readonly IDistanceApiClient _distanceApiClient;
+        private readonly ISnapApiClient _snapApiClient;
         private readonly IRouteChainBuilder _routeChainBuilder;
+        private readonly IScheduleTimeService _timeService;
         private readonly string _heigitApiKey;
 
         public RouteEvaluationService(
@@ -29,14 +34,18 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             IConfiguration configuration,
             ILocationApiClient locationApiClient,
             IDistanceApiClient distanceApiClient,
-            IRouteChainBuilder routeChainBuilder)
+            ISnapApiClient snapApiClient,
+            IRouteChainBuilder routeChainBuilder,
+            IScheduleTimeService timeService)
         {
             _db = db;
             _evaluationEngine = evaluationEngine;
             _logger = logger;
             _locationApiClient = locationApiClient;
             _distanceApiClient = distanceApiClient;
+            _snapApiClient = snapApiClient;
             _routeChainBuilder = routeChainBuilder;
+            _timeService = timeService;
             _heigitApiKey = configuration["HEIGIT_API_KEY"] ?? string.Empty;
         }
 
@@ -92,6 +101,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 string.Join(" -> ", routeAddresses.Select(a => a.FullAddress)));
 
             await EnsureCoordinatesAsync(routeAddresses, cancellationToken);
+            await EnsureSnappedCoordinatesAsync(routeAddresses, cancellationToken);
             if (HasMissingCoordinates(routeAddresses))
             {
                 _logger.LogInformation("route.evaluation.task-impact.skipped taskId={TaskId} reason=missing-coordinates", taskId);
@@ -114,7 +124,9 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             }
 
             var points = routeAddresses
-                .Select(a => new GeoPoint(a.Latitude ?? 0m, a.Longitude ?? 0m))
+                .Select(a => new GeoPoint(
+                    a.SnappedLatitude  ?? a.Latitude  ?? 0m,
+                    a.SnappedLongitude ?? a.Longitude ?? 0m))
                 .ToList();
             var matrix = await _distanceApiClient.GetMatrixAsync(points, cancellationToken);
 
@@ -207,6 +219,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 var routeAddresses = await LoadAddressPathAsync(chain, cancellationToken);
 
                 await EnsureCoordinatesAsync(routeAddresses, cancellationToken);
+                await EnsureSnappedCoordinatesAsync(routeAddresses, cancellationToken);
                 if (HasMissingCoordinates(routeAddresses))
                 {
                     _logger.LogInformation(
@@ -224,7 +237,9 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 }
 
                 var points = routeAddresses
-                    .Select(a => new GeoPoint(a.Latitude ?? 0m, a.Longitude ?? 0m))
+                    .Select(a => new GeoPoint(
+                        a.SnappedLatitude  ?? a.Latitude  ?? 0m,
+                        a.SnappedLongitude ?? a.Longitude ?? 0m))
                     .ToList();
                 var matrix = await _distanceApiClient.GetMatrixAsync(points, cancellationToken);
                 await UpsertSequentialRoutesAsync(routeAddresses, matrix, missingPairs, cancellationToken);
@@ -318,6 +333,204 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             return false;
         }
 
+        private async Task EnsureSnappedCoordinatesAsync(IEnumerable<AddressEntity> addresses, CancellationToken cancellationToken)
+        {
+            var toSnap = addresses
+                .GroupBy(a => a.Id)
+                .Select(g => g.First())
+                .Where(a => a.Latitude.HasValue && a.Longitude.HasValue && !a.SnappedLatitude.HasValue)
+                .ToList();
+
+            if (toSnap.Count == 0)
+            {
+                return;
+            }
+
+            var points = toSnap
+                .Select(a => new GeoPoint(a.Latitude!.Value, a.Longitude!.Value))
+                .ToList();
+
+            try
+            {
+                var snapped = await _snapApiClient.SnapAsync(points, cancellationToken: cancellationToken);
+
+                for (var i = 0; i < toSnap.Count; i++)
+                {
+                    if (snapped[i] is { } pt)
+                    {
+                        toSnap[i].SnappedLatitude  = pt.Latitude;
+                        toSnap[i].SnappedLongitude = pt.Longitude;
+                    }
+                    else
+                    {
+                        // No road within snap radius — fall back to geocoded coords so
+                        // we don't retry snap on every evaluation for this address.
+                        toSnap[i].SnappedLatitude  = toSnap[i].Latitude;
+                        toSnap[i].SnappedLongitude = toSnap[i].Longitude;
+                        _logger.LogInformation(
+                            "route.snap.fallback addressId={AddressId}",
+                            toSnap[i].Id);
+                    }
+                }
+
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "route.snap.failed count={Count} — will use raw geocoded coords for matrix",
+                    toSnap.Count);
+                // Non-fatal: matrix will proceed with raw geocoded coords via SnappedLat ?? Lat fallback
+            }
+        }
+
+        public async Task BackfillUnsnappedAddressesAsync(CancellationToken cancellationToken = default)
+        {
+            const int SnapBatchSize = 50;
+            const int SnapRadius    = 500;
+
+            if (!IsConfigured())
+            {
+                return;
+            }
+
+            _logger.LogInformation("route.snap.backfill.start");
+
+            // ── Phase A: geocode addresses that have no coordinates at all ──────────────
+            var ungeocoded = await _db.Addresses
+                .Where(a => a.Latitude == null)
+                .OrderBy(a => a.Id)
+                .ToListAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "route.snap.backfill.phase-a.start count={Count}",
+                ungeocoded.Count);
+
+            var geocodedCount     = 0;
+            var geocodeFailCount  = 0;
+
+            foreach (var address in ungeocoded)
+            {
+                if (cancellationToken.IsCancellationRequested) break;
+
+                try
+                {
+                    var coords = await _locationApiClient.GeocodeAsync(address.FullAddress, cancellationToken);
+                    address.Latitude  = coords.Latitude;
+                    address.Longitude = coords.Longitude;
+                    await _db.SaveChangesAsync(cancellationToken);
+                    geocodedCount++;
+                    _logger.LogInformation(
+                        "route.snap.backfill.geocoded addressId={AddressId}",
+                        address.Id);
+                }
+                catch (Exception ex)
+                {
+                    geocodeFailCount++;
+                    _logger.LogWarning(
+                        ex,
+                        "route.snap.backfill.geocode-failed addressId={AddressId} address={Address}",
+                        address.Id,
+                        address.FullAddress);
+                }
+            }
+
+            _logger.LogInformation(
+                "route.snap.backfill.phase-a.done geocoded={Geocoded} failed={Failed}",
+                geocodedCount,
+                geocodeFailCount);
+
+            // ── Phase B: snap all geocoded-but-unsnapped addresses ───────────────────
+            var toSnap = await _db.Addresses
+                .Where(a => a.Latitude != null && a.SnappedLatitude == null)
+                .OrderBy(a => a.Id)
+                .ToListAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "route.snap.backfill.phase-b.start count={Count}",
+                toSnap.Count);
+
+            var snappedCount   = 0;
+            var fallbackCount  = 0;
+            var processedCount = 0;
+
+            var batches = toSnap
+                .Select((a, i) => new { a, i })
+                .GroupBy(x => x.i / SnapBatchSize)
+                .Select(g => g.Select(x => x.a).ToList())
+                .ToList();
+
+            foreach (var batch in batches)
+            {
+                if (cancellationToken.IsCancellationRequested) break;
+
+                var points = batch
+                    .Select(a => new GeoPoint(a.Latitude!.Value, a.Longitude!.Value))
+                    .ToList();
+
+                try
+                {
+                    var snapped = await _snapApiClient.SnapAsync(points, SnapRadius, cancellationToken);
+
+                    for (var i = 0; i < batch.Count; i++)
+                    {
+                        if (snapped[i] is { } pt)
+                        {
+                            batch[i].SnappedLatitude  = pt.Latitude;
+                            batch[i].SnappedLongitude = pt.Longitude;
+                            snappedCount++;
+                        }
+                        else
+                        {
+                            batch[i].SnappedLatitude  = batch[i].Latitude;
+                            batch[i].SnappedLongitude = batch[i].Longitude;
+                            fallbackCount++;
+                            _logger.LogInformation(
+                                "route.snap.backfill.fallback addressId={AddressId}",
+                                batch[i].Id);
+                        }
+                    }
+
+                    await _db.SaveChangesAsync(cancellationToken);
+                    processedCount += batch.Count;
+
+                    _logger.LogInformation(
+                        "route.snap.backfill.batch.done batchSize={BatchSize} processedTotal={Processed} snapped={Snapped} fallback={Fallback} remaining={Remaining}",
+                        batch.Count,
+                        processedCount,
+                        snappedCount,
+                        fallbackCount,
+                        toSnap.Count - processedCount);
+                }
+                catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    _logger.LogWarning(
+                        "route.snap.backfill.quota-hit remaining={Remaining} snapped={Snapped} fallback={Fallback} — stopping backfill; unsnapped addresses will be handled on-demand",
+                        toSnap.Count - processedCount,
+                        snappedCount,
+                        fallbackCount);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "route.snap.backfill.batch.failed batchSize={BatchSize} processedTotal={Processed} — skipping batch",
+                        batch.Count,
+                        processedCount);
+                    // Continue to next batch
+                }
+            }
+
+            _logger.LogInformation(
+                "route.snap.backfill.complete snapped={Snapped} fallback={Fallback} geocoded={Geocoded} geocodeFailed={GeocodeFailed}",
+                snappedCount,
+                fallbackCount,
+                geocodedCount,
+                geocodeFailCount);
+        }
+
         private async Task EnsureCoordinatesAsync(IEnumerable<AddressEntity> addresses, CancellationToken cancellationToken)
         {
             foreach (var address in addresses
@@ -370,7 +583,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 var durationSeconds = matrix.DurationsSeconds[pair.MatrixFrom][pair.MatrixTo];
                 var distanceKm = Math.Round((decimal)(distanceMeters / 1000d), 2);
                 var durationMinutes = (int)Math.Ceiling(durationSeconds / 60d);
-                var calculatedAt = DateTime.UtcNow;
+                var calculatedAt = _timeService.GetCurrentUtcTime();
 
                 if (_db.Database.IsRelational())
                 {
@@ -432,6 +645,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 return;
 
             await EnsureCoordinatesAsync(addresses, cancellationToken);
+            await EnsureSnappedCoordinatesAsync(addresses, cancellationToken);
             if (HasMissingCoordinates(addresses))
             {
                 _logger.LogInformation(
@@ -451,7 +665,9 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 return;
 
             var points = addresses
-                .Select(a => new GeoPoint(a.Latitude ?? 0m, a.Longitude ?? 0m))
+                .Select(a => new GeoPoint(
+                    a.SnappedLatitude  ?? a.Latitude  ?? 0m,
+                    a.SnappedLongitude ?? a.Longitude ?? 0m))
                 .ToList();
 
             try
@@ -469,6 +685,172 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                     "[route.ensure] fetch-failed addresses={Count} missing={Missing}",
                     addresses.Count, missingPairs.Count);
             }
+        }
+
+        public async Task<int> RefreshStaleRoutesAsync(TimeSpan maxAge, CancellationToken cancellationToken = default)
+        {
+            if (!IsConfigured())
+                return 0;
+
+            const int MaxAddressesPerBatch = 30;
+
+            var cutoffUtc = _timeService.GetCurrentUtcTime().Subtract(maxAge);
+
+            var stalePairs = await _db.TravelRoutes
+                .AsNoTracking()
+                .Where(r => r.CalculatedAt < cutoffUtc)
+                .Select(r => new { r.FromAddressId, r.ToAddressId })
+                .ToListAsync(cancellationToken);
+
+            if (stalePairs.Count == 0)
+            {
+                _logger.LogInformation(
+                    "route.refresh-stale.done reason=no-stale-routes cutoff={CutoffUtc:O}",
+                    cutoffUtc);
+                return 0;
+            }
+
+            _logger.LogInformation(
+                "route.refresh-stale.started stalePairs={StalePairs} cutoff={CutoffUtc:O}",
+                stalePairs.Count,
+                cutoffUtc);
+
+            var allAddressIds = stalePairs
+                .SelectMany(p => new[] { p.FromAddressId, p.ToAddressId })
+                .Distinct()
+                .ToList();
+
+            var addressLookup = await _db.Addresses
+                .Where(a => allAddressIds.Contains(a.Id))
+                .ToDictionaryAsync(a => a.Id, cancellationToken);
+
+            await EnsureCoordinatesAsync(addressLookup.Values, cancellationToken);
+
+            var batches = BuildAddressBatches(
+                stalePairs.Select(p => (p.FromAddressId, p.ToAddressId)).ToList(),
+                MaxAddressesPerBatch);
+
+            _logger.LogInformation(
+                "route.refresh-stale.batched batches={Batches} maxAddressesPerBatch={MaxAddressesPerBatch}",
+                batches.Count,
+                MaxAddressesPerBatch);
+
+            var refreshedTotal = 0;
+
+            foreach (var batch in batches)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    break;
+
+                var batchAddresses = batch
+                    .SelectMany(p => new[] { p.FromAddressId, p.ToAddressId })
+                    .Distinct()
+                    .Where(addressLookup.ContainsKey)
+                    .Select(id => addressLookup[id])
+                    .ToList();
+
+                if (batchAddresses.Count < 2)
+                {
+                    _logger.LogInformation(
+                        "route.refresh-stale.batch-skipped reason=insufficient-addresses pairs={Pairs}",
+                        batch.Count);
+                    continue;
+                }
+
+                if (HasMissingCoordinates(batchAddresses))
+                {
+                    _logger.LogInformation(
+                        "route.refresh-stale.batch-skipped reason=missing-coordinates pairs={Pairs}",
+                        batch.Count);
+                    continue;
+                }
+
+                var addressIndex = batchAddresses
+                    .Select((a, i) => new { a.Id, Index = i })
+                    .ToDictionary(x => x.Id, x => x.Index);
+
+                var pairsToRefresh = batch
+                    .Where(p => addressIndex.ContainsKey(p.FromAddressId) && addressIndex.ContainsKey(p.ToAddressId))
+                    .Select(p => (
+                        p.FromAddressId,
+                        p.ToAddressId,
+                        MatrixFrom: addressIndex[p.FromAddressId],
+                        MatrixTo: addressIndex[p.ToAddressId]))
+                    .ToList();
+
+                if (pairsToRefresh.Count == 0)
+                    continue;
+
+                try
+                {
+                    await EnsureSnappedCoordinatesAsync(batchAddresses, cancellationToken);
+
+                    var points = batchAddresses
+                        .Select(a => new GeoPoint(
+                            a.SnappedLatitude  ?? a.Latitude  ?? 0m,
+                            a.SnappedLongitude ?? a.Longitude ?? 0m))
+                        .ToList();
+
+                    var matrix = await _distanceApiClient.GetMatrixAsync(points, cancellationToken);
+                    await UpsertSequentialRoutesAsync(batchAddresses, matrix, pairsToRefresh, cancellationToken);
+
+                    refreshedTotal += pairsToRefresh.Count;
+
+                    _logger.LogInformation(
+                        "route.refresh-stale.batch.completed addresses={Addresses} pairs={Pairs} refreshedTotal={RefreshedTotal}",
+                        batchAddresses.Count,
+                        pairsToRefresh.Count,
+                        refreshedTotal);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "route.refresh-stale.batch.failed addresses={Addresses} pairs={Pairs} refreshedTotal={RefreshedTotal}",
+                        batchAddresses.Count,
+                        batch.Count,
+                        refreshedTotal);
+                    break;
+                }
+            }
+
+            _logger.LogInformation(
+                "route.refresh-stale.done refreshed={Refreshed} cutoff={CutoffUtc:O}",
+                refreshedTotal,
+                cutoffUtc);
+
+            return refreshedTotal;
+        }
+
+        private static List<List<(long FromAddressId, long ToAddressId)>> BuildAddressBatches(
+            List<(long FromAddressId, long ToAddressId)> pairs,
+            int maxAddressesPerBatch)
+        {
+            var batches = new List<List<(long FromAddressId, long ToAddressId)>>();
+            var currentBatch = new List<(long FromAddressId, long ToAddressId)>();
+            var currentAddresses = new HashSet<long>();
+
+            foreach (var pair in pairs)
+            {
+                var willAdd = (!currentAddresses.Contains(pair.FromAddressId) ? 1 : 0)
+                            + (!currentAddresses.Contains(pair.ToAddressId) ? 1 : 0);
+
+                if (currentBatch.Count > 0 && currentAddresses.Count + willAdd > maxAddressesPerBatch)
+                {
+                    batches.Add(currentBatch);
+                    currentBatch = [];
+                    currentAddresses = [];
+                }
+
+                currentBatch.Add(pair);
+                currentAddresses.Add(pair.FromAddressId);
+                currentAddresses.Add(pair.ToAddressId);
+            }
+
+            if (currentBatch.Count > 0)
+                batches.Add(currentBatch);
+
+            return batches;
         }
 
         private async Task<List<(long FromAddressId, long ToAddressId, int MatrixFrom, int MatrixTo)>> GetMissingAllPairwiseAsync(

@@ -24,11 +24,12 @@ internal sealed class PlanServiceAssignmentMatching
 {
     private const int SearchHorizonDays = 5;
 
-    private sealed record AssignmentContextRequest(DateTime TargetDate, string ObjectName, int TimezoneOffsetMinutes);
+    private sealed record AssignmentContextRequest(DateTime TargetDate, long? ObjectId, string ObjectName, int TimezoneOffsetMinutes);
 
     private sealed class AssignmentMatchingContext
     {
         public required List<TechnicianEntity> Technicians { get; init; }
+        public required Dictionary<long, ServiceObjectEntity> ServiceObjectsById { get; init; }
         public required Dictionary<string, ServiceObjectEntity> ServiceObjectsByName { get; init; }
         public required List<TaskEntity> PersistedWeekTasks { get; init; }
         public required Dictionary<(long From, long To), int> RouteLookup { get; init; }
@@ -233,6 +234,7 @@ internal sealed class PlanServiceAssignmentMatching
                 var suggestion = await SuggestAutoAssignmentCoreAsync(
                     targetDate,
                     item.EndMinutes - item.StartMinutes,
+                    item.ObjectId,
                     item.ObjectName,
                     item.Priority,
                     item.TimezoneOffsetMinutes,
@@ -265,7 +267,7 @@ internal sealed class PlanServiceAssignmentMatching
                 batchAssignmentCounts[suggestion.TechnicianId] =
                     batchAssignmentCounts.GetValueOrDefault(suggestion.TechnicianId) + 1;
 
-                var resolvedServiceObject = TryResolveServiceObject(sharedContext, item.ObjectName);
+                var resolvedServiceObject = TryResolveServiceObject(sharedContext, item.ObjectId, item.ObjectName);
 
                 if (bulkState != null)
                 {
@@ -365,6 +367,7 @@ internal sealed class PlanServiceAssignmentMatching
                 var suggestion = await SuggestAutoAssignmentCoreAsync(
                     targetDate,
                     item.EndMinutes - item.StartMinutes,
+                    item.ObjectId,
                     item.ObjectName,
                     item.Priority,
                     item.TimezoneOffsetMinutes,
@@ -385,7 +388,7 @@ internal sealed class PlanServiceAssignmentMatching
                 batchAssignmentCounts[suggestion.TechnicianId] =
                     batchAssignmentCounts.GetValueOrDefault(suggestion.TechnicianId) + 1;
 
-                var resolvedServiceObject = TryResolveServiceObject(sharedContext, item.ObjectName);
+                var resolvedServiceObject = TryResolveServiceObject(sharedContext, item.ObjectId, item.ObjectName);
 
                 if (bulkState != null)
                 {
@@ -441,6 +444,7 @@ internal sealed class PlanServiceAssignmentMatching
     public async Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentAsync(
         DateTime targetDate,
         int durationMinutes,
+        long? objectId,
         string objectName,
         TaskPriority priority,
         int timezoneOffsetMinutes,
@@ -450,6 +454,7 @@ internal sealed class PlanServiceAssignmentMatching
         => await SuggestAutoAssignmentCoreAsync(
             targetDate,
             durationMinutes,
+            objectId,
             objectName,
             priority,
             timezoneOffsetMinutes,
@@ -461,6 +466,7 @@ internal sealed class PlanServiceAssignmentMatching
     private async Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentCoreAsync(
         DateTime targetDate,
         int durationMinutes,
+        long? objectId,
         string objectName,
         TaskPriority priority,
         int timezoneOffsetMinutes,
@@ -470,7 +476,7 @@ internal sealed class PlanServiceAssignmentMatching
         AssignmentMatchingContext? sharedContext,
         BulkMatchingState? bulkState = null)
     {
-        if (durationMinutes <= 0 || string.IsNullOrWhiteSpace(objectName))
+        if (durationMinutes <= 0 || (!objectId.HasValue && string.IsNullOrWhiteSpace(objectName)))
         {
             return null;
         }
@@ -484,7 +490,8 @@ internal sealed class PlanServiceAssignmentMatching
         var requestedDate = earliestPlacement.TargetDate;
 
         _logger.LogInformation(
-            "svc.plan.auto-assign.request objectName={ObjectName} inputDate={InputDate} normalizedDate={NormalizedDate} normalizedStartMinutes={NormalizedStartMinutes} durationMinutes={DurationMinutes} priority={Priority}",
+            "svc.plan.auto-assign.request objectId={ObjectId} objectName={ObjectName} inputDate={InputDate} normalizedDate={NormalizedDate} normalizedStartMinutes={NormalizedStartMinutes} durationMinutes={DurationMinutes} priority={Priority}",
+            objectId,
             objectName,
             targetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             requestedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
@@ -506,14 +513,15 @@ internal sealed class PlanServiceAssignmentMatching
             return null;
         }
 
-        var serviceObject = TryResolveServiceObject(sharedContext, objectName)
-            ?? await _db.ServiceObjects
-                .AsNoTracking()
-                .Include(so => so.Address)
-                .FirstOrDefaultAsync(so => so.Name == objectName, cancellationToken);
+        var serviceObject = TryResolveServiceObject(sharedContext, objectId, objectName)
+            ?? await ResolveServiceObjectAsync(objectId, objectName, cancellationToken);
 
         if (serviceObject == null)
         {
+            _logger.LogWarning(
+                "svc.plan.auto-assign.object-unresolved objectId={ObjectId} objectName={ObjectName}",
+                objectId,
+                objectName);
             return null;
         }
 
@@ -857,6 +865,12 @@ internal sealed class PlanServiceAssignmentMatching
             .OrderBy(t => t.Id)
             .ToListAsync(cancellationToken);
 
+        var objectIds = requests
+            .Where(r => r.ObjectId.HasValue && r.ObjectId.Value > 0)
+            .Select(r => r.ObjectId!.Value)
+            .Distinct()
+            .ToList();
+
         var objectNames = requests
             .Select(r => r.ObjectName)
             .Where(name => !string.IsNullOrWhiteSpace(name))
@@ -866,7 +880,7 @@ internal sealed class PlanServiceAssignmentMatching
         var serviceObjects = await _db.ServiceObjects
             .AsNoTracking()
             .Include(so => so.Address)
-            .Where(so => objectNames.Contains(so.Name))
+            .Where(so => objectIds.Contains(so.Id) || objectNames.Contains(so.Name))
             .ToListAsync(cancellationToken);
 
         var candidateDates = requests
@@ -894,6 +908,7 @@ internal sealed class PlanServiceAssignmentMatching
             return new AssignmentMatchingContext
             {
                 Technicians = technicians,
+                ServiceObjectsById = serviceObjects.ToDictionary(so => so.Id),
                 ServiceObjectsByName = serviceObjects
                     .GroupBy(so => so.Name, StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase),
@@ -940,6 +955,7 @@ internal sealed class PlanServiceAssignmentMatching
         return new AssignmentMatchingContext
         {
             Technicians = technicians,
+            ServiceObjectsById = serviceObjects.ToDictionary(so => so.Id),
             ServiceObjectsByName = serviceObjects
                 .GroupBy(so => so.Name, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase),
@@ -1044,21 +1060,62 @@ internal sealed class PlanServiceAssignmentMatching
         if (string.IsNullOrWhiteSpace(item.ObjectName) ||
             !DateTime.TryParseExact(item.TargetDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var targetDate))
         {
-            return null;
+            if (!(item.ObjectId.HasValue && item.ObjectId.Value > 0) ||
+                !DateTime.TryParseExact(item.TargetDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out targetDate))
+            {
+                return null;
+            }
         }
 
-        return new AssignmentContextRequest(targetDate, item.ObjectName, item.TimezoneOffsetMinutes);
+        return new AssignmentContextRequest(targetDate, item.ObjectId, item.ObjectName, item.TimezoneOffsetMinutes);
     }
 
-    private ServiceObjectEntity? TryResolveServiceObject(AssignmentMatchingContext? context, string? objectName)
+    private ServiceObjectEntity? TryResolveServiceObject(AssignmentMatchingContext? context, long? objectId, string? objectName)
     {
-        if (context == null || string.IsNullOrWhiteSpace(objectName))
+        if (context == null)
         {
             return null;
         }
 
-        context.ServiceObjectsByName.TryGetValue(objectName.Trim(), out var serviceObject);
-        return serviceObject;
+        if (objectId.HasValue && objectId.Value > 0 &&
+            context.ServiceObjectsById.TryGetValue(objectId.Value, out var serviceObjectById))
+        {
+            return serviceObjectById;
+        }
+
+        if (string.IsNullOrWhiteSpace(objectName))
+        {
+            return null;
+        }
+
+        context.ServiceObjectsByName.TryGetValue(objectName.Trim(), out var serviceObjectByName);
+        return serviceObjectByName;
+    }
+
+    private async Task<ServiceObjectEntity?> ResolveServiceObjectAsync(long? objectId, string? objectName, CancellationToken cancellationToken)
+    {
+        if (objectId.HasValue && objectId.Value > 0)
+        {
+            var byId = await _db.ServiceObjects
+                .AsNoTracking()
+                .Include(so => so.Address)
+                .FirstOrDefaultAsync(so => so.Id == objectId.Value, cancellationToken);
+
+            if (byId != null)
+            {
+                return byId;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(objectName))
+        {
+            return null;
+        }
+
+        return await _db.ServiceObjects
+            .AsNoTracking()
+            .Include(so => so.Address)
+            .FirstOrDefaultAsync(so => so.Name == objectName, cancellationToken);
     }
 
     private static IReadOnlyList<ProposedRouteStop> BuildSimulatedStops(

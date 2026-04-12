@@ -11,6 +11,8 @@ namespace ServiceTaskPlanningSystem.Data
         public string FullAddress { get; set; } = string.Empty;
         public decimal? Latitude { get; set; }
         public decimal? Longitude { get; set; }
+        public decimal? SnappedLatitude  { get; set; }
+        public decimal? SnappedLongitude { get; set; }
         public DateTime CreatedAt { get; set; }
 
         public ICollection<TechnicianEntity> Technicians { get; set; } = new List<TechnicianEntity>();

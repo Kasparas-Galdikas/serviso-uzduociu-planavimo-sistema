@@ -10,6 +10,12 @@ public class BulkCreateTaskRequestDto
     /// </summary>
     public string PlanMode { get; set; } = "rankinis";
 
+    /// <summary>
+    /// Plan scope: "draft" targets the draft plan directly; any other value targets active/normal plans.
+    /// When "draft", validation routes all items to the draft plan by ID rather than by date range.
+    /// </summary>
+    public string? PlanScope { get; set; }
+
     [Required, MinLength(1)]
     public List<CreateTaskRequestDto> Items { get; set; } = new();
 }

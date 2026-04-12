@@ -5,11 +5,13 @@
 }
 
 /* Panel position — sits below the navbar with a gap; rounded like other containers */
+/* z-index 1025 keeps the panel below Bootstrap's navbar (1030) so nav dropdowns render on top */
 #taskDetailModal {
   top: 68px;
   bottom: 0;
   height: auto;
   border-radius: 16px 0 0 0;
+  z-index: 1025;
 }
 
 /* =========================================================

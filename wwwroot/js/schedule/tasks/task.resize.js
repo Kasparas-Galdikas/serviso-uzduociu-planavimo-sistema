@@ -42,7 +42,7 @@
    * Start inline resize mode for a task card.
    * Creates an overlay with drag handles for adjusting task start/end times.
    */
-  const startInlineResize = (card, { taskId, version, date, startMinutes, durationMinutes }) => {
+  const startInlineResize = (card, { taskId, version, date, startMinutes, durationMinutes, applyTimeUpdate: customApplyTimeUpdate = null }) => {
     if (!tables) return;
     const slotOverlay = getSlotOverlay();
 
@@ -116,6 +116,15 @@
 
     // API call to update task time
     const applyTimeUpdate = async (newStart, newEnd) => {
+      if (typeof customApplyTimeUpdate === "function") {
+        return await customApplyTimeUpdate(newStart, newEnd, {
+          card,
+          taskId,
+          version: currentVersion,
+          date,
+        });
+      }
+
       if (taskApi?.updateTaskTime) {
         const result = await taskApi.updateTaskTime(taskId, {
           targetDate: date,
@@ -142,7 +151,14 @@
         const query = state?.getQuery?.() || new URLSearchParams(window.location.search || "");
         await table?.fetchAndRender?.(query, { updateUrl: false, preserveScroll: true });
         showSuccess(result.message, "Uzduoties laikas pakeistas.");
-        document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+        document.dispatchEvent(new CustomEvent("schedule:action-completed", {
+          detail: {
+            action: "time",
+            primaryTaskId: Number(taskId),
+            taskIds: [Number(taskId)],
+            version: Number(result.version || currentVersion || 0),
+          },
+        }));
         return true;
       }
 

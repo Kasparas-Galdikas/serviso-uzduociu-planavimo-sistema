@@ -140,8 +140,8 @@
   border-radius: 16px;
   background: var(--neutral-0);
   box-shadow: var(--shadow-sm);
-  padding: 12px 12px 6px;
-  margin-bottom: 12px;
+  padding: 8px 10px 4px;
+  margin-bottom: 8px;
 }
 
 .schedule-filter-bar .form-label {

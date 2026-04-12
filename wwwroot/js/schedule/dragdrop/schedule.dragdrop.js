@@ -17,12 +17,15 @@
   const taskApi = schedule.tasks?.api;
 
   const logger = window.scheduleLogger;
-  const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);  const showError = (message, fallback = "Ivyko klaida.") =>
+  const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
+  const showError = (message, fallback = "Ivyko klaida.") =>
     toast?.showError?.(message || fallback) || alert(message || fallback);
   const showWarning = (message, fallback = "Veiksmo atlikti nepavyko.") =>
     toast?.showWarning?.(message || fallback) || alert(message || fallback);
   const showSuccess = (message, fallback = "Pakeitimai išsaugoti.") =>
     toast?.showSuccess?.(message || fallback) || alert(message || fallback);
+  const notifyActionCompleted = (detail = {}) =>
+    document.dispatchEvent(new CustomEvent("schedule:action-completed", { detail }));
 
   const isEditModeEnabled = () => {
     const toggles = document.querySelectorAll("[data-edit-toggle]");
@@ -505,6 +508,19 @@
     return Math.ceil(required);
   };
 
+  const getDraggedBacklogItem = () => {
+    const draggingItem = schedule.backlog?._draggingItem;
+    if (!draggingItem?.id) return null;
+
+    const item = schedule.backlog?.api?.getItemById?.(draggingItem.id) || null;
+    if (!item) return null;
+
+    return {
+      ...item,
+      itemType: item.itemType ?? draggingItem.itemType ?? null,
+    };
+  };
+
   const applyOptimisticTravelMetadata = ({
     taskCard,
     travelCard,
@@ -576,9 +592,10 @@
     const techId = card.getAttribute("data-tech-id");
     const date = card.getAttribute("data-date");
 
-    if (!taskId || startMinutes == null || !durationMinutes || !techId || !date) return null;
+    if (taskId == null || startMinutes == null || !durationMinutes || !techId || !date) return null;
     return {
       taskId,
+      kind: "task",
       version,
       techId,
       date,
@@ -709,7 +726,7 @@
     return bestSlot ? parseIntSafe(bestSlot.dataset.slotStartMinutes) : null;
   };
 
-  const applyPreviewRangeByMinutes = (row, startMinutes, durationSlots, taskId, techId, date) => {
+  const applyPreviewRangeByMinutes = (row, startMinutes, durationSlots, taskId, techId, date, forcedOk = null) => {
     if (!row || startMinutes == null || !durationSlots || durationSlots <= 0) {
       clearPreview();
       dragState.lastPreviewOk = false;
@@ -803,8 +820,9 @@
     }
 
     // Apply new classes
-    const className = ok ? "is-drop-range" : "is-drop-range-invalid";
-    const oldClassName = ok ? "is-drop-range-invalid" : "is-drop-range";
+    const effectiveOk = typeof forcedOk === "boolean" ? forcedOk : ok;
+    const className = effectiveOk ? "is-drop-range" : "is-drop-range-invalid";
+    const oldClassName = effectiveOk ? "is-drop-range-invalid" : "is-drop-range";
     for (const cell of newTouched) {
       cell.classList.remove(oldClassName);
       cell.classList.add(className);
@@ -812,11 +830,11 @@
 
     // Update tracked cells
     dragState.highlightedCells = newTouched;
-    dragState.lastPreviewOk = ok;
-    return ok;
+    dragState.lastPreviewOk = effectiveOk;
+    return effectiveOk;
   };
 
-  const applyTravelPreviewRangeByMinutes = (row, taskStartMinutes, travelSlots, taskId, techId, date) => {
+  const applyTravelPreviewRangeByMinutes = (row, taskStartMinutes, travelSlots, taskId, techId, date, forcedOk = null) => {
     clearTravelPreview();
     if (!row || !Number.isFinite(taskStartMinutes) || !travelSlots || travelSlots <= 0) {
       return true;
@@ -874,7 +892,8 @@
       ok = false;
     }
 
-    const className = ok ? "is-drop-travel" : "is-drop-travel-invalid";
+    const effectiveOk = typeof forcedOk === "boolean" ? forcedOk : ok;
+    const className = effectiveOk ? "is-drop-travel" : "is-drop-travel-invalid";
     touched.forEach((td, idx) => {
       td.classList.add(className);
       if (idx === touched.length - 1) {
@@ -962,6 +981,39 @@
 
     tables.addEventListener("dragover", (evt) => {
       if (!isDayView()) return;
+
+      // Backlog drag: plain backlog cards only highlight local cells.
+      // Bulk preview cards re-run the server-backed bulk preview pipeline.
+      if (window.schedule.backlog?._draggingItem) {
+        evt.preventDefault();
+        const el = document.elementFromPoint(evt.clientX, evt.clientY);
+        const cell = el?.closest?.("td.schedule-cell");
+        const row = el?.closest?.("tr");
+        if (!cell || !row) return;
+
+        const slot = cell.querySelector(".schedule-slot");
+        if (!slot) return;
+        const techId = slot.dataset.techId;
+        const date = slot.dataset.date;
+        if (!techId || !date) return;
+
+        const slotMinutes = getSlotMinutesFromX(row, evt.clientX, techId, date);
+        if (slotMinutes == null) return;
+
+        const item = window.schedule.backlog._draggingItem;
+        if (item._lastSlotMinutes === slotMinutes && item._lastRow === row) return;
+        item._lastSlotMinutes = slotMinutes;
+        item._lastRow = row;
+
+        const durationSlots = Math.max(1, Number(item.durationSlots) || 1);
+        applyPreviewRangeByMinutes(row, slotMinutes, durationSlots, "backlog-preview", techId, date);
+        dragState.intent = "move";
+        dragState.swapCandidate = null;
+        dragState.hoverTargetCardId = null;
+        clearSwapPreview();
+        return;
+      }
+
       if (!isEditModeEnabled()) return;
       if (!dragState.taskId || !dragState.version || dragState.busy) return;
 
@@ -1201,10 +1253,26 @@
        * ============================================================
        */
       if (!dragState.taskId) {
+        const backlogItem = getDraggedBacklogItem();
+
+        if (window.schedule.backlog?._draggingItem) {
+          if (!backlogItem) {
+            showWarning("Nepavyko rasti tempiamo sablono. Atnaujinkite sarasa ir bandykite dar karta.");
+            clearDragState();
+            return;
+          }
+
+          if (schedule.backlog?.state) {
+            schedule.backlog.state._schedulingFromBacklogId = backlogItem.id;
+            schedule.backlog.state._schedulingFromBacklogItemType = backlogItem.itemType;
+          }
+        }
+
         logEvent("ui.drag.drop.create", {
           technicianId,
           targetDate,
           startMinutes,
+          backlogItemId: backlogItem?.id || null,
         });
 
         await schedule.tasks?.openTaskPanel?.({
@@ -1213,6 +1281,10 @@
           startMinutes,
           endMinutes: startMinutes + 30, // default slot length
         });
+
+        if (backlogItem) {
+          await schedule.backlog?.form?.applyPrefill?.(backlogItem);
+        }
 
         clearDragState();
         return;
@@ -1399,7 +1471,12 @@
               }
               showWarning(result.error, "Nepavyko sukeisti uzduociu.");
               await refreshAfterFailedSwap();
-              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+              notifyActionCompleted({
+                action: "swap-smart",
+                primaryTaskId: Number(taskId),
+                taskIds: [Number(taskId), Number(targetTaskId)].filter(Boolean),
+                deleted: false,
+              });
             } else {
               logEvent("ui.drag.drop.swap.status", {
                 "swap.status": "ok",
@@ -1420,7 +1497,13 @@
 
               await tasks?.refreshOpenTask?.(taskId);
               showSuccess(result.message, "Pakeitimai issaugoti.");
-              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+              notifyActionCompleted({
+                action: "swap-smart",
+                primaryTaskId: Number(taskId),
+                taskIds: [Number(taskId), Number(targetTaskId)].filter(Boolean),
+                sourceVersion: Number(result.sourceVersion || sourceVersionForRequest || 0),
+                targetVersion: Number(result.targetVersion || targetVersionForRequest || 0),
+              });
             }
           } else {
             const timezoneOffset = -new Date().getTimezoneOffset();
@@ -1466,7 +1549,12 @@
               }
               showWarning(msg);
               await refreshAfterFailedSwap();
-              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+              notifyActionCompleted({
+                action: "swap-smart",
+                primaryTaskId: Number(taskId),
+                taskIds: [Number(taskId), Number(targetTaskId)].filter(Boolean),
+                deleted: false,
+              });
             } else if (!resp.ok) {
               smartSwapFailed = true;
               const errorMsg = (await resp.json().catch(() => null))?.message || "Nepavyko sukeisti uzduociu.";
@@ -1478,7 +1566,12 @@
                 reason: errorMsg,
               }, "warn");
               showError(errorMsg, "Nepavyko sukeisti uzduociu.");
-              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+              notifyActionCompleted({
+                action: "swap-smart",
+                primaryTaskId: Number(taskId),
+                taskIds: [Number(taskId), Number(targetTaskId)].filter(Boolean),
+                deleted: false,
+              });
               throw new Error(errorMsg);
             } else {
               logEvent("ui.drag.drop.swap.status", {
@@ -1499,7 +1592,12 @@
 
               await tasks?.refreshOpenTask?.(taskId);
               showSuccess(result.message, "Pakeitimai issaugoti.");
-              document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+              notifyActionCompleted({
+                action: "swap-smart",
+                primaryTaskId: Number(taskId),
+                taskIds: [Number(taskId), Number(targetTaskId)].filter(Boolean),
+                deleted: false,
+              });
             }
           }
         } catch (err) {
@@ -1527,7 +1625,12 @@
             updateUrl: false,
             preserveScroll: true,
           });
-          document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+          notifyActionCompleted({
+            action: "swap-smart",
+            primaryTaskId: Number(taskId),
+            taskIds: [Number(taskId), Number(targetTaskId)].filter(Boolean),
+            deleted: false,
+          });
         } finally {
           clearDragState();
         }
@@ -1729,7 +1832,12 @@
             }
             showWarning(result.error, "Nepavyko perkelti uzduoties.");
             await refreshAfterFailedMove();
-            document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+            notifyActionCompleted({
+              action: "move",
+              primaryTaskId: Number(taskId),
+              taskIds: [Number(taskId)],
+              deleted: false,
+            });
           } else {
             const query =
               state?.getQuery?.() ||
@@ -1747,7 +1855,12 @@
 
             await tasks?.refreshOpenTask?.(taskId);
             showSuccess(result.message, "Pakeitimai išsaugoti.");
-            document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+            notifyActionCompleted({
+              action: "move",
+              primaryTaskId: Number(taskId),
+              taskIds: [Number(taskId)],
+              version: Number(result.version || expectedVersion || 0),
+            });
           }
         } else {
           // Fallback: direct fetch
@@ -1790,7 +1903,12 @@
             }
             showWarning(msg);
             await refreshAfterFailedMove();
-            document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+            notifyActionCompleted({
+              action: "move",
+              primaryTaskId: Number(taskId),
+              taskIds: [Number(taskId)],
+              deleted: false,
+            });
           } else if (!resp.ok) {
             throw new Error("Nepavyko perkelti užduoties.");
           } else {
@@ -1806,7 +1924,12 @@
 
             await tasks?.refreshOpenTask?.(taskId);
             showSuccess(result.message, "Pakeitimai išsaugoti.");
-            document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+            notifyActionCompleted({
+              action: "move",
+              primaryTaskId: Number(taskId),
+              taskIds: [Number(taskId)],
+              deleted: false,
+            });
           }
         }
       } catch (err) {
@@ -1831,7 +1954,12 @@
           updateUrl: false,
           preserveScroll: true,
         });
-        document.dispatchEvent(new CustomEvent("schedule:action-completed"));
+        notifyActionCompleted({
+          action: "move",
+          primaryTaskId: Number(taskId),
+          taskIds: [Number(taskId)],
+          deleted: false,
+        });
       } finally {
         clearDragState();
       }
@@ -1847,6 +1975,8 @@
 
   schedule.dragdrop = schedule.dragdrop || {};
   schedule.dragdrop.initOnce = initOnce;
+  schedule.dragdrop.clearPreview = clearPreview;
+  schedule.dragdrop.clearTravelPreview = clearTravelPreview;
 })();
 
 

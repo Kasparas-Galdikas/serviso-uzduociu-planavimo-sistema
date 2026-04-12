@@ -455,6 +455,71 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
     #region Drag Preview with Conflicts
 
     [Fact]
+    public async Task BulkSchedulePreview_ManualMode_ReturnsMultiplePreviewItems()
+    {
+        var client = CreateClient("manager@test.com");
+        var techId = await GetTechnicianIdAsync("technician@test.com");
+        var targetDate = GetFutureDate(14);
+        var serviceObject = await GetFirstServiceObjectAsync();
+
+        var dto = new BulkCreateTaskRequestDto
+        {
+            PlanMode = "rankinis",
+            Items = new()
+            {
+                TestTaskRequestBuilder.Create(techId, targetDate, 9 * 60, 10 * 60, "Preview A")
+                    .WithObjectName(serviceObject.Name)
+                    .WithObjectAddress(serviceObject.Address)
+                    .Build(),
+                TestTaskRequestBuilder.Create(techId, targetDate, 10 * 60, 11 * 60, "Preview B")
+                    .WithObjectName(serviceObject.Name)
+                    .WithObjectAddress(serviceObject.Address)
+                    .Build()
+            }
+        };
+
+        var response = await client.PostAsJsonAsync("/api/tasks/bulk/preview-schedule", dto);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var payload = await response.Content.ReadFromJsonAsync<BulkSchedulePreviewResponseDto>();
+        payload.Should().NotBeNull();
+        payload!.Items.Should().HaveCount(2);
+        payload.Items.Select(i => i.Index).Should().ContainInOrder(0, 1);
+    }
+
+    [Fact]
+    public async Task BulkSchedulePreview_InvalidItem_IsReturnedWithRejection()
+    {
+        var client = CreateClient("manager@test.com");
+        var techId = await GetTechnicianIdAsync("technician@test.com");
+        var targetDate = GetFutureDate(14);
+        var serviceObject = await GetFirstServiceObjectAsync();
+
+        await CreateTaskAsync(client, techId, targetDate, 9 * 60, 10 * 60, "Existing Task");
+
+        var dto = new BulkCreateTaskRequestDto
+        {
+            PlanMode = "rankinis",
+            Items = new()
+            {
+                TestTaskRequestBuilder.Create(techId, targetDate, 9 * 60, 10 * 60, "Conflicting Preview")
+                    .WithObjectName(serviceObject.Name)
+                    .WithObjectAddress(serviceObject.Address)
+                    .Build()
+            }
+        };
+
+        var response = await client.PostAsJsonAsync("/api/tasks/bulk/preview-schedule", dto);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var payload = await response.Content.ReadFromJsonAsync<BulkSchedulePreviewResponseDto>();
+        payload.Should().NotBeNull();
+        payload!.Items.Should().HaveCount(1);
+        payload.Items[0].IsPlacementAllowed.Should().BeFalse();
+        payload.Items[0].RejectionMessage.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
     public async Task DragPreview_ReturnsHasConflict_WhenDroppingOntoOccupiedSlot()
     {
         // Arrange
@@ -573,6 +638,19 @@ public sealed class TimeSlotConflictTests : IAsyncLifetime
             .Where(t => t.Id == taskId)
             .Select(t => EF.Property<uint>(t, "xmin"))
             .FirstAsync();
+    }
+
+    private async Task<(string Name, string Address)> GetFirstServiceObjectAsync()
+    {
+        using var scope = _fixture.Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+        var entry = await db.ServiceObjects
+            .AsNoTracking()
+            .Include(o => o.Address)
+            .OrderBy(o => o.Id)
+            .Select(o => new { o.Name, Address = o.Address.FullAddress })
+            .FirstAsync();
+        return (entry.Name, entry.Address);
     }
 
     private async Task EnsureTravelRouteFromWorkplaceToTaskAsync(long technicianId, long taskId, int minutes)

@@ -54,6 +54,7 @@ namespace ServiceTaskPlanningSystem.Services.Time
             var boundary = await GetBoundaryAsync(cancellationToken);
             var requestedStartDate = requestedStart?.Date;
             var requestedEndDate = requestedEnd?.Date;
+            var today = _timeService.GetLocalToday();
 
             if ((requestedStartDate.HasValue && requestedStartDate.Value < boundary.FirstFreeDate) ||
                 (requestedEndDate.HasValue && requestedEndDate.Value < boundary.FirstFreeDate))
@@ -83,7 +84,7 @@ namespace ServiceTaskPlanningSystem.Services.Time
             var endDate = startDate.AddDays(plannedSpanDays - 1);
             var weeks = Math.Max(1, (int)Math.Ceiling(plannedSpanDays / 7.0));
 
-            _logger.LogInformation("svc.plan.calendar.window start={Start} end={End} days={Days} weeks={Weeks} firstFree={FirstFree}", startDate, endDate, plannedSpanDays, weeks, boundary.FirstFreeDate);
+            _logger.LogInformation("svc.plan.calendar.window start={Start} end={End} days={Days} weeks={Weeks} firstFree={FirstFree} today={Today}", startDate, endDate, plannedSpanDays, weeks, boundary.FirstFreeDate, today);
 
             return new PlanningWindow(startDate, endDate, plannedSpanDays, weeks, boundary.FirstFreeDate);
         }

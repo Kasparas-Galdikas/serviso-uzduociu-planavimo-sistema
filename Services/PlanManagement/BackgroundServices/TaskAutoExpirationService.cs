@@ -60,6 +60,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
                 {
                     await ExpireTasksAsync(stoppingToken);
                     await CleanupExpiredUnavailabilityAsync(stoppingToken);
+                    await CleanupExpiredDraftTasksAsync(stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -167,6 +168,60 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
                     deleted,
                     cutoffTime);
             }
+        }
+
+        private async Task CleanupExpiredDraftTasksAsync(CancellationToken cancellationToken)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+            var timeService = scope.ServiceProvider.GetRequiredService<IScheduleTimeService>();
+            var evaluator = scope.ServiceProvider.GetRequiredService<IEvaluationEngine>();
+
+            var cutoffTime = timeService.GetCurrentUtcTime();
+
+            var affectedPlanIds = await db.Tasks
+                .Where(t => t.PlanId.HasValue
+                    && t.Plan != null
+                    && t.Plan.Status == PlanStatus.Draft
+                    && t.EndAt < cutoffTime)
+                .Select(t => t.PlanId!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            if (affectedPlanIds.Count == 0)
+            {
+                return;
+            }
+
+            var deleted = await db.Tasks
+                .Where(t => t.PlanId.HasValue
+                    && t.Plan != null
+                    && t.Plan.Status == PlanStatus.Draft
+                    && t.EndAt < cutoffTime)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            if (deleted == 0)
+            {
+                return;
+            }
+
+            foreach (var planId in affectedPlanIds)
+            {
+                try
+                {
+                    await evaluator.RecalculatePlanAsync(planId, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to recalculate draft plan {PlanId} after expired draft-task cleanup.", planId);
+                }
+            }
+
+            _logger.LogInformation(
+                "svc.plan.draft.auto-cleanup.complete deleted={Count} plans={PlanCount} cutoff={Cutoff:O}",
+                deleted,
+                affectedPlanIds.Count,
+                cutoffTime);
         }
     }
 }

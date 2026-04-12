@@ -16,6 +16,7 @@ export type TaskScheduleContext = ScheduleSlotContext & {
 export type TaskDetailContext = {
   taskId: number;
   version: number;
+  sourceBacklogItemId: number | null;
   technicianId: number;
   targetDate: string;
   startMinutes: number;
@@ -309,6 +310,7 @@ export async function getTaskDetailViaApi(page: Page, taskId: number): Promise<T
   return {
     taskId,
     version: Number(task.version),
+    sourceBacklogItemId: Number(task.sourceBacklogItemId || 0) || null,
     technicianId: Number(task.technicianId),
     targetDate: String(task.startAt).split("T")[0],
     startMinutes: parseMinutesFromDateTime(String(task.startAt)),

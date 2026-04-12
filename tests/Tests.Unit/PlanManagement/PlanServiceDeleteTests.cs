@@ -52,7 +52,9 @@ public class PlanServiceDeleteTests
                 Arg.Any<int>(),
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<CancellationToken>(),
+                Arg.Any<System.Collections.Generic.IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult { IsFeasible = true });
         _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
             .Returns(ScheduleRepairPlan.Fail("no compact"));

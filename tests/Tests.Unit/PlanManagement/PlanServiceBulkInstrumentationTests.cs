@@ -57,7 +57,8 @@ public class PlanServiceBulkInstrumentationTests
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
                 Arg.Any<CancellationToken>(),
-                Arg.Any<IReadOnlyList<ProposedRouteStop>?>())
+                Arg.Any<IReadOnlyList<ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult { IsFeasible = true, InboundTravelMinutes = 15, OutboundTravelMinutes = 10 });
         _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
             .Returns(ScheduleRepairPlan.Fail("no repair"));

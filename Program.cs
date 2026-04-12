@@ -123,13 +123,16 @@ if (isE2ETestMode)
 {
     builder.Services.RemoveAll<ILocationApiClient>();
     builder.Services.RemoveAll<IDistanceApiClient>();
+    builder.Services.RemoveAll<ISnapApiClient>();
     builder.Services.AddSingleton<ILocationApiClient, E2ETestLocationApiClient>();
     builder.Services.AddSingleton<IDistanceApiClient, E2ETestDistanceApiClient>();
+    builder.Services.AddSingleton<ISnapApiClient, E2ETestSnapApiClient>();
 }
 else
 {
     builder.Services.AddHttpClient<ILocationApiClient, LocationApiClient>();
     builder.Services.AddHttpClient<IDistanceApiClient, DistanceApiClient>();
+    builder.Services.AddHttpClient<ISnapApiClient, SnapApiClient>();
 }
 
 // Register strategy pattern implementations for plan-status-specific edit policies
@@ -141,6 +144,7 @@ builder.Services.AddScoped<IScheduleLayoutBuilder, ScheduleLayoutBuilder>();
 builder.Services.AddHostedService<EvaluationRepairService>();
 builder.Services.AddHostedService<TaskAutoExpirationService>();
 builder.Services.AddHostedService<PlanScopeSegregationBackgroundService>();
+builder.Services.AddHostedService<RouteRefreshBackgroundService>();
 builder.Services.AddHostedService<TaskHistoryCleanupService>();
 builder.Services.AddScoped<ITaskHistoryWriter, TaskHistoryService>();
 builder.Services.AddScoped<ITaskHistoryReader, TaskHistoryService>();

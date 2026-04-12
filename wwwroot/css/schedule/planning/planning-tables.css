@@ -11,12 +11,12 @@
 }
 
 /* Technician text sizing */
-.tech-cell .fw-semibold { font-size: 0.85rem; }
-.tech-cell .text-muted.small { font-size: 0.70rem; }
+.tech-cell .fw-semibold { font-size: 0.78rem; }
+.tech-cell .text-muted.small { font-size: 0.65rem; }
 
 /* Technician name clickable button — looks like plain text, not a link */
 .tech-name-btn {
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   color: inherit;
   text-decoration: none;
   background: none;
@@ -81,10 +81,10 @@
 .day-cell {
   background: transparent;
   border: 0;
-  padding: 6px;
-  min-height: 96px;
+  padding: 4px;
+  min-height: 80px;
   display: flex;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
   align-content: flex-start;
   position: relative;
@@ -113,7 +113,7 @@
 
 /* Drag & drop slot target (day view) */
 .schedule-slot {
-  min-height: 64px;
+  min-height: 52px;
   width: 100%;
   height: 100%;
   outline: 0;
@@ -168,6 +168,21 @@
     width 0.12s ease,
     top 0.12s ease;
   z-index: 6;
+}
+
+.slot-selection-bar.selection-inline {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  display: inline-flex;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 0 34px;
+  border-radius: var(--radius-md);
+  background: rgba(15, 48, 87, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(15, 48, 87, 0.18);
 }
 
 .slot-selection-hit {
@@ -257,6 +272,7 @@
   user-select: none;
   pointer-events: none;
   z-index: 1;
+  white-space: nowrap;
 }
 
 .schedule-slot.is-over {
@@ -336,11 +352,11 @@ td.is-drag-origin .task-card.is-dragging {
 .task-card {
   background: linear-gradient(180deg, #ffffff, var(--neutral-50));
   border-radius: var(--radius-md);
-  padding: 6px 8px 6px 12px;
+  padding: 4px 6px 4px 10px;
   border: 1px solid var(--neutral-200);
   --task-accent: var(--neutral-300);
-  min-width: 110px;
-  min-height: 64px;
+  min-width: 90px;
+  min-height: 52px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -400,8 +416,8 @@ td.is-drag-origin .task-card.is-dragging {
   content: "";
   position: absolute;
   left: 0;
-  top: 6px;
-  bottom: 6px;
+  top: 4px;
+  bottom: 4px;
   width: 4px;
   border-radius: 4px;
   background: transparent;
@@ -446,8 +462,8 @@ td.is-drag-origin .task-card.is-dragging {
 
 .task-unavailability-slot {
   width: 100%;
-  min-width: 100px;
-  min-height: 64px;
+  min-width: 80px;
+  min-height: 52px;
   height: 100%;
   border-radius: var(--radius-md);
   background:
@@ -528,12 +544,18 @@ td.is-drag-origin .task-card.is-dragging {
   width: 6px !important;
 }
 
+/* Reserve space on the right so time text never slides under the action buttons.
+   Use :has() so non-editable cards (no buttons) keep their tight padding. */
+.task-card:has(.task-card-actions) {
+  padding-right: 46px;
+}
+
 .task-card-actions {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 4px;
+  right: 4px;
   display: inline-flex;
-  gap: 4px;
+  gap: 3px;
   z-index: 2;
 }
 
@@ -541,9 +563,9 @@ td.is-drag-origin .task-card.is-dragging {
   border: 1px solid var(--neutral-200);
   background: rgba(255, 255, 255, 0.9);
   color: var(--neutral-700);
-  border-radius: 6px;
-  width: 20px;
-  height: 20px;
+  border-radius: 5px;
+  width: 18px;
+  height: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -609,25 +631,25 @@ td.is-drag-origin .task-card.is-dragging {
   background: #e6e9ed;
   border: 1px solid #a8b0b8;
   border-radius: var(--radius-md);
-  min-width: 110px;
-  min-height: 64px;
+  min-width: 90px;
+  min-height: 52px;
   height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   color: #495057;
   box-shadow: var(--shadow-sm);
-  padding: 6px 8px;
+  padding: 4px 6px;
 }
 
 .travel-slot-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 1rem;
+  font-size: 0.85rem;
 }
 
 .travel-slot-meta {
@@ -694,20 +716,20 @@ td.is-drag-origin .task-card.is-dragging {
 
 .task-time {
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.73rem;
   color: var(--neutral-700);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .task-drag-handle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
   border: 1px solid var(--neutral-300);
   background: #fff;
   color: var(--neutral-700);
@@ -722,7 +744,7 @@ td.is-drag-origin .task-card.is-dragging {
 
 .task-title {
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   color: var(--neutral-900);
   white-space: nowrap;
   overflow: hidden;
@@ -730,7 +752,7 @@ td.is-drag-origin .task-card.is-dragging {
 }
 
 .task-location {
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   color: var(--neutral-500);
   white-space: nowrap;
   overflow: hidden;
@@ -752,6 +774,29 @@ td.is-drag-origin .task-card.is-dragging {
   border-color: var(--state-draft-border);
   box-shadow: inset 0 0 0 1px var(--state-draft-border);
   --task-accent: var(--state-draft-border);
+}
+
+.task-card.bulk-schedule-preview-overlay {
+  width: 100%;
+  height: 100%;
+  min-width: 0 !important;
+  min-height: 52px !important;
+  max-width: none !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+  opacity: 0.98;
+}
+
+.task-card.task-travel.bulk-schedule-preview-overlay {
+  justify-content: center;
+}
+
+.task-card.task-travel.bulk-schedule-preview-overlay .travel-slot-meta {
+  color: var(--neutral-700);
+}
+
+.task-card.task-travel.bulk-schedule-preview-overlay .travel-slot-range {
+  color: var(--neutral-600);
 }
 
 .task-card.task-superseded {
@@ -1060,15 +1105,15 @@ td.is-drag-origin .task-card.is-dragging {
 
   /* Keep task cards at a readable minimum – they will scroll with the table */
   .task-card {
-    min-width: 100px;
+    min-width: 80px;
   }
 
   .travel-slot-card {
-    min-width: 100px;
+    min-width: 80px;
   }
 
   .task-unavailability-slot {
-    min-width: 100px;
+    min-width: 80px;
   }
 }
 
@@ -1090,38 +1135,39 @@ td.is-drag-origin .task-card.is-dragging {
 /* =========================================================
    Responsive (visual only)
    ========================================================= */
-@media (min-width: 1440px) {
+/* Wide (≥ 1600px) — slight bump for large monitors */
+@media (min-width: 1600px) {
 
   /* Technician column */
-  .tech-cell .fw-semibold { font-size: 0.85rem; }
-  .tech-cell .text-muted.small { font-size: 0.75rem; }
-
-  /* Task cards */
-  .task-title { font-size: 1rem; }
-  .task-time { font-size: 0.9rem; }
-  .task-location { font-size: 0.85rem; }
-
-  /* Weekly cards */
-  .weekly-facts .fact-line { font-size: 1rem; }
-  .weekly-facts .fact-line.text-muted { font-size: 0.9rem; }
-}
-
-@media (max-width: 1024px) {
-
-  /* Technician column */
-  .tech-cell .fw-semibold { font-size: 0.78rem; }
+  .tech-cell .fw-semibold { font-size: 0.82rem; }
   .tech-cell .text-muted.small { font-size: 0.68rem; }
 
   /* Task cards */
-  .task-title { font-size: 0.9rem; }
-  .task-time { font-size: 0.8rem; }
-  .task-location { font-size: 0.75rem; }
+  .task-title { font-size: 0.85rem; }
+  .task-time { font-size: 0.78rem; }
+  .task-location { font-size: 0.73rem; }
 
   /* Weekly cards */
-  .weekly-facts .fact-line { font-size: 0.9rem; }
-  .weekly-facts .fact-line.text-muted { font-size: 0.8rem; }
+  .weekly-facts .fact-line { font-size: 0.85rem; }
+  .weekly-facts .fact-line.text-muted { font-size: 0.78rem; }
 }
 
+/* Tablet (≤ 1024px) — already compact, no further reduction needed */
+@media (max-width: 1024px) {
+
+  /* Technician column */
+  .tech-cell .fw-semibold { font-size: 0.74rem; }
+  .tech-cell .text-muted.small { font-size: 0.62rem; }
+
+  /* Task cards */
+  .task-title { font-size: 0.76rem; }
+  .task-time { font-size: 0.69rem; }
+  .task-location { font-size: 0.66rem; }
+
+  /* Weekly cards */
+  .weekly-facts .fact-line { font-size: 0.8rem; }
+  .weekly-facts .fact-line.text-muted { font-size: 0.72rem; }
+}
 
 @media (max-width: 992px) {
   .day-cell {
@@ -1129,20 +1175,21 @@ td.is-drag-origin .task-card.is-dragging {
   }
 }
 
+/* Phone (≤ 576px) */
 @media (max-width: 576px) {
 
   /* Technician column */
-  .tech-cell .fw-semibold { font-size: 0.75rem; }
-  .tech-cell .text-muted.small { font-size: 0.65rem; }
+  .tech-cell .fw-semibold { font-size: 0.7rem; }
+  .tech-cell .text-muted.small { font-size: 0.6rem; }
 
   /* Task cards */
-  .task-title { font-size: 0.85rem; }
-  .task-time { font-size: 0.75rem; }
-  .task-location { font-size: 0.7rem; }
+  .task-title { font-size: 0.72rem; }
+  .task-time { font-size: 0.65rem; }
+  .task-location { font-size: 0.63rem; }
 
   /* Weekly cards */
-  .weekly-facts .fact-line { font-size: 0.85rem; }
-  .weekly-facts .fact-line.text-muted { font-size: 0.75rem; }
+  .weekly-facts .fact-line { font-size: 0.76rem; }
+  .weekly-facts .fact-line.text-muted { font-size: 0.68rem; }
 }
 
 /* =========================================================

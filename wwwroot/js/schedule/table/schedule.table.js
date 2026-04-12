@@ -62,6 +62,12 @@
         const infoType = query.get("info") || tables.dataset.informationType || "apkrova";
         tables.dataset.informationType = infoType;
       }
+      const earliestCreatableDate = response.headers.get("X-Schedule-Earliest-Creatable-Date");
+      const earliestCreatableStart = response.headers.get("X-Schedule-Earliest-Creatable-Start-Minutes");
+      const earliestCreatableEnd = response.headers.get("X-Schedule-Earliest-Creatable-End-Minutes");
+      if (earliestCreatableDate) tables.dataset.earliestCreatableDate = earliestCreatableDate;
+      if (earliestCreatableStart) tables.dataset.earliestCreatableStartMinutes = earliestCreatableStart;
+      if (earliestCreatableEnd) tables.dataset.earliestCreatableEndMinutes = earliestCreatableEnd;
       logEvent("ui.table.fetch.ok", { url, status: response.status, length: html.length });
 
       // Restore scroll position after refresh
@@ -120,6 +126,9 @@
       const info = navBtn.dataset.info ?? baseQuery.get("info") ?? "";
       if (info) query.set("info", info);
 
+      const planScope = navBtn.dataset.planScope ?? baseQuery.get("planScope") ?? "";
+      if (planScope) query.set("planScope", planScope);
+
       const status = navBtn.dataset.status ?? baseQuery.get("status") ?? "";
       if (status) query.set("status", status);
 
@@ -168,6 +177,9 @@
 
       const workload = baseQuery.get("workload") || "";
       if (workload) query.set("workload", workload);
+
+      const planScope = baseQuery.get("planScope") || "";
+      if (planScope) query.set("planScope", planScope);
 
       // Do NOT include technicianId - that's the point of this button
 

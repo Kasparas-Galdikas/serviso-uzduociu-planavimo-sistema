@@ -120,7 +120,8 @@ namespace ServiceTaskPlanningSystem.Services.Travel
             long? excludeTaskId,
             bool checkOverlap,
             CancellationToken cancellationToken = default,
-            IReadOnlyList<ProposedRouteStop>? simulatedStops = null)
+            IReadOnlyList<ProposedRouteStop>? simulatedStops = null,
+            long? planId = null)
         {
             var localOffsetMinutes = proposedStartMinutesLocal - (int)proposedStartAt.TimeOfDay.TotalMinutes;
             var proposedStartLocal = proposedStartAt.AddMinutes(localOffsetMinutes);
@@ -132,7 +133,8 @@ namespace ServiceTaskPlanningSystem.Services.Travel
                     TechnicianId = technicianId,
                     DayUtc = proposedStartAt.Date,
                     IncludeCanceled = false,
-                    FilterByPlanId = false,
+                    FilterByPlanId = planId.HasValue,
+                    PlanId = planId,
                     ExcludeTaskId = excludeTaskId,
                     ProposedStop = new ProposedRouteStop
                     {
@@ -382,4 +384,3 @@ namespace ServiceTaskPlanningSystem.Services.Travel
         }
     }
 }
-

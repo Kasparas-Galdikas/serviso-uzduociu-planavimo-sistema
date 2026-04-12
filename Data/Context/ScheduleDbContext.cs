@@ -63,6 +63,12 @@ namespace ServiceTaskPlanningSystem.Data
                 .HasColumnType("numeric(9,6)");
             entity.Property(e => e.Longitude)
                 .HasColumnType("numeric(9,6)");
+            entity.Property(e => e.SnappedLatitude)
+                .HasColumnName("snapped_latitude")
+                .HasColumnType("numeric(9,6)");
+            entity.Property(e => e.SnappedLongitude)
+                .HasColumnName("snapped_longitude")
+                .HasColumnType("numeric(9,6)");
             entity.Property(e => e.CreatedAt)
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");
@@ -227,6 +233,9 @@ namespace ServiceTaskPlanningSystem.Data
             entity.Property(e => e.Instructions)
                 .HasMaxLength(2000)
                 .HasDefaultValue(string.Empty);
+            entity.Property(e => e.SourceTaskId)
+                .HasColumnName("source_task_id")
+                .IsRequired(false);
 
             entity.HasOne(e => e.Plan)
                 .WithMany(p => p.Tasks)
@@ -247,6 +256,9 @@ namespace ServiceTaskPlanningSystem.Data
             entity.HasIndex(e => new { e.PlanId, e.StartAt });
             entity.HasIndex(e => new { e.TechnicianId, e.StartAt });
             entity.HasIndex(e => new { e.ServiceObjectId, e.StartAt });
+            entity.HasIndex(e => e.SourceTaskId)
+                .HasDatabaseName("ix_tasks_source_task_id")
+                .HasFilter("source_task_id IS NOT NULL");
             // Partial index used exclusively by TaskAutoExpirationService.
             // Only covers InProgress rows — stays small as tasks expire and never revert.
             entity.HasIndex(e => e.EndAt)

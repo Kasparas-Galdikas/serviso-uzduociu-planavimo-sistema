@@ -66,6 +66,14 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("numeric(9,6)")
                         .HasColumnName("longitude");
 
+                    b.Property<decimal?>("SnappedLatitude")
+                        .HasColumnType("numeric(9,6)")
+                        .HasColumnName("snapped_latitude");
+
+                    b.Property<decimal?>("SnappedLongitude")
+                        .HasColumnType("numeric(9,6)")
+                        .HasColumnName("snapped_longitude");
+
                     b.Property<string>("Street")
                         .IsRequired()
                         .HasMaxLength(300)
@@ -434,6 +442,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("source_backlog_item_id");
 
+                    b.Property<long?>("SourceTaskId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_task_id");
+
                     b.Property<long?>("SourceUnavailabilityId")
                         .HasColumnType("bigint")
                         .HasColumnName("source_unavailability_id");
@@ -474,6 +486,10 @@ namespace ServiceTaskPlanningSystem.Migrations
                     b.HasIndex("EndAt")
                         .HasDatabaseName("ix_tasks_inprogress_end_at")
                         .HasFilter("status = 'in_progress'");
+
+                    b.HasIndex("SourceTaskId")
+                        .HasDatabaseName("ix_tasks_source_task_id")
+                        .HasFilter("source_task_id IS NOT NULL");
 
                     b.HasIndex("SourceUnavailabilityId")
                         .HasDatabaseName("ix_tasks_source_unavailability_id")

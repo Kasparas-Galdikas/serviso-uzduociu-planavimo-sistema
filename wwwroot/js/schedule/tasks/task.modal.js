@@ -29,6 +29,14 @@
   const logger = window.scheduleLogger;
   const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
 
+  const isBulkDraftLiveEditMode = (modalEl) =>
+    getActiveVariant(modalEl) === "backlog-bulk-edit" &&
+    modalEl?.dataset?.bulkMode === "true" &&
+    window.schedule?.backlog?.state?._isBulkMode === true;
+
+  const getActiveVariant = (modalEl) =>
+    modalEl?.dataset?.panelVariant || panel?.getActiveVariant?.() || "task-edit";
+
   // ========== Modal Field Cache (Performance: reduce 40+ queries to 1 lookup) ==========
 
   /**
@@ -732,17 +740,30 @@
     modalEl.querySelector("#taskDetailLabel").textContent = "Užduoties informacija";
     modalEl.querySelector("#taskDetailCode").textContent = `Kodas: #${data.id}`;
 
+    panel?.activateVariant?.("task-edit");
     applyFieldRestrictions(modalEl, data.technicianId, editable);
 
     const saveBtn = modalEl.querySelector("#taskDetailSave");
     if (saveBtn) {
-      saveBtn.classList.toggle("d-none", !editable);
-      saveBtn.textContent = "Išsaugoti";
-      saveBtn.onclick = onSave;
+      if (isBulkDraftLiveEditMode(modalEl)) {
+        saveBtn.classList.add("d-none");
+        saveBtn.onclick = null;
+      } else {
+        saveBtn.classList.toggle("d-none", !editable);
+        saveBtn.textContent = "Išsaugoti";
+        saveBtn.onclick = onSave;
+      }
     }
   };
 
-  const prepareCreateMode = async (modalEl, { technicianId, targetDate, startMinutes, endMinutes, onSave }) => {
+  const prepareCreateMode = async (modalEl, {
+    technicianId,
+    targetDate,
+    startMinutes,
+    endMinutes,
+    allowEmptySchedule = false,
+    onSave,
+  }) => {
     // Populate field cache for performance (reduces 40+ queries to 1 lookup)
     populateFieldCache(modalEl);
 
@@ -776,25 +797,31 @@
     modalEl.querySelector("#taskDetailLabel").textContent = "Nauja užduotis";
     modalEl.querySelector("#taskDetailCode").textContent = "";
 
-    // Resolve times: use provided slot times, or fall back to "now rounded to next slot"
-    // so forms opened without a pre-selected slot (e.g. calendar-icon from backlog)
-    // still show a sensible default rather than blank fields.
+    // Resolve times: use the selected slot when present.
+    // For backlog-origin planning we keep scheduling blank so the user maps it manually.
+    // Other create entry points may still fall back to the rounded local time.
     let resolvedDate = targetDate;
     let resolvedStart = startMinutes;
     let resolvedEnd = endMinutes;
 
-    if (!resolvedDate || resolvedStart == null || resolvedEnd == null) {
-      const tz = window.schedule?.grid?.getTimezoneOffset?.() ?? -new Date().getTimezoneOffset();
-      const nowLocal = new Date(Date.now() + tz * 60000);
-      const slotSize = grid.getConfig?.()?.slotSizeMinutes ?? 30;
-      const nowMins = nowLocal.getUTCHours() * 60 + nowLocal.getUTCMinutes();
-      const snappedStart = Math.ceil(nowMins / slotSize) * slotSize;
-      resolvedDate   = resolvedDate   ?? nowLocal.toISOString().slice(0, 10);
-      resolvedStart  = resolvedStart  ?? snappedStart;
-      resolvedEnd    = resolvedEnd    ?? (snappedStart + slotSize);
+    if (!allowEmptySchedule && (!resolvedDate || resolvedStart == null || resolvedEnd == null)) {
+      const placement = window.schedule?.backlog?.state?.getEarliestCreatableRangeForScheduleDate?.();
+      if (placement) {
+        resolvedDate = resolvedDate ?? placement.targetDate;
+        resolvedStart = resolvedStart ?? placement.startMinutes;
+        resolvedEnd = resolvedEnd ?? placement.endMinutes;
+      } else {
+        const nowLocal = new Date();
+        const slotSize = grid.getConfig?.()?.slotSizeMinutes ?? 30;
+        const nowMins = nowLocal.getHours() * 60 + nowLocal.getMinutes();
+        const snappedStart = Math.ceil(nowMins / slotSize) * slotSize;
+        resolvedDate   = resolvedDate   ?? nowLocal.toISOString().slice(0, 10);
+        resolvedStart  = resolvedStart  ?? snappedStart;
+        resolvedEnd    = resolvedEnd    ?? (snappedStart + slotSize);
+      }
     }
 
-    {
+    if (resolvedDate && resolvedStart != null && resolvedEnd != null) {
       const startTime = grid.minutesToTime(resolvedStart);
       const endTime   = grid.minutesToTime(resolvedEnd);
       setVal("#taskDetailStart", `${resolvedDate}T${startTime}`);
@@ -811,11 +838,17 @@
 
     const saveBtn = modalEl.querySelector("#taskDetailSave");
     if (saveBtn) {
-      saveBtn.classList.remove("d-none");
-      saveBtn.textContent = "Sukurti";
-      saveBtn.onclick = onSave;
+      if (isBulkDraftLiveEditMode(modalEl)) {
+        saveBtn.classList.add("d-none");
+        saveBtn.onclick = null;
+      } else {
+        saveBtn.classList.remove("d-none");
+        saveBtn.textContent = "Sukurti";
+        saveBtn.onclick = onSave;
+      }
     }
 
+    panel?.activateVariant?.("task-create");
     applyFieldRestrictions(modalEl, technicianId, true);
     bindCreatePlacementSync(modalEl);
     modalEl._syncCreatePlacementFromForm?.();
@@ -1034,7 +1067,7 @@
     };
   };
 
-  const validateFormData = (modalEl, formData, isManager, { skipScheduling = false } = {}) => {
+  const validateTaskFormData = (modalEl, formData, isManager, { skipScheduling = false } = {}) => {
     clearFieldErrors(modalEl);
     const hasSuspiciousInput = (val) => /<|>|script/i.test(val || "");
 
@@ -1068,6 +1101,19 @@
     }
 
     return modalEl.querySelectorAll("[data-field-error]").length === 0;
+  };
+
+  const validateBacklogFormData = (modalEl, formData) =>
+    validateTaskFormData(modalEl, formData, true, { skipScheduling: true });
+
+  const validateBulkFormData = (modalEl, formData) =>
+    validateTaskFormData(modalEl, formData, true, { skipScheduling: false });
+
+  const validateFormData = (modalEl, formData, isManager, options = {}) => {
+    const variant = getActiveVariant(modalEl);
+    if (variant === "backlog-create") return validateBacklogFormData(modalEl, formData);
+    if (variant === "backlog-bulk-edit") return validateBulkFormData(modalEl, formData);
+    return validateTaskFormData(modalEl, formData, isManager, options);
   };
 
   // ========== Field Mappings ==========
@@ -1135,6 +1181,9 @@
     displayValidationErrors,
     collectFormData,
     validateFormData,
+    validateTaskFormData,
+    validateBacklogFormData,
+    validateBulkFormData,
     syncInstructionFields,
     CREATE_FIELD_MAPPING,
     UPDATE_FIELD_MAPPING,
@@ -1148,7 +1197,3 @@
     scheduleSuggestSlot,
   };
 })();
-
-
-
-

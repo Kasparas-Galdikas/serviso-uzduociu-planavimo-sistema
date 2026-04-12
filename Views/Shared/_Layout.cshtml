@@ -29,20 +29,20 @@
             : "V";
     }
     <header>
-        <nav class="navbar navbar-expand-sm navbar-light bg-white border-bottom box-shadow mb-3">
+        <nav class="navbar navbar-expand-md navbar-light bg-white border-bottom box-shadow mb-3">
             <div class="container-fluid">
                 <a class="navbar-brand" asp-area="" asp-controller="Schedule" asp-action="Index">Planavimo sistema</a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
                         aria-expanded="false" aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
                 </button>
-                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
+                <div class="navbar-collapse collapse d-md-inline-flex justify-content-between">
                     <ul class="navbar-nav flex-grow-1">
-                        <li class="d-sm-none"><hr class="my-0" /></li>
+                        <li class="d-md-none"><hr class="my-0" /></li>
 
                         @if (!isAuthPage && isLoggedIn)
                         {
-                            <li class="d-sm-none nav-mobile-account-inline">
+                            <li class="d-md-none nav-mobile-account-inline">
                                 <span class="nav-mobile-label">Prisijungta kaip</span>
                                 <span class="nav-mobile-identity">
                                     <span class="nav-mobile-role">@displayName</span>
@@ -52,36 +52,46 @@
                                     }
                                 </span>
                             </li>
-                            <li class="d-sm-none"><hr class="my-1" /></li>
+                            <li class="d-md-none"><hr class="my-1" /></li>
                         }
 
-                        <li class="nav-item text-center">
+                        <!-- Desktop: plain nav link -->
+                        <li class="nav-item d-none d-md-block">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Schedule" asp-action="Index">Tvarkaraštis</a>
+                        </li>
+                        <!-- Mobile: bordered button matching other nav items -->
+                        <li class="d-md-none">
+                            <a class="nav-link nav-history-trigger w-100 text-start" asp-area="" asp-controller="Schedule" asp-action="Index">
+                                <i class="bi bi-grid" aria-hidden="true"></i>
+                                <span>Tvarkaraštis</span>
+                            </a>
                         </li>
 
                         @if (!isAuthPage && isLoggedIn)
                         {
                             @if (isPlanner)
                             {
-                                <li class="d-sm-none"><hr class="my-1" /></li>
-                                <li class="d-sm-none">
+                                <li class="d-md-none"><hr class="my-1" /></li>
+                                <li class="d-md-none">
                                     <button class="nav-link nav-history-trigger w-100 text-start" type="button" onclick="window.schedule?.history?.openHistoryPanel?.()">
                                         <i class="bi bi-clock-history" aria-hidden="true"></i>
                                         <span>Istorija</span>
                                     </button>
                                 </li>
-                                <li class="d-sm-none nav-backlog-mobile-item"><hr class="my-1" /></li>
-                                <li class="d-sm-none nav-backlog-mobile-item">
+                                <li class="d-md-none nav-backlog-mobile-item"><hr class="my-1" /></li>
+                                <li class="d-md-none nav-backlog-mobile-item">
                                     <button class="nav-link nav-history-trigger w-100 text-start" type="button"
+                                            data-nav-daily-only
                                             onclick="window.schedule?.backlog?.openBacklogPanel?.()">
                                         <i class="bi bi-inbox" aria-hidden="true"></i>
                                         <span>Darbų šablonai</span>
                                         <span class="badge bg-primary ms-1 d-none" id="navBacklogBadgeMobile">0</span>
                                     </button>
                                 </li>
-                                <li class="d-sm-none nav-backlog-mobile-item"><hr class="my-1" /></li>
-                                <li class="d-sm-none">
+                                <li class="d-md-none nav-backlog-mobile-item"><hr class="my-1" /></li>
+                                <li class="d-md-none">
                                     <button class="nav-link nav-history-trigger w-100 text-start" type="button"
+                                            data-nav-daily-only
                                             onclick="window.schedule?.tasksPanel?.openTasksPanel?.()">
                                         <i class="bi bi-calendar-check" aria-hidden="true"></i>
                                         <span>Suplanuoti darbai</span>
@@ -89,35 +99,38 @@
                                 </li>
                             }
 
-                            <li class="d-sm-none"><hr class="my-1" /></li>
-                            <li class="d-sm-none">
-                                <a class="nav-link nav-mobile-logout" asp-controller="Authentication" asp-action="Logout">
-                                    <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Atsijungti
+                            <li class="d-md-none"><hr class="my-1" /></li>
+                            <li class="d-md-none">
+                                <a class="nav-link nav-history-trigger nav-mobile-logout w-100 text-start" asp-controller="Authentication" asp-action="Logout">
+                                    <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+                                    <span>Atsijungti</span>
                                 </a>
                             </li>
                         }
                         else if (isAuthPage || !isLoggedIn)
                         {
-                            <li class="d-sm-none"><hr class="my-1" /></li>
-                            <li class="nav-item d-sm-none text-center">
+                            <li class="d-md-none"><hr class="my-1" /></li>
+                            <li class="nav-item d-md-none text-center">
                                 <a class="nav-link text-dark" asp-controller="Authentication" asp-action="Index">Prisijungti</a>
                             </li>
                         }
                     </ul>
 
-                    <div class="d-none d-sm-flex align-items-center gap-2">
+                    <div class="d-none d-md-flex align-items-center gap-2">
                         @if (!isAuthPage && isLoggedIn)
                         {
                             @if (isPlanner)
                             {
                                 <button class="btn nav-history-trigger nav-history-trigger-desktop" type="button"
                                         id="navTasksPanelTriggerDesktop"
+                                        data-nav-daily-only
                                         onclick="window.schedule?.tasksPanel?.openTasksPanel?.()">
                                     <i class="bi bi-calendar-check" aria-hidden="true"></i>
                                     <span>Suplanuoti darbai</span>
                                 </button>
                                 <button class="btn nav-history-trigger nav-history-trigger-desktop" type="button"
                                         id="navBacklogTriggerDesktop"
+                                        data-nav-daily-only
                                         onclick="window.schedule?.backlog?.openBacklogPanel?.()">
                                     <i class="bi bi-inbox" aria-hidden="true"></i>
                                     <span>Darbų šablonai</span>

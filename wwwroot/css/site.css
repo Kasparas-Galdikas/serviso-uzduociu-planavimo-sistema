@@ -7,7 +7,8 @@
 html {
   position: relative;
   min-height: 100%;
-  font-size: 16px;
+  /* Fluid base font: ~13.5px at 575px → ~14.5px at 1280px → max 15px at large screens */
+  font-size: clamp(13.5px, 0.4vw + 10.3px, 15px);
   --offcanvas-push: 0px;
 }
 
@@ -26,8 +27,8 @@ body {
 .page-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 16px;
-  padding-bottom: 64px; /* ensure content clears footer */
+  padding: 12px;
+  padding-bottom: 56px; /* ensure content clears footer */
   transition: max-width 0.30s ease, margin 0.30s ease, padding 0.30s ease;
 }
 
@@ -35,10 +36,10 @@ body {
    On small screens drop the 160px sidebar offset ï¿½ the table scrolls
    horizontally inside its own container so we just need full viewport width. */
 .page-container:has(#scheduleTables) {
-  max-width: min(1920px, calc(100vw - 160px));
+  max-width: min(1920px, calc(100vw - 32px));
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1279px) {
   .page-container:has(#scheduleTables) {
     max-width: calc(100vw - 24px);
     padding-left: 12px;
@@ -73,11 +74,11 @@ body {
 }
 
 .page-header {
-  padding: 12px 0;
-  margin-bottom: 16px;
+  padding: 8px 0;
+  margin-bottom: 10px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .page-header h1 {
@@ -190,9 +191,7 @@ body {
 .nav-mobile-logout {
   color: var(--danger-600) !important;
   font-weight: 500;
-  text-align: center;
-  justify-content: center;
-  border-radius: var(--radius-md);
+  /* border-radius comes from .navbar .nav-history-trigger */
   transition: background-color 0.18s ease;
 }
 
@@ -216,7 +215,7 @@ body {
   background: var(--neutral-0);
   border-bottom: 1px solid var(--neutral-200);
   box-shadow: var(--shadow-sm);
-  padding: 0.5rem 1rem;
+  padding: 0.35rem 1rem;
 }
 
 /* Brand */
@@ -447,6 +446,8 @@ a.btn:focus {
 .btn {
   border-radius: var(--radius-md);
   font-weight: 600;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.88rem;
 }
 
 .btn-primary {
@@ -550,6 +551,12 @@ a.btn:focus {
 textarea {
   border-radius: var(--radius-md);
   border-color: var(--neutral-200);
+  padding: 0.32rem 0.6rem;
+  font-size: 0.88rem;
+}
+
+textarea.form-control {
+  padding: 0.4rem 0.6rem;
 }
 
 .form-control:focus,
@@ -773,75 +780,107 @@ textarea:focus {
 
 /* =========================================================
    Responsiveness
+   ─────────────────────────────────────────────────────────
+   Breakpoint tiers (reference — use max-width unless noted)
+   Phone     : < 576px
+   Phablet   : 576px – 767px
+   Tablet    : 768px – 991px
+   Laptop    : 992px – 1279px   ← max-width: 1279px
+   Desktop   : 1280px – 1599px  ← default (no query needed)
+   Wide      : ≥ 1600px          ← min-width: 1600px
+
+   Base font is fluid via clamp() on html — see top of file.
+   Wide (≥1600px) overrides the clamp DOWN to 13px so TV/large monitors stay compact.
+   Only heading sizes and component sizes need explicit steps.
    ========================================================= */
- @media (min-width: 1440px) {
-  body { font-size: 16.5px; }
 
-  h1 { font-size: 1.8rem; }
-  h2 { font-size: 1.45rem; }
-  h3 { font-size: 1.25rem; }
+/* ── Wide (≥ 1600px) — scale everything DOWN so TV/large monitors stay compact ── */
+@media (min-width: 1600px) {
+  html { font-size: 13px; } /* override clamp — shrinks all rem-based sizes */
 
-  .page-header h1 { font-size: 1.85rem; }
+  h1 { font-size: 1.55rem; }
+  h2 { font-size: 1.25rem; }
+  h3 { font-size: 1.05rem; }
 
-  p { font-size: 1rem; }
-  .btn { font-size: 0.95rem; }
+  .page-header h1 { font-size: 1.6rem; }
+  .page-header { padding: 6px 0; margin-bottom: 8px; }
+
+  /* Compact navbar */
+  .navbar { padding: 0.25rem 1rem; }
+  .navbar .nav-link { padding: 0.35rem 0.65rem; }
+  .navbar .nav-avatar { width: 28px; height: 28px; }
+
+  /* Compact buttons */
+  .btn { padding: 0.22rem 0.6rem; font-size: 0.82rem; }
+
+  /* Compact form controls */
+  .form-control,
+  .form-select,
+  textarea { padding: 0.25rem 0.5rem; font-size: 0.82rem; }
+
+  .form-label { font-size: 0.8rem; }
+
+  /* Tighter page padding */
+  .page-container { padding: 10px; padding-bottom: 48px; }
 }
 
+/* ── Laptop (992px – 1279px) ── */
+@media (max-width: 1279px) {
+  h1 { font-size: 1.65rem; }
+  h2 { font-size: 1.35rem; }
+  h3 { font-size: 1.15rem; }
 
+  .page-header h1 { font-size: 1.7rem; }
+
+  .btn { font-size: 0.9rem; }
+  .form-label { font-size: 0.9rem; }
+}
+
+/* ── Tablet (768px – 991px) ── */
 @media (max-width: 1024px) {
-  body { font-size: 15px; }
-
   h1 { font-size: 1.5rem; }
   h2 { font-size: 1.25rem; }
   h3 { font-size: 1.05rem; }
 
   .page-header h1 { font-size: 1.55rem; }
 
-  p { font-size: 0.92rem; }
   .form-label { font-size: 0.88rem; }
   .btn { font-size: 0.88rem; }
   .text-muted { font-size: 0.88em; }
 }
 
+/* ── Phablet (576px – 767px) ── */
 @media (max-width: 768px) {
-  body { font-size: 14.5px; }
-
   h1 { font-size: 1.35rem; }
   h2 { font-size: 1.15rem; }
   h3 { font-size: 1rem; }
 
   .page-header h1 { font-size: 1.4rem; }
 
-  p { font-size: 0.88rem; }
   .form-label { font-size: 0.85rem; }
   .btn { font-size: 0.85rem; }
   .alert { font-size: 0.85rem; }
 }
 
-
+/* ── Phone (< 576px) ── */
 @media (max-width: 576px) {
-  body { font-size: 14px; }
-
   h1 { font-size: 1.2rem; }
   h2 { font-size: 1.05rem; }
   h3 { font-size: 0.95rem; }
 
   .page-header h1 { font-size: 1.25rem; }
 
-  p { font-size: 0.82rem; }
   .form-label { font-size: 0.8rem; }
   .btn { font-size: 0.8rem; }
   .alert { font-size: 0.8rem; }
   .text-muted { font-size: 0.8em; }
 }
 
+/* ── Small phone (< 420px) ── */
 @media (max-width: 420px) {
-  body { font-size: 13.5px; }
-
   h1 { font-size: 1.1rem; }
   h2 { font-size: 1rem; }
 
-  p { font-size: 0.78rem; }
   .btn { font-size: 0.78rem; }
 }
 

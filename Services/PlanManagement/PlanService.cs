@@ -295,7 +295,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
             _taskPreview = new PlanServiceTaskPreview(
                 db, timeService, taskPermissionService, travelResolver,
-                _placementValidator, routePreviewLookupBuilder, _unavailabilityImpactResolver,
+                _placementValidator, routePreviewLookupBuilder, _unavailabilityImpactResolver, _assignmentMatching,
                 new ForwardingLogger<PlanServiceTaskPreview>(logger));
 
             _technicianUnavailability = new PlanServiceTechnicianUnavailability(
@@ -355,8 +355,18 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             CancellationToken cancellationToken = default)
             => _planLifecycle.CreateDraftFromActiveAsync(requestedStart, requestedEnd, requestedWeeks, cancellationToken);
 
+        public Task<PlanEntity> EnsureBacklogDraftAsync(
+            DateTime? requestedStart = null,
+            DateTime? requestedEnd = null,
+            int? requestedWeeks = null,
+            CancellationToken cancellationToken = default)
+            => _planLifecycle.EnsureBacklogDraftAsync(requestedStart, requestedEnd, requestedWeeks, cancellationToken);
+
         public Task PublishDraftAsync(CancellationToken cancellationToken = default)
             => _planLifecycle.PublishDraftAsync(cancellationToken);
+
+        public Task ApplyDraftToActiveAsync(CancellationToken cancellationToken = default)
+            => _planLifecycle.ApplyDraftToActiveAsync(cancellationToken);
 
         public Task DiscardDraftAsync(CancellationToken cancellationToken = default)
             => _planLifecycle.DiscardDraftAsync(cancellationToken);
@@ -435,12 +445,41 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 priority, status, skillLevel, objectName, objectAddress, instructions,
                 user, timezoneOffsetMinutes, sourceBacklogItemId, cancellationToken);
 
+        public Task<TaskCreateResult> CreateDraftTaskAsync(
+            long technicianId,
+            DateTime targetDate,
+            int startMinutes,
+            int endMinutes,
+            string title,
+            TaskPriority priority,
+            ScheduleTaskStatus status,
+            string skillLevel,
+            string objectName,
+            string objectAddress,
+            string instructions,
+            UserContext user,
+            int timezoneOffsetMinutes,
+            long? sourceBacklogItemId = null,
+            CancellationToken cancellationToken = default)
+            => _taskCreation.CreateDraftTaskAsync(
+                technicianId, targetDate, startMinutes, endMinutes, title,
+                priority, status, skillLevel, objectName, objectAddress, instructions,
+                user, timezoneOffsetMinutes, sourceBacklogItemId, cancellationToken);
+
         public Task<BulkCreateTaskResponseDto> BulkValidateTasksAsync(
             IReadOnlyList<CreateTaskRequestDto> items,
             string? planMode,
             UserContext user,
+            string? planScope = null,
             CancellationToken cancellationToken = default)
-            => _taskCreation.BulkValidateTasksAsync(items, planMode, user, cancellationToken);
+            => _taskCreation.BulkValidateTasksAsync(items, planMode, user, planScope, cancellationToken);
+
+        public Task<BulkSchedulePreviewResponseDto> PreviewBulkScheduleAsync(
+            IReadOnlyList<CreateTaskRequestDto> items,
+            string? planMode,
+            UserContext user,
+            CancellationToken cancellationToken = default)
+            => _taskPreview.PreviewBulkScheduleAsync(items, planMode, user, cancellationToken);
 
         public Task<BulkCreateTaskResponseDto> BulkCreateTasksAsync(
             IReadOnlyList<CreateTaskRequestDto> items,
@@ -581,6 +620,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentAsync(
             DateTime targetDate,
             int durationMinutes,
+            long? objectId,
             string objectName,
             TaskPriority priority,
             int timezoneOffsetMinutes,
@@ -590,6 +630,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             => _assignmentMatching.SuggestAutoAssignmentAsync(
                 targetDate,
                 durationMinutes,
+                objectId,
                 objectName,
                 priority,
                 timezoneOffsetMinutes,
