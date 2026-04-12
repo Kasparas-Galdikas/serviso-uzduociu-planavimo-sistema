@@ -73,6 +73,7 @@
                                 <li class="d-sm-none nav-backlog-mobile-item"><hr class="my-1" /></li>
                                 <li class="d-sm-none nav-backlog-mobile-item">
                                     <button class="nav-link nav-history-trigger w-100 text-start" type="button"
+                                            data-nav-daily-only
                                             onclick="window.schedule?.backlog?.openBacklogPanel?.()">
                                         <i class="bi bi-inbox" aria-hidden="true"></i>
                                         <span>Darbų šablonai</span>
@@ -82,6 +83,7 @@
                                 <li class="d-sm-none nav-backlog-mobile-item"><hr class="my-1" /></li>
                                 <li class="d-sm-none">
                                     <button class="nav-link nav-history-trigger w-100 text-start" type="button"
+                                            data-nav-daily-only
                                             onclick="window.schedule?.tasksPanel?.openTasksPanel?.()">
                                         <i class="bi bi-calendar-check" aria-hidden="true"></i>
                                         <span>Suplanuoti darbai</span>
@@ -112,12 +114,14 @@
                             {
                                 <button class="btn nav-history-trigger nav-history-trigger-desktop" type="button"
                                         id="navTasksPanelTriggerDesktop"
+                                        data-nav-daily-only
                                         onclick="window.schedule?.tasksPanel?.openTasksPanel?.()">
                                     <i class="bi bi-calendar-check" aria-hidden="true"></i>
                                     <span>Suplanuoti darbai</span>
                                 </button>
                                 <button class="btn nav-history-trigger nav-history-trigger-desktop" type="button"
                                         id="navBacklogTriggerDesktop"
+                                        data-nav-daily-only
                                         onclick="window.schedule?.backlog?.openBacklogPanel?.()">
                                     <i class="bi bi-inbox" aria-hidden="true"></i>
                                     <span>Darbų šablonai</span>

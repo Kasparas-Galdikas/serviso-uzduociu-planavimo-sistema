@@ -713,6 +713,9 @@
       const button = event.target?.closest?.(".tech-name-btn");
       if (!button) return;
 
+      const isManager = (tables.dataset.isManager || "false") === "true";
+      if (!isManager) return;
+
       schedule.panel?.showContent?.("technician");
       schedule.panel?.show?.();
       await setPanelTechnician(button.dataset.technicianId, button.dataset.technicianName, { loadDefaults: true });

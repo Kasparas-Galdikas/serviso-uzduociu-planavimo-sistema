@@ -30,6 +30,10 @@
       btn.classList.toggle("btn-outline-secondary", !isActive);
       btn.classList.toggle("active", isActive);
     });
+
+    document.querySelectorAll("[data-nav-daily-only]").forEach((el) => {
+      el.classList.toggle("d-none", normalized !== "day");
+    });
   };
 
   const switchInfoTypeUI = (root, infoType) => {

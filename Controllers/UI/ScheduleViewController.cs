@@ -38,6 +38,10 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             var user = _userContextResolver.GetCurrentUser();
             var isManager = user.IsManager;
 
+            // Force technicians to see only their own data — cannot be bypassed via URL param
+            if (user.IsTechnician)
+                technicianId = user.TechnicianId;
+
             if (draftPlan != null && activePlan == null)
             {
                 // Invalid state: draft should originate from an active plan. Log/flag as needed.
@@ -79,6 +83,10 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             var draftPlan = await _planService.GetDraftPlanAsync();
             var user = _userContextResolver.GetCurrentUser();
             var isManager = user.IsManager;
+
+            // Force technicians to see only their own data — cannot be bypassed via URL param
+            if (user.IsTechnician)
+                technicianId = user.TechnicianId;
 
             if (draftPlan != null && activePlan == null)
             {

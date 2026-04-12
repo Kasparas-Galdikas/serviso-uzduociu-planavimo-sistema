@@ -591,10 +591,7 @@
 
   const createTaskInSelection = async () => {
     if (!selection.active) return;
-    if (!canCreateInCurrentContext()) {
-      alert("Uzduotis galima kurti tik juodrascio plane.");
-      return;
-    }
+    if (!canCreateInCurrentContext()) return;
 
     if (isReusableDraftPlanningPanel()) {
       applySelectionToTaskPanel();
