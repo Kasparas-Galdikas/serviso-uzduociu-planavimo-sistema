@@ -219,7 +219,7 @@ namespace ServiceTaskPlanningSystem.Services.Scheduling
                 Table = new TableShellModel
                 {
                     FirstColumnTitle = "Technikai",
-                    FirstColumnWidth = "180px",
+                    FirstColumnWidth = "140px",
                     TableCssClass = "schedule-table",
                     Columns = columns,
                     Rows = rows
