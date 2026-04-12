@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using ServiceTaskPlanningSystem.Data;
@@ -138,6 +139,9 @@ public class PlanServiceAuthorizationTests
             CreatedAt = DateTime.UtcNow
         });
         db.SaveChanges();
+
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
 
         var service = CreateService(db);
         var result = await service.CreateDraftTaskAsync(
@@ -575,6 +579,7 @@ public class PlanServiceAuthorizationTests
     {
         var options = new DbContextOptionsBuilder<ScheduleDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new ScheduleDbContext(options);
     }

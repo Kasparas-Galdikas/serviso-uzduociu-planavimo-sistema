@@ -522,6 +522,7 @@ public sealed class PlanServiceAutoAssignmentTests
             items,
             "automatinis",
             new UserContext { UserId = 1, Role = UserRole.Manager },
+            null,
             CancellationToken.None);
 
         result.AllSucceeded.Should().BeFalse();

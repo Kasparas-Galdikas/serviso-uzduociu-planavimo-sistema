@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using ServiceTaskPlanningSystem.Controllers.Api;
+using ServiceTaskPlanningSystem.Data;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.Authorization;
 using ServiceTaskPlanningSystem.Services.History;
@@ -25,13 +26,13 @@ public sealed class PlansControllerTests
         var logger = Substitute.For<ILogger<PlansController>>();
 
         planService.GetDraftPlanAsync(Arg.Any<CancellationToken>())
-            .Returns((PlanEntity?)null);
+            .Returns(Task.FromResult<PlanEntity?>(null));
         planService.EnsureBacklogDraftAsync(
                 Arg.Any<DateTime?>(),
                 Arg.Any<DateTime?>(),
                 Arg.Any<int?>(),
                 Arg.Any<CancellationToken>())
-            .Returns(new PlanEntity
+            .Returns(Task.FromResult(new PlanEntity
             {
                 Id = 24,
                 PeriodStart = new DateTime(2026, 4, 11),
@@ -39,7 +40,7 @@ public sealed class PlansControllerTests
                 Weeks = 2,
                 Status = PlanStatus.Draft,
                 CreatedAt = DateTime.UtcNow
-            });
+            }));
 
         var controller = new PlansController(planService, logger, historyReader, userContextResolver);
 

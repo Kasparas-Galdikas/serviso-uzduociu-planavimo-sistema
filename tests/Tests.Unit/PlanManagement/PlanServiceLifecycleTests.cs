@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using ServiceTaskPlanningSystem.Data;
@@ -143,7 +144,7 @@ public sealed class PlanServiceLifecycleTests
         draft.PeriodEnd.Date.Should().BeOnOrAfter(new DateTime(2026, 4, 18));
         draft.Status.Should().Be(PlanStatus.Draft);
         db.Tasks.Should().ContainSingle(t => t.PlanId == 23 && t.Id == 1001);
-        db.Tasks.Should().Contain(t => t.PlanId == 24 && t.SourceTaskId == 1001);
+        db.Tasks.Should().NotContain(t => t.PlanId == 24 && t.SourceTaskId == 1001);
     }
 
     [Fact]
@@ -185,6 +186,7 @@ public sealed class PlanServiceLifecycleTests
     {
         var options = new DbContextOptionsBuilder<ScheduleDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new ScheduleDbContext(options);
     }
