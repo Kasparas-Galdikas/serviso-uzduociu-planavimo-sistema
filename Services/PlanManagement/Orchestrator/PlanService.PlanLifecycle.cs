@@ -44,95 +44,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                .AsNoTracking()
                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
 
-        public async Task<PlanEntity> CreateDraftFromActiveAsync(DateTime? requestedStart = null, DateTime? requestedEnd = null, int? requestedWeeks = null, CancellationToken cancellationToken = default)
-        {
-            var existingDraft = await GetDraftPlanAsync(cancellationToken);
-
-            var activePlan = await _db.Plans
-                .Include(p => p.Tasks)
-                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Active, cancellationToken);
-
-            if (activePlan == null)
-            {
-                throw new InvalidOperationException("No active plan found to clone.");
-            }
-
-            var technicians = await _db.Technicians.ToListAsync(cancellationToken);
-
-            var fallbackWeeks = activePlan.Weeks > 0 ? activePlan.Weeks : 4;
-            var window = await _planningCalendar.BuildWindowAsync(requestedStart, requestedEnd, requestedWeeks, fallbackWeeks, cancellationToken);
-
-            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-
-            _logger.LogInformation("svc.plan.draft.create requestedStart={RequestedStart} requestedEnd={RequestedEnd} start={StartDate} end={EndDate} weeks={Weeks} activePlanId={ActivePlanId} reuseExistingDraft={ReuseExistingDraft}", requestedStart?.Date, requestedEnd?.Date, window.Start, window.End, window.Weeks, activePlan.Id, existingDraft != null);
-
-            PlanEntity draftPlan;
-            if (existingDraft != null)
-            {
-                draftPlan = await _db.Plans
-                    .Include(p => p.Tasks)
-                    .FirstAsync(p => p.Id == existingDraft.Id, cancellationToken);
-
-                if (draftPlan.Tasks.Any())
-                {
-                    _db.Tasks.RemoveRange(draftPlan.Tasks);
-                    await _db.SaveChangesAsync(cancellationToken);
-                }
-
-                draftPlan.PeriodStart = window.Start;
-                draftPlan.PeriodEnd = window.End;
-                draftPlan.Weeks = window.Weeks;
-                _db.Plans.Update(draftPlan);
-                await _db.SaveChangesAsync(cancellationToken);
-            }
-            else
-            {
-                draftPlan = new PlanEntity
-                {
-                    PeriodStart = window.Start,
-                    PeriodEnd = window.End, // will be set to actual task span after seeding
-                    Weeks = window.Weeks,
-                    Status = PlanStatus.Draft,
-                    CreatedAt = DateTime.UtcNow,
-                    CreatedBy = activePlan.CreatedBy
-                };
-
-                _db.Plans.Add(draftPlan);
-                await _db.SaveChangesAsync(cancellationToken);
-            }
-
-            var generationEnd = window.End;
-            var seededTasks = await GenerateTasksFromActivePlanAsync(activePlan, window.Start, generationEnd, draftPlan.Id, cancellationToken);
-            if (seededTasks.Any())
-            {
-                _db.Tasks.AddRange(seededTasks);
-            await _db.SaveChangesAsync(cancellationToken);
-
-                // Align PeriodStart and PeriodEnd to actual task span (true inclusive horizon)
-                var actualStart = seededTasks.Min(t => t.StartAt.Date);
-                var actualEnd = seededTasks.Max(t => t.EndAt.Date);
-
-                _logger.LogInformation("svc.plan.draft.task-span windowStart={WindowStart} windowEnd={WindowEnd} actualStart={ActualStart} actualEnd={ActualEnd}",
-                    window.Start, window.End, actualStart, actualEnd);
-
-                draftPlan.PeriodStart = actualStart;
-                draftPlan.PeriodEnd = actualEnd;
-                var totalDays = (draftPlan.PeriodEnd - draftPlan.PeriodStart).Days + 1;
-                draftPlan.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
-                _db.Plans.Update(draftPlan);
-            await _db.SaveChangesAsync(cancellationToken);
-            }
-            else
-            {
-                _logger.LogWarning("svc.plan.draft.seed.empty planId={PlanId} start={Start} end={End}", draftPlan.Id, window.Start, window.End);
-            }
-
-            await transaction.CommitAsync(cancellationToken);
-            await _evaluationEngine.RecalculatePlanAsync(draftPlan.Id, cancellationToken);
-            _logger.LogInformation("svc.plan.draft.created planId={PlanId} tasksSeeded={TaskCount}", draftPlan.Id, seededTasks.Count());
-            return draftPlan;
-        }
-
         public async Task<PlanEntity> EnsureBacklogDraftAsync(
             DateTime? requestedStart = null,
             DateTime? requestedEnd = null,
@@ -599,8 +510,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
         }
 
         /// <summary>
-        /// Generates tasks for a draft plan by cloning tasks from the active plan.
-        /// Tasks are adjusted to fit the new date range while preserving all relationships.
+        /// Seeds draft-plan tasks from the active plan for draft scheduling flows.
+        /// Shared by the backlog draft sandbox and any other draft seeding path.
         /// </summary>
         private async Task<List<TaskEntity>> GenerateTasksFromActivePlanAsync(
             PlanEntity activePlan,

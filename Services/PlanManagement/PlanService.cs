@@ -348,13 +348,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         public Task<PlanEntity?> GetDraftPlanAsync(CancellationToken cancellationToken = default)
             => _planLifecycle.GetDraftPlanAsync(cancellationToken);
 
-        public Task<PlanEntity> CreateDraftFromActiveAsync(
-            DateTime? requestedStart = null,
-            DateTime? requestedEnd = null,
-            int? requestedWeeks = null,
-            CancellationToken cancellationToken = default)
-            => _planLifecycle.CreateDraftFromActiveAsync(requestedStart, requestedEnd, requestedWeeks, cancellationToken);
-
         public Task<PlanEntity> EnsureBacklogDraftAsync(
             DateTime? requestedStart = null,
             DateTime? requestedEnd = null,

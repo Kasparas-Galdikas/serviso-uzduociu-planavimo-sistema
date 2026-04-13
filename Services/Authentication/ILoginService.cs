@@ -9,7 +9,7 @@ namespace ServiceTaskPlanningSystem.Services.Authentication
         /// Validates user login by email.
         /// </summary>
         /// <param name="email">User's email address</param>
-        /// <returns>LoginResultDto with success status, user data, or error message</returns>
+        /// <returns>LoginResultDto with success status, user data, or failure code</returns>
         LoginResultDto ValidateLogin(string email);
 
         /// <summary>

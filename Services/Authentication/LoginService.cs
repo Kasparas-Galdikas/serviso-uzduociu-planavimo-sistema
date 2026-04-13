@@ -23,7 +23,7 @@ namespace ServiceTaskPlanningSystem.Services.Authentication
         {
             if (string.IsNullOrWhiteSpace(email))
             {
-                return LoginResultDto.Failure("Prašome ivesti elektroninio pašto adresa.");
+                return LoginResultDto.Failure(LoginFailureCode.MissingEmail);
             }
 
             var trimmedEmail = email.Trim();
@@ -31,7 +31,7 @@ namespace ServiceTaskPlanningSystem.Services.Authentication
 
             if (user == null)
             {
-                return LoginResultDto.Failure("Vartotojas su tokiu el. pašto adresu nerastas arba neaktyvus.");
+                return LoginResultDto.Failure(LoginFailureCode.UserNotFoundOrInactive);
             }
 
             return LoginResultDto.SuccessResult(user);

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ServiceTaskPlanningSystem.Models.DTOs.Responses.Authentication;
 using ServiceTaskPlanningSystem.Services.Authentication;
 
 namespace ServiceTaskPlanningSystem.Controllers.UI
@@ -35,7 +36,7 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
 
             if (!loginResult.Success)
             {
-                ViewData["ErrorMessage"] = loginResult.ErrorMessage;
+                ViewData["ErrorMessage"] = GetLoginErrorMessage(loginResult.FailureCode);
                 return View("Index");
             }
 
@@ -71,6 +72,16 @@ namespace ServiceTaskPlanningSystem.Controllers.UI
             Response.Cookies.Delete(EmailCookieName, new CookieOptions { Path = "/" });
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return RedirectToAction("Index");
+        }
+
+        private static string GetLoginErrorMessage(LoginFailureCode failureCode)
+        {
+            return failureCode switch
+            {
+                LoginFailureCode.MissingEmail => "Prašome ivesti elektroninio pašto adresą.",
+                LoginFailureCode.UserNotFoundOrInactive => "Vartotojas su tokiu el. pašto adresu nerastas arba neaktyvus.",
+                _ => "Nepavyko prisijungti."
+            };
         }
     }
 }

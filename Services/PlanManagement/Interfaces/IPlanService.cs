@@ -45,7 +45,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
 
         Task<PlanEntity?> GetActivePlanAsync(CancellationToken cancellationToken = default);
         Task<PlanEntity?> GetDraftPlanAsync(CancellationToken cancellationToken = default);
-        Task<PlanEntity> CreateDraftFromActiveAsync(DateTime? requestedStart = null, DateTime? requestedEnd = null, int? requestedWeeks = null, CancellationToken cancellationToken = default);
         Task<PlanEntity> EnsureBacklogDraftAsync(DateTime? requestedStart = null, DateTime? requestedEnd = null, int? requestedWeeks = null, CancellationToken cancellationToken = default);
         Task ApplyDraftToActiveAsync(CancellationToken cancellationToken = default);
         Task<TaskCreateResult> CreateTaskAsync(long technicianId, DateTime targetDate, int startMinutes, int endMinutes, string title, TaskPriority priority, ScheduleTaskStatus status, string skillLevel, string objectName, string objectAddress, string instructions, UserContext user, int timezoneOffsetMinutes, long? sourceBacklogItemId = null, CancellationToken cancellationToken = default);

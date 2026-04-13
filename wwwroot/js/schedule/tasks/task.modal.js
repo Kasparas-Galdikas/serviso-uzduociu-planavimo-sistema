@@ -718,12 +718,10 @@
     setVal("#taskDetailStatus", data.status);
     setVal("#taskDetailTechnicianComment", data.technicianComment);
     setVal("#taskDetailSkill", data.skillLevel);
-
     await populateObjectDropdown(modalEl, data.objectId, data.objectName, data.objectAddress);
     const selectedAddress = data.objectAddress || data.location;
     await populateAddressDropdown(modalEl, selectedAddress);
     ensureObjectAddressBinding(modalEl);
-
     syncInstructionFields(modalEl, data.instructions);
     await populateTechnicianDropdown(modalEl, data.technicianId);
     scheduleAssigneeTravelPreview(modalEl);

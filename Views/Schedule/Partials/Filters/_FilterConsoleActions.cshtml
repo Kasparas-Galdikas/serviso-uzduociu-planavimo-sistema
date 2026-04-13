@@ -16,11 +16,6 @@
 }
 <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mt-3">
     <div class="d-flex flex-wrap gap-2 filter-console-actions">
-        <button class="btn btn-primary btn-sm d-flex align-items-center gap-1 @(canEdit ? string.Empty : "disabled")"
-            data-edit-action data-bs-toggle="modal" data-bs-target="#createTaskModal" @(canEdit ? "" : "disabled")>
-            <i class="bi bi-plus-lg"></i> Sukurti tvarkarasti
-        </button>
-     
         @if (hasTechnicianFilter && filteredTechnician != null)
         {
             <button class="btn btn-primary btn-sm d-flex align-items-center gap-1"
@@ -32,13 +27,6 @@
     </div>
     @if (Model.IsManager)
     {
-        <div class="form-check form-switch mb-0">
-            <input class="form-check-input" type="checkbox" role="switch" id="@editModeId" data-edit-toggle checked>
-            <label class="form-check-label" for="@editModeId">Redagavimo rezimas</label>
-        </div>
-    }
-    else
-    {
-        <div class="text-muted small">Perziuros rezimas</div>
+        <input type="checkbox" data-edit-toggle checked hidden>
     }
 </div>
