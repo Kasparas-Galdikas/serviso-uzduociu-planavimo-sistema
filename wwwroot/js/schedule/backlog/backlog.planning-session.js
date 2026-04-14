@@ -4,6 +4,12 @@
   window.schedule = window.schedule || {};
   const backlog = window.schedule.backlog = window.schedule.backlog || {};
   const state = backlog.state;
+  const fetchWithTrace = (url, options = {}, meta = {}) => {
+    const logger = window.scheduleLogger;
+    return typeof logger?.fetchWithTrace === "function"
+      ? logger.fetchWithTrace(url, options, meta)
+      : fetch(url, options);
+  };
 
   backlog.bulkState = backlog.bulkState || {};
 
@@ -854,7 +860,7 @@
     // the stale response is discarded instead of overwriting the fresh result.
     state._bulkPrefetchSeq = (state._bulkPrefetchSeq || 0) + 1;
     const seq = state._bulkPrefetchSeq;
-    const resp = await scheduleLogger.fetchWithTrace("/api/tasks/suggest-auto-assignment/bulk", {
+    const resp = await fetchWithTrace("/api/tasks/suggest-auto-assignment/bulk", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -868,7 +874,7 @@
   backlog.planningSession.fetchAutoSuggestionForIndex = async (idx) => {
     const payload = backlog.bulkState.buildAutoAssignmentPayload(idx);
     if (!payload) return null;
-    const resp = await scheduleLogger.fetchWithTrace("/api/tasks/suggest-auto-assignment/bulk", {
+    const resp = await fetchWithTrace("/api/tasks/suggest-auto-assignment/bulk", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
