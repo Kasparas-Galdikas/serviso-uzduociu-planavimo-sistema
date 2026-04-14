@@ -833,12 +833,12 @@
       .map((_, idx) => backlog.bulkState.buildAutoAssignmentPayload(idx))
       .filter(Boolean);
     if (!payload.length) return;
-    const resp = await fetch("/api/tasks/suggest-auto-assignment/bulk", {
+    const resp = await scheduleLogger.fetchWithTrace("/api/tasks/suggest-auto-assignment/bulk", {
       method: "POST",
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-    }).catch(() => null);
+    }, { event: "backlog.bulk-suggest.prefetch" }).catch(() => null);
     const data = await resp?.json?.().catch(() => null);
     if (!resp?.ok || !Array.isArray(data)) return;
     state._bulkPrecomputedSuggestions = data;
@@ -846,12 +846,12 @@
   backlog.planningSession.fetchAutoSuggestionForIndex = async (idx) => {
     const payload = backlog.bulkState.buildAutoAssignmentPayload(idx);
     if (!payload) return null;
-    const resp = await fetch("/api/tasks/suggest-auto-assignment/bulk", {
+    const resp = await scheduleLogger.fetchWithTrace("/api/tasks/suggest-auto-assignment/bulk", {
       method: "POST",
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify([payload]),
-    }).catch(() => null);
+    }, { event: "backlog.bulk-suggest.single" }).catch(() => null);
     const data = await resp?.json?.().catch(() => null);
     if (!resp?.ok || !Array.isArray(data)) return null;
     return data[0] || null;

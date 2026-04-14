@@ -31,6 +31,14 @@ namespace ServiceTaskPlanningSystem.Infrastructure.Logging
             TrimTraceCount();
         }
 
+        public void Clear(string traceId)
+        {
+            if (!string.IsNullOrWhiteSpace(traceId))
+            {
+                _logs.TryRemove(traceId, out _);
+            }
+        }
+
         public IReadOnlyCollection<TraceLogEntry> Get(string traceId)
         {
             if (string.IsNullOrWhiteSpace(traceId))

@@ -18,6 +18,18 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             _env = env;
         }
 
+        [HttpDelete("{traceId}")]
+        public IActionResult Delete(string traceId)
+        {
+            if (!_env.IsDevelopment())
+            {
+                return NotFound();
+            }
+
+            _store.Clear(traceId);
+            return NoContent();
+        }
+
         [HttpGet("{traceId}")]
         public IActionResult Get(string traceId)
         {

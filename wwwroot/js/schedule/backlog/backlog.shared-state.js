@@ -310,10 +310,14 @@
       const hasConfirmErrors = confirmPhase && Array.isArray(state._bulkConfirmStatuses)
         ? state._bulkConfirmStatuses.some((item) => item?.status === "error")
         : false;
-      nextBtn.disabled = busy || hasConfirmErrors;
+      nextBtn.disabled = confirmPhase ? (busy || hasConfirmErrors) : false;
+      const isLastItem = !confirmPhase && state._bulkQueue.length > 0
+        && state._bulkQueueIdx === state._bulkQueue.length - 1;
       nextBtn.innerHTML = confirmPhase
         ? "Patvirtinti"
-        : 'Kitas <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>';
+        : isLastItem
+          ? 'Baigti <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>'
+          : 'Kitas <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>';
     }
   };
 

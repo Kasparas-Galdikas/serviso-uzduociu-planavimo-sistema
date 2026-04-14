@@ -231,6 +231,13 @@ internal sealed class PlanServiceAssignmentMatching
                         .Concat(accumulatedSimulatedAssignments)
                         .ToList();
 
+                _logger.LogDebug(
+                    "svc.plan.auto-assign.batch-context index={Index} batchSize={BatchSize} activeTechnicianCount={ActiveTechnicianCount} batchCounts={BatchCounts}",
+                    i,
+                    sortedIndexes.Count,
+                    batchAssignmentCounts.Count,
+                    string.Join(";", batchAssignmentCounts.Select(kv => $"{kv.Key}:{kv.Value}")));
+
                 var suggestion = await SuggestAutoAssignmentCoreAsync(
                     targetDate,
                     item.EndMinutes - item.StartMinutes,
@@ -266,6 +273,13 @@ internal sealed class PlanServiceAssignmentMatching
 
                 batchAssignmentCounts[suggestion.TechnicianId] =
                     batchAssignmentCounts.GetValueOrDefault(suggestion.TechnicianId) + 1;
+
+                _logger.LogInformation(
+                    "svc.plan.auto-assign.state-after index={Index} assignedTechnicianId={AssignedTechnicianId} newBatchCount={NewBatchCount} totalBatchAssigned={TotalBatchAssigned}",
+                    i,
+                    suggestion.TechnicianId,
+                    batchAssignmentCounts[suggestion.TechnicianId],
+                    batchAssignmentCounts.Values.Sum());
 
                 var resolvedServiceObject = TryResolveServiceObject(sharedContext, item.ObjectId, item.ObjectName);
 
@@ -364,6 +378,13 @@ internal sealed class PlanServiceAssignmentMatching
                         .Concat(accumulatedSimulatedAssignments)
                         .ToList();
 
+                _logger.LogDebug(
+                    "svc.plan.auto-assign.batch-context index={Index} batchSize={BatchSize} activeTechnicianCount={ActiveTechnicianCount} batchCounts={BatchCounts}",
+                    i,
+                    sortedIndexes.Count,
+                    batchAssignmentCounts.Count,
+                    string.Join(";", batchAssignmentCounts.Select(kv => $"{kv.Key}:{kv.Value}")));
+
                 var suggestion = await SuggestAutoAssignmentCoreAsync(
                     targetDate,
                     item.EndMinutes - item.StartMinutes,
@@ -387,6 +408,13 @@ internal sealed class PlanServiceAssignmentMatching
 
                 batchAssignmentCounts[suggestion.TechnicianId] =
                     batchAssignmentCounts.GetValueOrDefault(suggestion.TechnicianId) + 1;
+
+                _logger.LogInformation(
+                    "svc.plan.auto-assign.state-after index={Index} assignedTechnicianId={AssignedTechnicianId} newBatchCount={NewBatchCount} totalBatchAssigned={TotalBatchAssigned}",
+                    i,
+                    suggestion.TechnicianId,
+                    batchAssignmentCounts[suggestion.TechnicianId],
+                    batchAssignmentCounts.Values.Sum());
 
                 var resolvedServiceObject = TryResolveServiceObject(sharedContext, item.ObjectId, item.ObjectName);
 
@@ -526,12 +554,27 @@ internal sealed class PlanServiceAssignmentMatching
         }
 
         var localityPool = _localitySelector.SelectPool(eligibleTechnicians, serviceObject);
+        var poolFallbackReason = (string?)null;
+        if (localityPool.Tier == CandidateLocalityTier.GlobalFallback)
+        {
+            var targetCity = serviceObject.Address?.City?.Trim();
+            poolFallbackReason = string.IsNullOrWhiteSpace(targetCity)
+                ? "no-city-on-object"
+                : eligibleTechnicians.Any(t => string.Equals(
+                      t.WorkplaceAddress?.City?.Trim(), targetCity,
+                      StringComparison.OrdinalIgnoreCase))
+                    ? "unknown"
+                    : "no-same-city-technicians";
+        }
+
         _logger.LogInformation(
-            "svc.plan.auto-assign.pool objectName={ObjectName} locality={Locality} localityTier={LocalityTier} technicianCount={TechnicianCount}",
+            "svc.plan.auto-assign.pool objectName={ObjectName} locality={Locality} localityTier={LocalityTier} technicianCount={TechnicianCount} technicianIds={TechnicianIds} fallbackReason={FallbackReason}",
             objectName,
             localityPool.Label,
             localityPool.Tier,
-            localityPool.Technicians.Count);
+            localityPool.Technicians.Count,
+            string.Join(",", localityPool.Technicians.Select(t => t.Id)),
+            poolFallbackReason);
         var candidateDates = _dateWindowGenerator.GenerateDates(
             requestedDate,
             requestedDate.AddDays(SearchHorizonDays - 1),
@@ -733,10 +776,70 @@ internal sealed class PlanServiceAssignmentMatching
             }
 
             var bestForDay = _rankingService.SelectBest(rankedCandidates);
+
+            if (rankedCandidates.Count > 0)
+            {
+                var allRanked = rankedCandidates.OrderBy(c => c.ScoreBreakdown.TotalScore).ToList();
+                for (var rank = 0; rank < allRanked.Count; rank++)
+                {
+                    var c = allRanked[rank];
+                    var techDayTasks = getWorkloadTasks(c.Technician.Id, dayStart);
+                    var dayTasksSummary = techDayTasks.Count == 0
+                        ? "none"
+                        : string.Join(",", techDayTasks.OrderBy(t => t.StartAt).Select(t =>
+                            $"{t.Id}@{(int)_timeService.ConvertUtcToLocal(t.StartAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes}-{(int)_timeService.ConvertUtcToLocal(t.EndAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes}"));
+                    _logger.LogInformation(
+                        "svc.plan.auto-assign.candidate object={ObjectName} date={Date} rank={Rank} technicianId={TechnicianId} technicianName={TechnicianName} totalScore={TotalScore:F1} loadScore={LoadScore:F1} travelPenalty={TravelPenalty:F1} batchPenalty={BatchPenalty:F1} delayPenalty={DelayPenalty:F1} localityPenalty={LocalityPenalty:F1} skillPenalty={SkillPenalty:F1} continuityPenalty={ContinuityPenalty:F1} spreadPenalty={SpreadPenalty:F1} startMinutes={StartMinutes} dayTaskCount={DayTaskCount} dayTasks={DayTasks}",
+                        objectName,
+                        dayStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                        rank,
+                        c.Technician.Id,
+                        c.Technician.User?.Name ?? $"Technician #{c.Technician.Id}",
+                        c.ScoreBreakdown.TotalScore,
+                        c.ScoreBreakdown.LoadScore,
+                        c.ScoreBreakdown.TravelPenalty,
+                        c.ScoreBreakdown.BatchPenalty,
+                        c.ScoreBreakdown.DelayPenalty,
+                        c.ScoreBreakdown.LocalityPenalty,
+                        c.ScoreBreakdown.SkillPenalty,
+                        c.ScoreBreakdown.ContinuityPenalty,
+                        c.ScoreBreakdown.SpreadPenalty,
+                        c.StartMinutes,
+                        techDayTasks.Count,
+                        dayTasksSummary);
+                }
+            }
+
             if (bestForDay != null)
             {
+                // Build compact route chain for the winner (re-uses routeLookup already in memory)
+                var winnerDayTasks = getWorkloadTasks(bestForDay.Technician.Id, dayStart);
+                var winnerCandidateTask = new TaskEntity
+                {
+                    Id = nextTempTaskId, // peek only — not consumed; used as dict key for chain display
+                    TechnicianId = bestForDay.Technician.Id,
+                    ServiceObject = serviceObject,
+                    ServiceObjectId = serviceObject.Id,
+                    StartAt = _timeService.CreateUtcFromDateAndMinutes(dayStart, bestForDay.StartMinutes, timezoneOffsetMinutes),
+                    EndAt = _timeService.CreateUtcFromDateAndMinutes(dayStart, bestForDay.EndMinutes, timezoneOffsetMinutes),
+                    Title = string.Empty,
+                    Priority = priority,
+                    Status = ScheduleTaskStatus.InProgress,
+                    CreatedAt = DateTime.UtcNow
+                };
+                var winnerDayWithCandidate = winnerDayTasks
+                    .Append(winnerCandidateTask)
+                    .OrderBy(t => t.StartAt)
+                    .ToList();
+                var travelMap = CandidateScoreCalculator.BuildTravelMinutesByTaskIdFromLookup(
+                    bestForDay.Technician, winnerDayWithCandidate, routeLookup, strictRouteCoverage: false)
+                    ?? new Dictionary<long, int>();
+                var routeChain = string.Join("->",
+                    winnerDayWithCandidate.Select(t =>
+                        $"{t.ServiceObject?.AddressId ?? 0}@{(int)_timeService.ConvertUtcToLocal(t.StartAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes}+{travelMap.GetValueOrDefault(t.Id)}m"));
+
                 _logger.LogInformation(
-                    "svc.plan.auto-assign.decision object={ObjectName} requestedDate={RequestedDate} selectedDate={SelectedDate} technicianId={TechnicianId} technicianName={TechnicianName} locality={Locality} startMinutes={StartMinutes} endMinutes={EndMinutes} totalScore={TotalScore:F2} loadScore={LoadScore:F2} travelPenalty={TravelPenalty:F2} batchPenalty={BatchPenalty:F2} delayPenalty={DelayPenalty:F2} localityPenalty={LocalityPenalty:F2} spreadPenalty={SpreadPenalty:F2} candidateCountForSelectedDate={CandidateCountForSelectedDate} sameDayFeasibleCount={SameDayFeasibleCount}",
+                    "svc.plan.auto-assign.decision object={ObjectName} requestedDate={RequestedDate} selectedDate={SelectedDate} technicianId={TechnicianId} technicianName={TechnicianName} locality={Locality} startMinutes={StartMinutes} endMinutes={EndMinutes} totalScore={TotalScore:F2} loadScore={LoadScore:F2} travelPenalty={TravelPenalty:F2} batchPenalty={BatchPenalty:F2} delayPenalty={DelayPenalty:F2} localityPenalty={LocalityPenalty:F2} spreadPenalty={SpreadPenalty:F2} candidateCountForSelectedDate={CandidateCountForSelectedDate} sameDayFeasibleCount={SameDayFeasibleCount} routeChain={RouteChain}",
                     objectName,
                     requestedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                     bestForDay.TargetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
@@ -753,7 +856,8 @@ internal sealed class PlanServiceAssignmentMatching
                     bestForDay.ScoreBreakdown.LocalityPenalty,
                     bestForDay.ScoreBreakdown.SpreadPenalty,
                     rankedCandidates.Count,
-                    sameDayFeasibleCount);
+                    sameDayFeasibleCount,
+                    routeChain);
 
                 return new AutoAssignmentSuggestionDto
                 {
