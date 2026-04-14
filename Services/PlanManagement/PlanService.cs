@@ -273,6 +273,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 new CandidateScoreCalculator(),
                 new CandidateRankingService(),
                 technicianAvailabilityPolicy,
+                planScopeResolver,
                 new ForwardingLogger<PlanServiceAssignmentMatching>(logger));
 
             _taskCreation = new PlanServiceTaskCreation(

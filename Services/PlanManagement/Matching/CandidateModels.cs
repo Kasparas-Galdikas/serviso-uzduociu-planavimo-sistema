@@ -10,9 +10,10 @@ internal sealed record CandidateScoreBreakdown(
     double LocalityPenalty,
     double SkillPenalty = 0d,
     double ContinuityPenalty = 0d,
-    double SpreadPenalty = 0d)
+    double SpreadPenalty = 0d,
+    double StartTimePenalty = 0d)
 {
-    public double TotalScore => LoadScore + TravelPenalty + BatchPenalty + DelayPenalty + LocalityPenalty + SkillPenalty + ContinuityPenalty + SpreadPenalty;
+    public double TotalScore => LoadScore + TravelPenalty + BatchPenalty + DelayPenalty + LocalityPenalty + SkillPenalty + ContinuityPenalty + SpreadPenalty + StartTimePenalty;
 }
 
 internal sealed record RankedTechnicianCandidate(
@@ -21,4 +22,7 @@ internal sealed record RankedTechnicianCandidate(
     int StartMinutes,
     int EndMinutes,
     CandidateLocalityTier LocalityTier,
-    CandidateScoreBreakdown ScoreBreakdown);
+    CandidateScoreBreakdown ScoreBreakdown,
+    string CandidateSource = "generated",
+    bool WasRepaired = false,
+    int? OriginalStartMinutes = null);

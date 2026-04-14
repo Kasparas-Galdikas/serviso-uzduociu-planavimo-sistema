@@ -11,6 +11,7 @@ using ServiceTaskPlanningSystem.Models.DTOs.Requests;
 using ServiceTaskPlanningSystem.Models.DTOs.Responses;
 using ServiceTaskPlanningSystem.Models.Planning;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Matching;
+using ServiceTaskPlanningSystem.Services.PlanManagement.Repair;
 using ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared;
 using ServiceTaskPlanningSystem.Services.Scheduling;
 using ServiceTaskPlanningSystem.Services.Time;
@@ -32,12 +33,22 @@ internal sealed class PlanServiceAssignmentMatching
         public required Dictionary<long, ServiceObjectEntity> ServiceObjectsById { get; init; }
         public required Dictionary<string, ServiceObjectEntity> ServiceObjectsByName { get; init; }
         public required List<TaskEntity> PersistedWeekTasks { get; init; }
+        public required PlanScopeResolver.CurrentWorkScope DecisionScope { get; init; }
         public required Dictionary<(long From, long To), int> RouteLookup { get; init; }
         public required HashSet<long> RouteLookupAddressIds { get; init; }
         public required DateTime LoadRangeStart { get; init; }
         public required DateTime LoadRangeEndExclusive { get; init; }
         public required Dictionary<long, List<TechnicianBlockedInterval>> BlockedIntervalsByTechnician { get; init; }
     }
+
+    private sealed record CandidateProposal(
+        RankedTechnicianCandidate Candidate,
+        string ValidationSource,
+        string? ValidationMessage,
+        bool WasRepaired,
+        int? OriginalStartMinutes,
+        string ExistingDayTasks,
+        string SimulatedStops);
 
     /// <summary>
     /// Holds incrementally-updated state shared across all items in a bulk assignment loop.
@@ -122,6 +133,23 @@ internal sealed class PlanServiceAssignmentMatching
             if (stops.Count > 1 && task.StartAt < stops[^2].StartAt)
                 stops.Sort((a, b) => a.StartAt.CompareTo(b.StartAt));
         }
+
+        public IReadOnlyList<SimulatedTaskAssignmentDto> ExportSimulatedAssignments(int timezoneOffsetMinutes)
+        {
+            return AllWeekTasks
+                .Where(task => task.Id < 0 && task.ServiceObject != null)
+                .OrderBy(task => task.StartAt)
+                .Select(task => new SimulatedTaskAssignmentDto
+                {
+                    TechnicianId = task.TechnicianId,
+                    StartAt = task.StartAt.AddMinutes(-timezoneOffsetMinutes).ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture),
+                    EndAt = task.EndAt.AddMinutes(-timezoneOffsetMinutes).ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture),
+                    AddressId = task.ServiceObject!.AddressId,
+                    ServiceObjectId = task.ServiceObjectId > 0 ? task.ServiceObjectId : null,
+                    SourceBacklogItemId = task.SourceBacklogItemId
+                })
+                .ToList();
+        }
     }
 
     private readonly ScheduleDbContext _db;
@@ -135,6 +163,7 @@ internal sealed class PlanServiceAssignmentMatching
     private readonly CandidateScoreCalculator _scoreCalculator;
     private readonly CandidateRankingService _rankingService;
     private readonly TechnicianUnavailabilityReader _unavailabilityReader;
+    private readonly PlanScopeResolver _planScopeResolver;
     private readonly ILogger<PlanServiceAssignmentMatching> _logger;
 
     public PlanServiceAssignmentMatching(
@@ -149,6 +178,7 @@ internal sealed class PlanServiceAssignmentMatching
         CandidateScoreCalculator scoreCalculator,
         CandidateRankingService rankingService,
         TechnicianUnavailabilityReader unavailabilityReader,
+        PlanScopeResolver planScopeResolver,
         ILogger<PlanServiceAssignmentMatching> logger)
     {
         _db = db;
@@ -162,6 +192,7 @@ internal sealed class PlanServiceAssignmentMatching
         _scoreCalculator = scoreCalculator;
         _rankingService = rankingService;
         _unavailabilityReader = unavailabilityReader;
+        _planScopeResolver = planScopeResolver;
         _logger = logger;
     }
 
@@ -187,6 +218,10 @@ internal sealed class PlanServiceAssignmentMatching
         var bulkState = sharedContext != null
             ? new BulkMatchingState(sharedContext.PersistedWeekTasks, sharedContext.Technicians)
             : null;
+        if (bulkState != null)
+        {
+            await SeedResolvedAssignmentsAsync(items, bulkState, sharedContext!, cancellationToken);
+        }
 
         for (var si = 0; si < sortedIndexes.Count; si++)
         {
@@ -225,11 +260,11 @@ internal sealed class PlanServiceAssignmentMatching
             {
                 // When bulkState is active, accumulated assignments live there; only pass
                 // item-specific simulated assignments to avoid rebuilding the accumulated list.
-                var simulatedAssignmentsForCore = bulkState != null
-                    ? item.SimulatedAssignments
-                    : (item.SimulatedAssignments ?? new List<SimulatedTaskAssignmentDto>())
-                        .Concat(accumulatedSimulatedAssignments)
-                        .ToList();
+                var simulatedAssignmentsForCore = MergeSimulatedAssignmentsForBulkItem(
+                    item.SimulatedAssignments,
+                    bulkState,
+                    accumulatedSimulatedAssignments,
+                    item.TimezoneOffsetMinutes);
 
                 _logger.LogDebug(
                     "svc.plan.auto-assign.batch-context index={Index} batchSize={BatchSize} activeTechnicianCount={ActiveTechnicianCount} batchCounts={BatchCounts}",
@@ -353,11 +388,28 @@ internal sealed class PlanServiceAssignmentMatching
         var bulkState = sharedContext != null
             ? new BulkMatchingState(sharedContext.PersistedWeekTasks, sharedContext.Technicians)
             : null;
+        if (bulkState != null)
+        {
+            await SeedResolvedAssignmentsAsync(items, bulkState, sharedContext!, cancellationToken);
+        }
 
         for (var si = 0; si < sortedIndexes.Count; si++)
         {
             var i = sortedIndexes[si];
             var item = items[i];
+
+            if (TryBuildResolvedSuggestion(item, sharedContext, out var resolvedSuggestion))
+            {
+                suggestions[i] = resolvedSuggestion;
+                _logger.LogInformation(
+                    "svc.plan.auto-assign.bulk-suggest.resolved index={Index} technicianId={TechnicianId} targetDate={TargetDate} startMinutes={StartMinutes} endMinutes={EndMinutes}",
+                    i,
+                    resolvedSuggestion.TechnicianId,
+                    resolvedSuggestion.TargetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    resolvedSuggestion.StartMinutes,
+                    resolvedSuggestion.EndMinutes);
+                continue;
+            }
 
             if (!DateTime.TryParseExact(
                     item.TargetDate,
@@ -372,11 +424,11 @@ internal sealed class PlanServiceAssignmentMatching
 
             try
             {
-                var simulatedAssignmentsForCore = bulkState != null
-                    ? item.SimulatedAssignments
-                    : (item.SimulatedAssignments ?? new List<SimulatedTaskAssignmentDto>())
-                        .Concat(accumulatedSimulatedAssignments)
-                        .ToList();
+                var simulatedAssignmentsForCore = MergeSimulatedAssignmentsForBulkItem(
+                    item.SimulatedAssignments,
+                    bulkState,
+                    accumulatedSimulatedAssignments,
+                    item.TimezoneOffsetMinutes);
 
                 _logger.LogDebug(
                     "svc.plan.auto-assign.batch-context index={Index} batchSize={BatchSize} activeTechnicianCount={ActiveTechnicianCount} batchCounts={BatchCounts}",
@@ -686,7 +738,9 @@ internal sealed class PlanServiceAssignmentMatching
         foreach (var candidateDate in candidateDates)
         {
             var dayStart = candidateDate.Date;
-            var rankedCandidates = new List<RankedTechnicianCandidate>();
+            var candidateProposals = new List<CandidateProposal>();
+            var earlierRejectedCount = 0;
+            var repairedCandidateCount = 0;
 
             foreach (var technician in localityPool.Technicians)
             {
@@ -700,7 +754,7 @@ internal sealed class PlanServiceAssignmentMatching
                     dayStart,
                     timezoneOffsetMinutes);
 
-                var candidateStarts = _slotGenerator.GenerateCandidateStartMinutes(
+                var candidateStarts = _slotGenerator.GenerateCandidateStartOptions(
                     technician,
                     technicianDayTasks,
                     dayStart,
@@ -711,18 +765,32 @@ internal sealed class PlanServiceAssignmentMatching
                     dayBlockedWindows);
 
                 var simulatedStops = getSimulatedStops(technician.Id, dayStart);
+                var dayTasksSummary = BuildTaskSummary(technicianDayTasks, timezoneOffsetMinutes);
+                var simulatedStopsSummary = BuildSimulatedStopsSummary(simulatedStops, timezoneOffsetMinutes);
 
-                foreach (var candidateStartMinutes in candidateStarts)
+                _logger.LogInformation(
+                    "svc.plan.auto-assign.candidate-starts object={ObjectName} date={Date} technicianId={TechnicianId} technicianName={TechnicianName} starts={Starts} scopeKind={ScopeKind} planId={PlanId} dayTasks={DayTasks} simulatedStops={SimulatedStops}",
+                    objectName,
+                    dayStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    technician.Id,
+                    technician.User?.Name ?? $"Technician #{technician.Id}",
+                    string.Join(",", candidateStarts.Select(start => $"{start.StartMinutes}:{start.Source}")),
+                    sharedContext?.DecisionScope.ScopeKind ?? "assignment-current-work+simulated",
+                    sharedContext?.DecisionScope.PrimaryPlanId,
+                    dayTasksSummary,
+                    simulatedStopsSummary);
+
+                foreach (var candidateStart in candidateStarts)
                 {
                     var candidateStartAt = _timeService.CreateUtcFromDateAndMinutes(
                         dayStart,
-                        candidateStartMinutes,
+                        candidateStart.StartMinutes,
                         timezoneOffsetMinutes);
                     var candidateEndAt = candidateStartAt.AddMinutes(durationMinutes);
 
                     var validation = await _placementValidator.ValidateTimingAndTravelAsync(
                         taskDateLocal: dayStart,
-                        startMinutesLocal: candidateStartMinutes,
+                        startMinutesLocal: candidateStart.StartMinutes,
                         timezoneOffsetMinutes: timezoneOffsetMinutes,
                         technicianId: technician.Id,
                         startAtUtc: candidateStartAt,
@@ -731,65 +799,100 @@ internal sealed class PlanServiceAssignmentMatching
                         excludeTaskId: null,
                         cancellationToken: cancellationToken,
                         simulatedStops: simulatedStops,
-                        checkOverlap: true);
+                        checkOverlap: true,
+                        planId: sharedContext?.DecisionScope.PrimaryPlanId);
 
-                    if (!validation.IsValid)
+                    var proposal = await MaterializeCandidateProposalAsync(
+                        validation,
+                        dayStart,
+                        candidateStart.StartMinutes,
+                        durationMinutes,
+                        technician,
+                        technicianDayTasks,
+                        technicianWeekTasks,
+                        serviceObject,
+                        priority,
+                        routeLookup,
+                        requestedDate,
+                        batchAssignmentCounts?.GetValueOrDefault(technician.Id) ?? 0,
+                        localityPool.Tier,
+                        timezoneOffsetMinutes,
+                        nextTempTaskId,
+                        simulatedStops,
+                        cancellationToken,
+                        candidateStart.Source,
+                        dayTasksSummary,
+                        simulatedStopsSummary,
+                        sharedContext?.DecisionScope.PrimaryPlanId);
+
+                    if (proposal == null)
                     {
+                        earlierRejectedCount++;
+                        _logger.LogInformation(
+                            "svc.plan.auto-assign.candidate-rejected object={ObjectName} date={Date} technicianId={TechnicianId} startMinutes={StartMinutes} source={Source} rejectReason={RejectReason} message={Message}",
+                            objectName,
+                            dayStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                            technician.Id,
+                            candidateStart.StartMinutes,
+                            candidateStart.Source,
+                            MapRejectionReason(validation),
+                            validation.Message ?? string.Empty);
                         continue;
                     }
 
-                    // Pass the candidate task directly instead of copying allWeekTasks
-                    var candidateTask = new TaskEntity
+                    if (candidateProposals.Any(existing =>
+                        existing.Candidate.Technician.Id == proposal.Candidate.Technician.Id &&
+                        existing.Candidate.TargetDate == proposal.Candidate.TargetDate &&
+                        existing.Candidate.StartMinutes == proposal.Candidate.StartMinutes &&
+                        existing.Candidate.EndMinutes == proposal.Candidate.EndMinutes))
                     {
-                        Id = nextTempTaskId--,
-                        PlanId = 0,
-                        TechnicianId = technician.Id,
-                        ServiceObjectId = serviceObject.Id,
-                        ServiceObject = serviceObject,
-                        Technician = technician,
-                        Title = string.Empty,
-                        StartAt = candidateStartAt,
-                        EndAt = candidateEndAt,
-                        Priority = priority,
-                        Status = ScheduleTaskStatus.InProgress,
-                        CreatedAt = DateTime.UtcNow
-                    };
+                        _logger.LogInformation(
+                            "svc.plan.auto-assign.candidate-duplicate object={ObjectName} date={Date} technicianId={TechnicianId} startMinutes={StartMinutes} source={Source}",
+                            objectName,
+                            dayStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                            technician.Id,
+                            proposal.Candidate.StartMinutes,
+                            proposal.Candidate.CandidateSource);
+                        continue;
+                    }
 
-                    rankedCandidates.Add(_scoreCalculator.BuildRankedCandidate(
-                        technician,
-                        requestedDate,
-                        dayStart,
-                        technicianDayTasks,
-                        technicianWeekTasks,
-                        candidateTask,
-                        routeLookup,
-                        batchAssignmentCounts?.GetValueOrDefault(technician.Id) ?? 0,
-                        localityPool.Tier,
-                        candidateStartMinutes,
-                        candidateStartMinutes + durationMinutes));
+                    nextTempTaskId--;
+                    if (proposal.WasRepaired)
+                    {
+                        repairedCandidateCount++;
+                        _logger.LogInformation(
+                            "svc.plan.auto-assign.candidate-repaired object={ObjectName} date={Date} technicianId={TechnicianId} originalStartMinutes={OriginalStartMinutes} repairedStartMinutes={RepairedStartMinutes} source={Source} validationSource={ValidationSource} message={Message}",
+                            objectName,
+                            dayStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                            technician.Id,
+                            proposal.OriginalStartMinutes,
+                            proposal.Candidate.StartMinutes,
+                            proposal.Candidate.CandidateSource,
+                            proposal.ValidationSource,
+                            proposal.ValidationMessage ?? string.Empty);
+                    }
+
+                    candidateProposals.Add(proposal);
                 }
             }
 
             if (dayStart == requestedDate.Date)
             {
-                sameDayFeasibleCount = rankedCandidates.Count;
+                sameDayFeasibleCount = candidateProposals.Count;
             }
 
+            var rankedCandidates = candidateProposals.Select(proposal => proposal.Candidate).ToList();
             var bestForDay = _rankingService.SelectBest(rankedCandidates);
 
-            if (rankedCandidates.Count > 0)
+            if (candidateProposals.Count > 0)
             {
-                var allRanked = rankedCandidates.OrderBy(c => c.ScoreBreakdown.TotalScore).ToList();
+                var allRanked = candidateProposals.OrderBy(c => c.Candidate.ScoreBreakdown.TotalScore).ToList();
                 for (var rank = 0; rank < allRanked.Count; rank++)
                 {
-                    var c = allRanked[rank];
-                    var techDayTasks = getWorkloadTasks(c.Technician.Id, dayStart);
-                    var dayTasksSummary = techDayTasks.Count == 0
-                        ? "none"
-                        : string.Join(",", techDayTasks.OrderBy(t => t.StartAt).Select(t =>
-                            $"{t.Id}@{(int)_timeService.ConvertUtcToLocal(t.StartAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes}-{(int)_timeService.ConvertUtcToLocal(t.EndAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes}"));
+                    var proposal = allRanked[rank];
+                    var c = proposal.Candidate;
                     _logger.LogInformation(
-                        "svc.plan.auto-assign.candidate object={ObjectName} date={Date} rank={Rank} technicianId={TechnicianId} technicianName={TechnicianName} totalScore={TotalScore:F1} loadScore={LoadScore:F1} travelPenalty={TravelPenalty:F1} batchPenalty={BatchPenalty:F1} delayPenalty={DelayPenalty:F1} localityPenalty={LocalityPenalty:F1} skillPenalty={SkillPenalty:F1} continuityPenalty={ContinuityPenalty:F1} spreadPenalty={SpreadPenalty:F1} startMinutes={StartMinutes} dayTaskCount={DayTaskCount} dayTasks={DayTasks}",
+                        "svc.plan.auto-assign.candidate object={ObjectName} date={Date} rank={Rank} technicianId={TechnicianId} technicianName={TechnicianName} totalScore={TotalScore:F1} loadScore={LoadScore:F1} travelPenalty={TravelPenalty:F1} batchPenalty={BatchPenalty:F1} delayPenalty={DelayPenalty:F1} localityPenalty={LocalityPenalty:F1} skillPenalty={SkillPenalty:F1} continuityPenalty={ContinuityPenalty:F1} spreadPenalty={SpreadPenalty:F1} startMinutes={StartMinutes} source={Source} wasRepaired={WasRepaired} originalStartMinutes={OriginalStartMinutes} validationSource={ValidationSource} dayTasks={DayTasks} simulatedStops={SimulatedStops}",
                         objectName,
                         dayStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                         rank,
@@ -805,13 +908,22 @@ internal sealed class PlanServiceAssignmentMatching
                         c.ScoreBreakdown.ContinuityPenalty,
                         c.ScoreBreakdown.SpreadPenalty,
                         c.StartMinutes,
-                        techDayTasks.Count,
-                        dayTasksSummary);
+                        c.CandidateSource,
+                        c.WasRepaired,
+                        c.OriginalStartMinutes,
+                        proposal.ValidationSource,
+                        proposal.ExistingDayTasks,
+                        proposal.SimulatedStops);
                 }
             }
 
             if (bestForDay != null)
             {
+                var bestProposal = candidateProposals.First(proposal =>
+                    proposal.Candidate.Technician.Id == bestForDay.Technician.Id &&
+                    proposal.Candidate.TargetDate == bestForDay.TargetDate &&
+                    proposal.Candidate.StartMinutes == bestForDay.StartMinutes &&
+                    proposal.Candidate.EndMinutes == bestForDay.EndMinutes);
                 // Build compact route chain for the winner (re-uses routeLookup already in memory)
                 var winnerDayTasks = getWorkloadTasks(bestForDay.Technician.Id, dayStart);
                 var winnerCandidateTask = new TaskEntity
@@ -839,7 +951,7 @@ internal sealed class PlanServiceAssignmentMatching
                         $"{t.ServiceObject?.AddressId ?? 0}@{(int)_timeService.ConvertUtcToLocal(t.StartAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes}+{travelMap.GetValueOrDefault(t.Id)}m"));
 
                 _logger.LogInformation(
-                    "svc.plan.auto-assign.decision object={ObjectName} requestedDate={RequestedDate} selectedDate={SelectedDate} technicianId={TechnicianId} technicianName={TechnicianName} locality={Locality} startMinutes={StartMinutes} endMinutes={EndMinutes} totalScore={TotalScore:F2} loadScore={LoadScore:F2} travelPenalty={TravelPenalty:F2} batchPenalty={BatchPenalty:F2} delayPenalty={DelayPenalty:F2} localityPenalty={LocalityPenalty:F2} spreadPenalty={SpreadPenalty:F2} candidateCountForSelectedDate={CandidateCountForSelectedDate} sameDayFeasibleCount={SameDayFeasibleCount} routeChain={RouteChain}",
+                    "svc.plan.auto-assign.decision object={ObjectName} requestedDate={RequestedDate} selectedDate={SelectedDate} technicianId={TechnicianId} technicianName={TechnicianName} locality={Locality} startMinutes={StartMinutes} endMinutes={EndMinutes} totalScore={TotalScore:F2} loadScore={LoadScore:F2} travelPenalty={TravelPenalty:F2} batchPenalty={BatchPenalty:F2} delayPenalty={DelayPenalty:F2} localityPenalty={LocalityPenalty:F2} spreadPenalty={SpreadPenalty:F2} candidateCountForSelectedDate={CandidateCountForSelectedDate} sameDayFeasibleCount={SameDayFeasibleCount} earlierFeasibleCount={EarlierFeasibleCount} earlierRejectedCount={EarlierRejectedCount} repairedCandidateCount={RepairedCandidateCount} source={Source} selectedBecause={SelectedBecause} scopeKind={ScopeKind} planId={PlanId} routeChain={RouteChain} dayTasks={DayTasks} simulatedStops={SimulatedStops}",
                     objectName,
                     requestedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                     bestForDay.TargetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
@@ -857,7 +969,16 @@ internal sealed class PlanServiceAssignmentMatching
                     bestForDay.ScoreBreakdown.SpreadPenalty,
                     rankedCandidates.Count,
                     sameDayFeasibleCount,
-                    routeChain);
+                    rankedCandidates.Count(c => c.StartMinutes <= bestForDay.StartMinutes),
+                    earlierRejectedCount,
+                    repairedCandidateCount,
+                    bestForDay.CandidateSource,
+                    BuildSelectionReason(bestForDay),
+                    sharedContext?.DecisionScope.ScopeKind ?? "assignment-current-work+simulated",
+                    sharedContext?.DecisionScope.PrimaryPlanId,
+                    routeChain,
+                    bestProposal.ExistingDayTasks,
+                    bestProposal.SimulatedStops);
 
                 return new AutoAssignmentSuggestionDto
                 {
@@ -886,6 +1007,248 @@ internal sealed class PlanServiceAssignmentMatching
             localityPool.Label);
 
         return null;
+    }
+
+    private async Task<CandidateProposal?> MaterializeCandidateProposalAsync(
+        SchedulePlacementValidator.TimingTravelValidationResult validation,
+        DateTime dayStart,
+        int candidateStartMinutes,
+        int durationMinutes,
+        TechnicianEntity technician,
+        IReadOnlyList<TaskEntity> technicianDayTasks,
+        IReadOnlyList<TaskEntity> technicianWeekTasks,
+        ServiceObjectEntity serviceObject,
+        TaskPriority priority,
+        IReadOnlyDictionary<(long From, long To), int> routeLookup,
+        DateTime requestedDate,
+        int batchAssignmentCount,
+        CandidateLocalityTier localityTier,
+        int timezoneOffsetMinutes,
+        long tempTaskId,
+        IReadOnlyList<ProposedRouteStop> simulatedStops,
+        CancellationToken cancellationToken,
+        string candidateSource,
+        string dayTasksSummary,
+        string simulatedStopsSummary,
+        long? planId)
+    {
+        if (validation.IsValid)
+        {
+            return BuildCandidateProposal(
+                technician,
+                technicianDayTasks,
+                technicianWeekTasks,
+                serviceObject,
+                priority,
+                routeLookup,
+                requestedDate,
+                batchAssignmentCount,
+                localityTier,
+                dayStart,
+                candidateStartMinutes,
+                durationMinutes,
+                tempTaskId,
+                timezoneOffsetMinutes,
+                candidateSource,
+                wasRepaired: false,
+                originalStartMinutes: null,
+                validationSource: "direct",
+                validationMessage: validation.Message,
+                dayTasksSummary,
+                simulatedStopsSummary);
+        }
+
+        if (validation.RepairPlan?.Success != true || validation.RepairPlan.PrimaryPlacement == null)
+        {
+            return null;
+        }
+
+        var repairedPlacement = validation.RepairPlan.PrimaryPlacement;
+        var repairedStartLocal = _timeService.ConvertUtcToLocal(repairedPlacement.StartAt, timezoneOffsetMinutes);
+        var repairedEndLocal = _timeService.ConvertUtcToLocal(repairedPlacement.EndAt, timezoneOffsetMinutes);
+        if (repairedStartLocal.Date != dayStart.Date || repairedEndLocal.Date != dayStart.Date)
+        {
+            return null;
+        }
+
+        var repairedStartMinutes = (int)repairedStartLocal.TimeOfDay.TotalMinutes;
+        var repairedEndMinutes = (int)repairedEndLocal.TimeOfDay.TotalMinutes;
+        var repairedValidation = await _placementValidator.ValidateTimingAndTravelAsync(
+            taskDateLocal: dayStart,
+            startMinutesLocal: repairedStartMinutes,
+            timezoneOffsetMinutes: timezoneOffsetMinutes,
+            technicianId: technician.Id,
+            startAtUtc: repairedPlacement.StartAt,
+            endAtUtc: repairedPlacement.EndAt,
+            serviceAddressId: serviceObject.AddressId,
+            excludeTaskId: null,
+            cancellationToken: cancellationToken,
+            simulatedStops: simulatedStops,
+            checkOverlap: true,
+            planId: planId);
+
+        if (!repairedValidation.IsValid)
+        {
+            return null;
+        }
+
+        return BuildCandidateProposal(
+            technician,
+            technicianDayTasks,
+            technicianWeekTasks,
+            serviceObject,
+            priority,
+            routeLookup,
+            requestedDate,
+            batchAssignmentCount,
+            localityTier,
+            dayStart,
+            repairedStartMinutes,
+            repairedEndMinutes - repairedStartMinutes,
+            tempTaskId,
+            timezoneOffsetMinutes,
+            $"repaired:{candidateSource}",
+            wasRepaired: true,
+            originalStartMinutes: candidateStartMinutes,
+            validationSource: "repair",
+            validationMessage: validation.Message,
+            dayTasksSummary,
+            simulatedStopsSummary);
+    }
+
+    private CandidateProposal BuildCandidateProposal(
+        TechnicianEntity technician,
+        IReadOnlyList<TaskEntity> technicianDayTasks,
+        IReadOnlyList<TaskEntity> technicianWeekTasks,
+        ServiceObjectEntity serviceObject,
+        TaskPriority priority,
+        IReadOnlyDictionary<(long From, long To), int> routeLookup,
+        DateTime requestedDate,
+        int batchAssignmentCount,
+        CandidateLocalityTier localityTier,
+        DateTime dayStart,
+        int startMinutes,
+        int durationMinutes,
+        long tempTaskId,
+        int timezoneOffsetMinutes,
+        string candidateSource,
+        bool wasRepaired,
+        int? originalStartMinutes,
+        string validationSource,
+        string? validationMessage,
+        string dayTasksSummary,
+        string simulatedStopsSummary)
+    {
+        var candidateStartAt = _timeService.CreateUtcFromDateAndMinutes(
+            dayStart,
+            startMinutes,
+            timezoneOffsetMinutes);
+
+        var candidateTask = new TaskEntity
+        {
+            Id = tempTaskId,
+            PlanId = 0,
+            TechnicianId = technician.Id,
+            ServiceObjectId = serviceObject.Id,
+            ServiceObject = serviceObject,
+            Technician = technician,
+            Title = string.Empty,
+            StartAt = candidateStartAt,
+            EndAt = candidateStartAt.AddMinutes(durationMinutes),
+            Priority = priority,
+            Status = ScheduleTaskStatus.InProgress,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        var candidate = _scoreCalculator.BuildRankedCandidate(
+            technician,
+            requestedDate,
+            dayStart,
+            technicianDayTasks,
+            technicianWeekTasks,
+            candidateTask,
+            routeLookup,
+            batchAssignmentCount,
+            localityTier,
+            startMinutes,
+            startMinutes + durationMinutes,
+            candidateSource,
+            wasRepaired,
+            originalStartMinutes);
+
+        return new CandidateProposal(
+            candidate,
+            validationSource,
+            validationMessage,
+            wasRepaired,
+            originalStartMinutes,
+            dayTasksSummary,
+            simulatedStopsSummary);
+    }
+
+    private string BuildTaskSummary(IEnumerable<TaskEntity> tasks, int timezoneOffsetMinutes)
+    {
+        var orderedTasks = tasks
+            .OrderBy(task => task.StartAt)
+            .ToList();
+        return orderedTasks.Count == 0
+            ? "none"
+            : string.Join(",", orderedTasks.Select(task =>
+                $"{task.Id}@{(int)_timeService.ConvertUtcToLocal(task.StartAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes}-{(int)_timeService.ConvertUtcToLocal(task.EndAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes}"));
+    }
+
+    private string BuildSimulatedStopsSummary(IEnumerable<ProposedRouteStop> simulatedStops, int timezoneOffsetMinutes)
+    {
+        var orderedStops = simulatedStops
+            .OrderBy(stop => stop.StartAt)
+            .ToList();
+        return orderedStops.Count == 0
+            ? "none"
+            : string.Join(",", orderedStops.Select(stop =>
+                $"{stop.AddressId}@{(int)_timeService.ConvertUtcToLocal(stop.StartAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes}-{(int)_timeService.ConvertUtcToLocal(stop.EndAt, timezoneOffsetMinutes).TimeOfDay.TotalMinutes}"));
+    }
+
+    private static string MapRejectionReason(SchedulePlacementValidator.TimingTravelValidationResult validation)
+    {
+        if (validation.IsInvalidWindow)
+        {
+            return "invalid-window";
+        }
+
+        if (validation.ViolationKind != SchedulePlacementValidator.TimingTravelViolationKind.TravelInfeasible)
+        {
+            return "unknown";
+        }
+
+        if (validation.Message?.Contains("persidengia", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return "overlap";
+        }
+
+        return validation.RepairContext.Cause switch
+        {
+            SchedulePlacementValidator.TravelRepairCause.BlockedBeforeStart => "blocked-window",
+            SchedulePlacementValidator.TravelRepairCause.BlockedAfterEnd => "blocked-window",
+            _ => "travel-infeasible"
+        };
+    }
+
+    private static string BuildSelectionReason(RankedTechnicianCandidate candidate)
+    {
+        var dominantPenalty = new[]
+        {
+            ("travel", candidate.ScoreBreakdown.TravelPenalty),
+            ("batch", candidate.ScoreBreakdown.BatchPenalty),
+            ("delay", candidate.ScoreBreakdown.DelayPenalty),
+            ("locality", candidate.ScoreBreakdown.LocalityPenalty),
+            ("spread", candidate.ScoreBreakdown.SpreadPenalty)
+        }
+        .OrderByDescending(item => item.Item2)
+        .First();
+
+        return dominantPenalty.Item2 <= 0
+            ? $"lowest-total-score load={candidate.ScoreBreakdown.LoadScore:F1}"
+            : $"lowest-total-score dominant={dominantPenalty.Item1}:{dominantPenalty.Item2:F1}";
     }
 
     private async Task<List<TaskEntity>> BuildSimulatedTasks(
@@ -953,6 +1316,144 @@ internal sealed class PlanServiceAssignmentMatching
         return tasks;
     }
 
+    private List<SimulatedTaskAssignmentDto>? MergeSimulatedAssignmentsForBulkItem(
+        List<SimulatedTaskAssignmentDto>? clientSimulatedAssignments,
+        BulkMatchingState? bulkState,
+        List<SimulatedTaskAssignmentDto> accumulatedSimulatedAssignments,
+        int timezoneOffsetMinutes)
+    {
+        if (bulkState == null)
+        {
+            return (clientSimulatedAssignments ?? new List<SimulatedTaskAssignmentDto>())
+                .Concat(accumulatedSimulatedAssignments)
+                .ToList();
+        }
+
+        var merged = new List<SimulatedTaskAssignmentDto>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        void Append(IEnumerable<SimulatedTaskAssignmentDto>? assignments)
+        {
+            if (assignments == null)
+            {
+                return;
+            }
+
+            foreach (var assignment in assignments)
+            {
+                if (assignment.TechnicianId <= 0 ||
+                    string.IsNullOrWhiteSpace(assignment.StartAt) ||
+                    string.IsNullOrWhiteSpace(assignment.EndAt))
+                {
+                    continue;
+                }
+
+                var dedupeKey = $"{assignment.TechnicianId}|{assignment.StartAt}|{assignment.EndAt}|{assignment.AddressId}|{assignment.ServiceObjectId}";
+                if (!seen.Add(dedupeKey))
+                {
+                    continue;
+                }
+
+                merged.Add(assignment);
+            }
+        }
+
+        Append(clientSimulatedAssignments);
+        Append(bulkState.ExportSimulatedAssignments(timezoneOffsetMinutes));
+
+        return merged;
+    }
+
+    private async Task SeedResolvedAssignmentsAsync(
+        IReadOnlyList<CreateTaskRequestDto> items,
+        BulkMatchingState bulkState,
+        AssignmentMatchingContext sharedContext,
+        CancellationToken cancellationToken)
+    {
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            if (!TryParseResolvedAssignment(item, out var targetDate))
+            {
+                continue;
+            }
+
+            var serviceObject = TryResolveServiceObject(sharedContext, item.ObjectId, item.ObjectName)
+                ?? await ResolveServiceObjectAsync(item.ObjectId, item.ObjectName, cancellationToken);
+            if (serviceObject == null)
+            {
+                continue;
+            }
+
+            var startAtUtc = _timeService.CreateUtcFromDateAndMinutes(
+                targetDate,
+                item.StartMinutes,
+                item.TimezoneOffsetMinutes);
+            var endAtUtc = _timeService.CreateUtcFromDateAndMinutes(
+                targetDate,
+                item.EndMinutes,
+                item.TimezoneOffsetMinutes);
+
+            bulkState.AppendSimulatedTask(new TaskEntity
+            {
+                Id = bulkState.AllocateTempId(),
+                TechnicianId = item.TechnicianId,
+                ServiceObjectId = serviceObject.Id,
+                ServiceObject = serviceObject,
+                Title = string.Empty,
+                StartAt = startAtUtc,
+                EndAt = endAtUtc,
+                Priority = item.Priority,
+                Status = ScheduleTaskStatus.InProgress,
+                CreatedAt = DateTime.UtcNow,
+                SourceBacklogItemId = item.SourceBacklogItemId
+            });
+
+            _logger.LogInformation(
+                "svc.plan.auto-assign.bulk-seed index={Index} technicianId={TechnicianId} targetDate={TargetDate} startMinutes={StartMinutes} endMinutes={EndMinutes}",
+                i,
+                item.TechnicianId,
+                targetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                item.StartMinutes,
+                item.EndMinutes);
+        }
+    }
+
+    private bool TryBuildResolvedSuggestion(
+        CreateTaskRequestDto item,
+        AssignmentMatchingContext? sharedContext,
+        out AutoAssignmentSuggestionDto suggestion)
+    {
+        suggestion = null!;
+        if (!TryParseResolvedAssignment(item, out var targetDate))
+        {
+            return false;
+        }
+
+        suggestion = new AutoAssignmentSuggestionDto
+        {
+            TechnicianId = item.TechnicianId,
+            TechnicianName = sharedContext?.Technicians.FirstOrDefault(t => t.Id == item.TechnicianId)?.User?.Name ?? string.Empty,
+            TargetDate = targetDate,
+            StartMinutes = item.StartMinutes,
+            EndMinutes = item.EndMinutes
+        };
+        return true;
+    }
+
+    private static bool TryParseResolvedAssignment(CreateTaskRequestDto item, out DateTime targetDate)
+    {
+        targetDate = default;
+        return item.TechnicianId > 0 &&
+               item.EndMinutes > item.StartMinutes &&
+               DateTime.TryParseExact(
+                   item.TargetDate,
+                   "yyyy-MM-dd",
+                   CultureInfo.InvariantCulture,
+                   DateTimeStyles.None,
+                   out targetDate);
+    }
+
     private async Task<AssignmentMatchingContext?> BuildAssignmentMatchingContextAsync(
         IReadOnlyList<AssignmentContextRequest> requests,
         CancellationToken cancellationToken)
@@ -1017,6 +1518,13 @@ internal sealed class PlanServiceAssignmentMatching
                     .GroupBy(so => so.Name, StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase),
                 PersistedWeekTasks = new List<TaskEntity>(),
+                DecisionScope = new PlanScopeResolver.CurrentWorkScope(
+                    "assignment-current-work+simulated",
+                    null,
+                    null,
+                    Array.Empty<long>(),
+                    Array.Empty<long>(),
+                    IncludeUnplanned: true),
                 RouteLookup = new Dictionary<(long From, long To), int>(),
                 RouteLookupAddressIds = new HashSet<long>(),
                 LoadRangeStart = DateTime.MaxValue,
@@ -1028,14 +1536,29 @@ internal sealed class PlanServiceAssignmentMatching
         var weekBoundary = _timeService.GetWeekBoundary(candidateDates[0]);
         var loadRangeStart = weekBoundary.LocalStart;
         var loadRangeEndExclusive = weekBoundary.LocalEndExclusive;
+        var decisionScope = await _planScopeResolver.ResolveCurrentWorkScopeAsync(
+            loadRangeStart,
+            loadRangeEndExclusive,
+            cancellationToken);
 
-        var persistedWeekTasks = await _db.Tasks
+        var persistedWeekTasksQuery = _db.Tasks
             .AsNoTracking()
             .Include(t => t.ServiceObject)
             .Include(t => t.Technician)
                 .ThenInclude(t => t.User)
-            .Where(t => t.StartAt >= loadRangeStart && t.StartAt < loadRangeEndExclusive)
+            .Where(t => t.StartAt >= loadRangeStart && t.StartAt < loadRangeEndExclusive);
+        var persistedWeekTasks = await _planScopeResolver.ApplyCurrentWorkScope(persistedWeekTasksQuery, decisionScope)
             .ToListAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "svc.plan.auto-assign.scope scopeKind={ScopeKind} primaryPlanId={PrimaryPlanId} primaryPlanStatus={PrimaryPlanStatus} includedPlanIds={IncludedPlanIds} excludedPlanIds={ExcludedPlanIds} includeUnplanned={IncludeUnplanned} persistedTaskCount={PersistedTaskCount}",
+            decisionScope.ScopeKind,
+            decisionScope.PrimaryPlanId,
+            decisionScope.PrimaryPlanStatus,
+            string.Join(",", decisionScope.IncludedPlanIds),
+            string.Join(",", decisionScope.ExcludedPlanIds),
+            decisionScope.IncludeUnplanned,
+            persistedWeekTasks.Count);
 
         var addressIds = persistedWeekTasks
             .Where(t => t.ServiceObject != null)
@@ -1064,6 +1587,7 @@ internal sealed class PlanServiceAssignmentMatching
                 .GroupBy(so => so.Name, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase),
             PersistedWeekTasks = persistedWeekTasks,
+            DecisionScope = decisionScope,
             RouteLookup = routeLookup,
             RouteLookupAddressIds = addressIds.ToHashSet(),
             LoadRangeStart = loadRangeStart,

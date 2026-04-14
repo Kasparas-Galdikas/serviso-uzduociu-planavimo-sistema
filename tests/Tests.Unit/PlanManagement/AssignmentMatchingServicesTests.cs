@@ -236,6 +236,97 @@ public sealed class AssignmentMatchingServicesTests
     }
 
     [Fact]
+    public void CandidateScoreCalculator_TreatsOverloadAsHigherCostThanIdleCandidate()
+    {
+        var calculator = new CandidateScoreCalculator();
+        var overloadedTechnician = new TechnicianEntity
+        {
+            Id = 1,
+            WorkplaceAddressId = 100,
+            DailyLimit = 8,
+            WeeklyLimit = 40
+        };
+        var idleTechnician = new TechnicianEntity
+        {
+            Id = 2,
+            WorkplaceAddressId = 101,
+            DailyLimit = 8,
+            WeeklyLimit = 40
+        };
+        var serviceObject = new ServiceObjectEntity
+        {
+            Id = 10,
+            AddressId = 200,
+            Name = "Obj-1"
+        };
+        var day = DateTime.UtcNow.Date.AddDays(1);
+
+        var overloadedDayTasks = new List<TaskEntity>
+        {
+            new()
+            {
+                Id = 1,
+                TechnicianId = 1,
+                ServiceObjectId = serviceObject.Id,
+                ServiceObject = serviceObject,
+                StartAt = day.AddHours(8),
+                EndAt = day.AddHours(16),
+                Status = ScheduleTaskStatus.InProgress
+            }
+        };
+
+        var overloadedCandidate = calculator.BuildRankedCandidate(
+            overloadedTechnician,
+            day,
+            day,
+            overloadedDayTasks,
+            overloadedDayTasks,
+            new TaskEntity
+            {
+                Id = -1,
+                TechnicianId = 1,
+                ServiceObjectId = serviceObject.Id,
+                ServiceObject = serviceObject,
+                StartAt = day.AddHours(16),
+                EndAt = day.AddHours(17),
+                Status = ScheduleTaskStatus.InProgress
+            },
+            new Dictionary<(long From, long To), int>(),
+            0,
+            CandidateLocalityTier.SameCity,
+            16 * 60,
+            17 * 60);
+
+        var idleCandidate = calculator.BuildRankedCandidate(
+            idleTechnician,
+            day,
+            day,
+            new List<TaskEntity>(),
+            new List<TaskEntity>(),
+            new TaskEntity
+            {
+                Id = -2,
+                TechnicianId = 2,
+                ServiceObjectId = serviceObject.Id,
+                ServiceObject = serviceObject,
+                StartAt = day.AddHours(8),
+                EndAt = day.AddHours(9),
+                Status = ScheduleTaskStatus.InProgress
+            },
+            new Dictionary<(long From, long To), int>
+            {
+                [(101, 200)] = 10
+            },
+            0,
+            CandidateLocalityTier.SameCity,
+            8 * 60,
+            9 * 60);
+
+        overloadedCandidate.ScoreBreakdown.LoadScore.Should().BeGreaterThan(idleCandidate.ScoreBreakdown.LoadScore);
+        overloadedCandidate.ScoreBreakdown.TotalScore.Should().BeGreaterThan(idleCandidate.ScoreBreakdown.TotalScore);
+    }
+
+    [Fact]
     public void CandidateRankingService_SelectsLowestScoreThenEarliestStartThenTechnicianId()
     {
         var ranking = new CandidateRankingService();

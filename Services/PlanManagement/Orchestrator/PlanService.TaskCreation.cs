@@ -518,7 +518,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             UserContext user,
             BulkCreateContext context,
             CancellationToken cancellationToken,
-            string? planScope = null)
+            string? planScope = null,
+            string? planMode = null)
         {
             var outcome = new BulkValidationOutcome();
             var reservedSlots = new List<(long TechId, DateTime StartUtc, DateTime EndUtc)>();
@@ -611,6 +612,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                 if (!placement.IsValid)
                 {
+                    await LogAutomaticValidationDiagnosticAsync(
+                        "invalid-placement",
+                        dto,
+                        i,
+                        targetDate,
+                        targetPlan,
+                        context,
+                        planMode,
+                        cancellationToken);
                     _logger.LogWarning(
                         "svc.plan.bulk.validate.invalid-placement index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} message={Message}",
                         i,
@@ -632,6 +642,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                         r.TechId == dto.TechnicianId &&
                         r.StartUtc < placement.EndAtUtc &&
                         r.EndUtc > placement.StartAtUtc);
+
+                    await LogAutomaticValidationDiagnosticAsync(
+                        "reserved-overlap",
+                        dto,
+                        i,
+                        targetDate,
+                        targetPlan,
+                        context,
+                        planMode,
+                        cancellationToken,
+                        placement.StartAtUtc,
+                        placement.EndAtUtc,
+                        conflictingSlot.StartUtc,
+                        conflictingSlot.EndUtc);
 
                     _logger.LogWarning(
                         "svc.plan.bulk.validate.reserved-overlap index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} timezoneOffsetMinutes={TimezoneOffsetMinutes} localDate={LocalDate} localStartMinutes={LocalStartMinutes} localEndMinutes={LocalEndMinutes} startAtUtc={StartAtUtc} endAtUtc={EndAtUtc} conflictingStartUtc={ConflictingStartUtc} conflictingEndUtc={ConflictingEndUtc}",
@@ -692,6 +716,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                 if (!travelCheck.IsValid)
                 {
+                    await LogAutomaticValidationDiagnosticAsync(
+                        "travel-failed",
+                        dto,
+                        i,
+                        targetDate,
+                        targetPlan,
+                        context,
+                        planMode,
+                        cancellationToken);
                     _logger.LogWarning(
                         "svc.plan.bulk.validate.travel-failed index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} message={Message}",
                         i,
@@ -735,6 +768,152 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     AddressId = stop.AddressId
                 })
                 .ToList();
+        }
+
+        private async Task LogAutomaticValidationDiagnosticAsync(
+            string failureKind,
+            CreateTaskRequestDto dto,
+            int index,
+            DateTime targetDate,
+            PlanEntity? targetPlan,
+            BulkCreateContext context,
+            string? planMode,
+            CancellationToken cancellationToken,
+            DateTime? requestedStartAtUtc = null,
+            DateTime? requestedEndAtUtc = null,
+            DateTime? conflictingStartUtc = null,
+            DateTime? conflictingEndUtc = null)
+        {
+            if (!"automatinis".Equals(planMode, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var clientSimulatedCount = dto.SimulatedAssignments?.Count ?? 0;
+            var currentRequestedStartAtUtc = requestedStartAtUtc
+                ?? _timeService.CreateUtcFromDateAndMinutes(targetDate, dto.StartMinutes, dto.TimezoneOffsetMinutes);
+            var currentRequestedEndAtUtc = requestedEndAtUtc
+                ?? _timeService.CreateUtcFromDateAndMinutes(targetDate, dto.EndMinutes, dto.TimezoneOffsetMinutes);
+
+            if (string.Equals(failureKind, "reserved-overlap", StringComparison.Ordinal))
+            {
+                var conflictVisibleInClientSnapshot = dto.SimulatedAssignments?.Any(assignment =>
+                    assignment.TechnicianId == dto.TechnicianId &&
+                    TryParseSimulatedAssignmentUtc(assignment.StartAt, dto.TimezoneOffsetMinutes, out var simStartAtUtc) &&
+                    TryParseSimulatedAssignmentUtc(assignment.EndAt, dto.TimezoneOffsetMinutes, out var simEndAtUtc) &&
+                    simStartAtUtc < currentRequestedEndAtUtc &&
+                    simEndAtUtc > currentRequestedStartAtUtc) == true;
+
+                _logger.LogWarning(
+                    "svc.plan.bulk.validate.diagnostic index={Index} backlogItemId={BacklogItemId} failureKind={FailureKind} diagnosis={Diagnosis} technicianId={TechnicianId} targetPlanId={TargetPlanId} clientSimulatedCount={ClientSimulatedCount} requestedStartAtUtc={RequestedStartAtUtc} requestedEndAtUtc={RequestedEndAtUtc} conflictingStartUtc={ConflictingStartUtc} conflictingEndUtc={ConflictingEndUtc}",
+                    index,
+                    dto.SourceBacklogItemId,
+                    failureKind,
+                    conflictVisibleInClientSnapshot
+                        ? "client-batch-conflict-visible-before-submit"
+                        : "server-batch-conflict-missing-from-client-snapshot",
+                    dto.TechnicianId,
+                    targetPlan?.Id,
+                    clientSimulatedCount,
+                    currentRequestedStartAtUtc,
+                    currentRequestedEndAtUtc,
+                    conflictingStartUtc,
+                    conflictingEndUtc);
+                return;
+            }
+
+            if (string.Equals(failureKind, "invalid-placement", StringComparison.Ordinal))
+            {
+                var persistedConflicts = await FindPersistedConflictsAsync(
+                    dto.TechnicianId,
+                    currentRequestedStartAtUtc,
+                    currentRequestedEndAtUtc,
+                    targetPlan?.Id,
+                    dto.IgnoreTaskId,
+                    cancellationToken);
+
+                _logger.LogWarning(
+                    "svc.plan.bulk.validate.diagnostic index={Index} backlogItemId={BacklogItemId} failureKind={FailureKind} diagnosis={Diagnosis} technicianId={TechnicianId} targetPlanId={TargetPlanId} persistedConflictCount={PersistedConflictCount} persistedConflictTaskIds={PersistedConflictTaskIds} clientSimulatedCount={ClientSimulatedCount} requestedStartAtUtc={RequestedStartAtUtc} requestedEndAtUtc={RequestedEndAtUtc}",
+                    index,
+                    dto.SourceBacklogItemId,
+                    failureKind,
+                    persistedConflicts.Count > 0
+                        ? "persisted-scope-conflict"
+                        : "planner-validator-mismatch",
+                    dto.TechnicianId,
+                    targetPlan?.Id,
+                    persistedConflicts.Count,
+                    string.Join(",", persistedConflicts.Select(conflict => conflict.TaskId)),
+                    clientSimulatedCount,
+                    currentRequestedStartAtUtc,
+                    currentRequestedEndAtUtc);
+                return;
+            }
+
+            if (string.Equals(failureKind, "travel-failed", StringComparison.Ordinal))
+            {
+                _logger.LogWarning(
+                    "svc.plan.bulk.validate.diagnostic index={Index} backlogItemId={BacklogItemId} failureKind={FailureKind} diagnosis={Diagnosis} technicianId={TechnicianId} targetPlanId={TargetPlanId} clientSimulatedCount={ClientSimulatedCount} simulatedBatchStopCount={SimulatedBatchStopCount}",
+                    index,
+                    dto.SourceBacklogItemId,
+                    failureKind,
+                    "timing-or-travel-final-gate-reject",
+                    dto.TechnicianId,
+                    targetPlan?.Id,
+                    clientSimulatedCount,
+                    context.SimulatedBatchStops.Count(stop => stop.TechnicianId == dto.TechnicianId && stop.StartAt.Date == targetDate.Date));
+            }
+        }
+
+        private async Task<List<(long TaskId, DateTime StartAtUtc, DateTime EndAtUtc)>> FindPersistedConflictsAsync(
+            long technicianId,
+            DateTime startAtUtc,
+            DateTime endAtUtc,
+            long? targetPlanId,
+            long? ignoreTaskId,
+            CancellationToken cancellationToken)
+        {
+            var query = _db.Tasks
+                .AsNoTracking()
+                .Where(task => task.TechnicianId == technicianId)
+                .Where(task => task.Status != ScheduleTaskStatus.Canceled)
+                .Where(task => !ignoreTaskId.HasValue || task.Id != ignoreTaskId.Value)
+                .Where(task => task.StartAt < endAtUtc && task.EndAt > startAtUtc);
+
+            if (targetPlanId.HasValue)
+            {
+                query = query.Where(task => !task.PlanId.HasValue || task.PlanId == targetPlanId.Value);
+            }
+            else
+            {
+                query = query.Where(task => !task.PlanId.HasValue);
+            }
+
+            return await query
+                .OrderBy(task => task.StartAt)
+                .Select(task => new ValueTuple<long, DateTime, DateTime>(task.Id, task.StartAt, task.EndAt))
+                .ToListAsync(cancellationToken);
+        }
+
+        private static bool TryParseSimulatedAssignmentUtc(
+            string? localDateTime,
+            int timezoneOffsetMinutes,
+            out DateTime utcDateTime)
+        {
+            utcDateTime = default;
+            if (string.IsNullOrWhiteSpace(localDateTime) ||
+                !DateTime.TryParseExact(
+                    localDateTime,
+                    "yyyy-MM-dd'T'HH:mm",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var parsedLocal))
+            {
+                return false;
+            }
+
+            utcDateTime = parsedLocal.AddMinutes(timezoneOffsetMinutes);
+            return true;
         }
 
         private async Task<BulkTaskBuildResult> BuildTaskEntitiesAsync(
@@ -1064,7 +1243,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 planScope ?? "active");
 
             var context = await LoadBulkCreateContextAsync(effectiveItems, cancellationToken);
-            var validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken, planScope);
+            var validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken, planScope, planMode);
             return new BulkCreateTaskResponseDto
             {
                 AllSucceeded = !validationOutcome.HasErrors,
@@ -1114,7 +1293,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     BulkValidationOutcome validationOutcome;
                     await using (var validatePhase = operation.MeasurePhase("validate"))
                     {
-                        validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken);
+                        validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken, planMode: planMode);
                         validatePhase.Complete();
                     }
 
