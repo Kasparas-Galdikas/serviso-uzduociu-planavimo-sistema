@@ -531,7 +531,15 @@ internal sealed class PlanServiceAssignmentMatching
         List<SimulatedTaskAssignmentDto>? simulatedAssignments,
         Dictionary<long, int>? batchAssignmentCounts,
         CancellationToken cancellationToken = default)
-        => await SuggestAutoAssignmentCoreAsync(
+    {
+        var sharedContext = await BuildAssignmentMatchingContextAsync(
+            new[]
+            {
+                new AssignmentContextRequest(targetDate, objectId, objectName, timezoneOffsetMinutes)
+            },
+            cancellationToken);
+
+        return await SuggestAutoAssignmentCoreAsync(
             targetDate,
             durationMinutes,
             objectId,
@@ -541,7 +549,8 @@ internal sealed class PlanServiceAssignmentMatching
             simulatedAssignments,
             batchAssignmentCounts,
             cancellationToken,
-            sharedContext: null);
+            sharedContext);
+    }
 
     private async Task<AutoAssignmentSuggestionDto?> SuggestAutoAssignmentCoreAsync(
         DateTime targetDate,

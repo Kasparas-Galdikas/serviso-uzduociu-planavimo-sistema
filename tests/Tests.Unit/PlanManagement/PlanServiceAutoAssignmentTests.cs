@@ -46,7 +46,8 @@ public sealed class PlanServiceAutoAssignmentTests
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
                 Arg.Any<CancellationToken>(),
-                Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>())
+                Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult
             {
                 IsFeasible = true,
@@ -62,7 +63,8 @@ public sealed class PlanServiceAutoAssignmentTests
         SeedTechnician(db, 1, 100, "Tech One");
         var serviceObject = SeedServiceObject(db, 10, "Obj-1", 200);
         await db.SaveChangesAsync();
-        var service = CreateService(db);
+        var logger = new TestLogger<PlanService>();
+        var service = CreateService(db, logger: logger);
 
         var suggestion = await service.SuggestAutoAssignmentAsync(
             DateTime.UtcNow.Date.AddDays(1),
@@ -89,7 +91,8 @@ public sealed class PlanServiceAutoAssignmentTests
         SeedTechnician(db, 1, 100);
         await db.SaveChangesAsync();
 
-        var service = CreateService(db);
+        var logger = new TestLogger<PlanService>();
+        var service = CreateService(db, logger: logger);
 
         var suggestion = await service.SuggestAutoAssignmentAsync(
             DateTime.UtcNow.Date.AddDays(1),
@@ -266,10 +269,11 @@ public sealed class PlanServiceAutoAssignmentTests
             Arg.Any<DateTime>(),
             200,
             Arg.Any<int>(),
-            null,
+            Arg.Is<long?>(value => value == null),
             true,
             Arg.Any<CancellationToken>(),
-            Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>());
+            Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+            Arg.Is<long?>(value => value == 1));
     }
 
     [Fact]
@@ -336,10 +340,11 @@ public sealed class PlanServiceAutoAssignmentTests
             Arg.Any<DateTime>(),
             200,
             Arg.Any<int>(),
-            null,
+            Arg.Is<long?>(value => value == null),
             true,
             Arg.Any<CancellationToken>(),
-            Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>());
+            Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+            Arg.Is<long?>(value => value == null));
     }
 
     [Fact]
@@ -659,8 +664,9 @@ public sealed class PlanServiceAutoAssignmentTests
             null,
             CancellationToken.None);
 
-        suggestion.Should().NotBeNull();
-        suggestion!.TargetDate.Should().Be(day);
+        var diagnosticLog = string.Join(" | ", logger.Entries.Select(entry => entry.Message));
+        suggestion.Should().NotBeNull(diagnosticLog);
+        suggestion!.TargetDate.Should().Be(day, diagnosticLog);
         suggestion.StartMinutes.Should().Be(8 * 60);
         logger.Entries.Should().Contain(entry =>
             entry.Message.Contains("svc.plan.auto-assign.scope", StringComparison.Ordinal) &&
@@ -683,7 +689,8 @@ public sealed class PlanServiceAutoAssignmentTests
         _travelResolver.GetTravelMinutesAsync(Arg.Any<IEnumerable<long>>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new Dictionary<(long From, long To), int>()));
 
-        var service = CreateService(db);
+        var logger = new TestLogger<PlanService>();
+        var service = CreateService(db, logger: logger);
         var suggestions = await service.SuggestBulkAutoAssignmentsAsync(
             new List<CreateTaskRequestDto>
             {
@@ -731,8 +738,9 @@ public sealed class PlanServiceAutoAssignmentTests
             },
             CancellationToken.None);
 
-        suggestions[0].Should().NotBeNull();
-        suggestions[1].Should().NotBeNull();
+        var diagnosticLog = string.Join(" | ", logger.Entries.Select(entry => entry.Message));
+        suggestions[0].Should().NotBeNull(diagnosticLog);
+        suggestions[1].Should().NotBeNull(diagnosticLog);
         suggestions[0]!.TechnicianId.Should().Be(1);
         suggestions[0]!.StartMinutes.Should().Be(8 * 60);
         suggestions[1]!.TechnicianId.Should().Be(1);
@@ -955,6 +963,10 @@ public sealed class PlanServiceAutoAssignmentTests
             }
 
             var message = formatter(state, exception);
+            if (exception != null)
+            {
+                message = $"{message} :: {exception}";
+            }
             lock (_lock)
             {
                 _entries.Add(new CapturedLogEntry(logLevel, message, properties));

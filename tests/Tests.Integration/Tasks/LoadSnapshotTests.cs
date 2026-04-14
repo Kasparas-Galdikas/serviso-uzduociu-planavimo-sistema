@@ -50,19 +50,19 @@ public sealed class LoadSnapshotTests : IAsyncLifetime
         var firstResponse = await client.PostAsJsonAsync("/api/tasks", firstDto);
         firstResponse.EnsureSuccessStatusCode();
 
-        // Second task on the same day; current API contract returns a default load snapshot on create.
+        // Second task on the same day; current API contract returns the real workload snapshot.
         var secondDto = TestTaskRequestBuilder.Create(techId, targetDate, 14 * 60, 20 * 60, "Evening").Build();
         var secondResponse = await client.PostAsJsonAsync("/api/tasks", secondDto);
 
         secondResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var payload = await secondResponse.Content.ReadFromJsonAsync<TaskCreatedOrUpdatedResponseDto>();
         payload!.Load.Should().NotBeNull();
-        payload.Load!.LoadState.Should().Be("Normal");
+        payload.Load!.LoadState.Should().Be("Conflict");
         payload.Load!.HasConflict.Should().BeFalse();
-        payload.Load!.IsDailyLimitExceeded.Should().BeFalse();
+        payload.Load!.IsDailyLimitExceeded.Should().BeTrue();
         payload.Load!.IsWeeklyLimitExceeded.Should().BeFalse();
-        payload.Load!.DailyHours.Should().Be(0);
-        payload.Load!.WeeklyHours.Should().Be(0);
+        payload.Load!.DailyHours.Should().Be(12);
+        payload.Load!.WeeklyHours.Should().Be(12);
         payload.Load!.DailyLimit.Should().Be(8);
         payload.Load!.WeeklyLimit.Should().Be(40);
     }

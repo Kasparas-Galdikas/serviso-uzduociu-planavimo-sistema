@@ -170,6 +170,124 @@ public class PlanServiceAuthorizationTests
     }
 
     [Fact]
+    public async Task CreateDraftTask_ExactDuplicate_ReusesExistingTask()
+    {
+        using var db = CreateContext();
+        db.Plans.Add(new PlanEntity
+        {
+            Id = 24,
+            PeriodStart = new DateTime(2026, 4, 14),
+            PeriodEnd = new DateTime(2026, 4, 14),
+            Status = PlanStatus.Draft,
+            Weeks = 1,
+            CreatedAt = DateTime.UtcNow
+        });
+        SeedTechnician(db, 1);
+        db.ServiceObjects.Add(new ServiceObjectEntity { Id = 1, Name = "Obj", AddressId = 1, CreatedAt = DateTime.UtcNow });
+        db.SaveChanges();
+
+        _time.GetUserLocalToday(0).Returns(new DateTime(2026, 4, 14));
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+
+        var service = CreateService(db);
+
+        var first = await service.CreateDraftTaskAsync(
+            1, new DateTime(2026, 4, 14), 17 * 60 + 30, 18 * 60,
+            "dup", TaskPriority.Medium, ScheduleTaskStatus.InProgress,
+            "Basic", "Obj", "Main 1, City", string.Empty, Manager(), 0, cancellationToken: CancellationToken.None);
+
+        var second = await service.CreateDraftTaskAsync(
+            1, new DateTime(2026, 4, 14), 17 * 60 + 30, 18 * 60,
+            "dup", TaskPriority.Medium, ScheduleTaskStatus.InProgress,
+            "Basic", "Obj", "Main 1, City", string.Empty, Manager(), 0, cancellationToken: CancellationToken.None);
+
+        first.Ok.Should().BeTrue();
+        second.Ok.Should().BeTrue();
+        second.Task.Should().NotBeNull();
+        second.Task!.Id.Should().Be(first.Task!.Id);
+        db.Tasks.Count(t => t.PlanId == 24 && t.TechnicianId == 1).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CreateDraftTask_SameTimeDifferentObject_RemainsOverlap()
+    {
+        using var db = CreateContext();
+        db.Plans.Add(new PlanEntity
+        {
+            Id = 24,
+            PeriodStart = new DateTime(2026, 4, 14),
+            PeriodEnd = new DateTime(2026, 4, 14),
+            Status = PlanStatus.Draft,
+            Weeks = 1,
+            CreatedAt = DateTime.UtcNow
+        });
+        SeedTechnician(db, 1);
+        db.ServiceObjects.Add(new ServiceObjectEntity { Id = 1, Name = "Obj", AddressId = 1, CreatedAt = DateTime.UtcNow });
+        db.Addresses.Add(new AddressEntity { Id = 2, City = "City", Street = "Other", FullAddress = "Other 2, City", CreatedAt = DateTime.UtcNow });
+        db.SaveChanges();
+
+        _time.GetUserLocalToday(0).Returns(new DateTime(2026, 4, 14));
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+
+        var service = CreateService(db);
+
+        var first = await service.CreateDraftTaskAsync(
+            1, new DateTime(2026, 4, 14), 17 * 60 + 30, 18 * 60,
+            "dup", TaskPriority.Medium, ScheduleTaskStatus.InProgress,
+            "Basic", "Obj", "Main 1, City", string.Empty, Manager(), 0, cancellationToken: CancellationToken.None);
+
+        var second = await service.CreateDraftTaskAsync(
+            1, new DateTime(2026, 4, 14), 17 * 60 + 30, 18 * 60,
+            "other", TaskPriority.Medium, ScheduleTaskStatus.InProgress,
+            "Basic", "OtherObj", "Other 2, City", string.Empty, Manager(), 0, cancellationToken: CancellationToken.None);
+
+        first.Ok.Should().BeTrue();
+        second.Error.Should().Be(TaskCreateError.Overlap);
+        db.Tasks.Count(t => t.PlanId == 24 && t.TechnicianId == 1).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CreateDraftTask_SameObjectDifferentTime_IsNotSuppressed()
+    {
+        using var db = CreateContext();
+        db.Plans.Add(new PlanEntity
+        {
+            Id = 24,
+            PeriodStart = new DateTime(2026, 4, 14),
+            PeriodEnd = new DateTime(2026, 4, 14),
+            Status = PlanStatus.Draft,
+            Weeks = 1,
+            CreatedAt = DateTime.UtcNow
+        });
+        SeedTechnician(db, 1);
+        db.ServiceObjects.Add(new ServiceObjectEntity { Id = 1, Name = "Obj", AddressId = 1, CreatedAt = DateTime.UtcNow });
+        db.SaveChanges();
+
+        _time.GetUserLocalToday(0).Returns(new DateTime(2026, 4, 14));
+        _permission.CanEditTaskAsync(Arg.Any<TaskEntity>(), Arg.Any<UserContext>(), Arg.Any<int>())
+            .Returns(Task.FromResult(true));
+
+        var service = CreateService(db);
+
+        var first = await service.CreateDraftTaskAsync(
+            1, new DateTime(2026, 4, 14), 17 * 60, 17 * 60 + 30,
+            "first", TaskPriority.Medium, ScheduleTaskStatus.InProgress,
+            "Basic", "Obj", "Main 1, City", string.Empty, Manager(), 0, cancellationToken: CancellationToken.None);
+
+        var second = await service.CreateDraftTaskAsync(
+            1, new DateTime(2026, 4, 14), 17 * 60 + 30, 18 * 60,
+            "second", TaskPriority.Medium, ScheduleTaskStatus.InProgress,
+            "Basic", "Obj", "Main 1, City", string.Empty, Manager(), 0, cancellationToken: CancellationToken.None);
+
+        first.Ok.Should().BeTrue();
+        second.Ok.Should().BeTrue();
+        second.Task!.Id.Should().NotBe(first.Task!.Id);
+        db.Tasks.Count(t => t.PlanId == 24 && t.TechnicianId == 1).Should().Be(2);
+    }
+
+    [Fact]
     public async Task MoveTask_PermissionDenied_ReturnsNotEditable()
     {
         using var db = CreateContext();
