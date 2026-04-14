@@ -62,7 +62,6 @@ Primary concern ownership:
 |---|---|
 | `GetActivePlanAsync` | `PlanLifecycle` |
 | `GetDraftPlanAsync` | `PlanLifecycle` |
-| `CreateDraftFromActiveAsync` | `PlanLifecycle` |
 | `PublishDraftAsync` | `PlanLifecycle` |
 | `DiscardDraftAsync` | `PlanLifecycle` |
 | `RecalculateCurrentPlansAsync` | `PlanLifecycle` |

@@ -27,13 +27,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             _userContextResolver = userContextResolver;
         }
 
-        public class CreateDraftRequest
-        {
-            public DateTime? StartDate { get; set; }
-            public DateTime? EndDate { get; set; }
-            public int? Weeks { get; set; }
-        }
-
         public class EnsureBacklogDraftRequest
         {
             public DateTime? StartDate { get; set; }
@@ -54,24 +47,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 activePlanId = active?.Id,
                 draftPlanId = draft?.Id
             });
-        }
-
-        [HttpPost("draft")]
-        [Authorize(Policy = "RequireManager")]
-        public async Task<IActionResult> CreateDraft([FromBody] CreateDraftRequest? request, CancellationToken cancellationToken)
-        {
-            try
-            {
-                var draft = await _planService.CreateDraftFromActiveAsync(request?.StartDate, request?.EndDate, request?.Weeks, cancellationToken);
-                _logger.LogInformation("api.plan.draft.created planId={PlanId}", draft.Id);
-                Response.Headers["X-Trace-Summary"] = $"draft.created id={draft.Id} start={draft.PeriodStart:yyyy-MM-dd} end={draft.PeriodEnd:yyyy-MM-dd} weeks={draft.Weeks}";
-                return Ok(new { draftPlanId = draft.Id });
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogWarning(ex, "api.plan.draft.failed");
-                return BadRequest(new { message = ex.Message });
-            }
         }
 
         [HttpPost("publish")]

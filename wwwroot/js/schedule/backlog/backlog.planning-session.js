@@ -516,9 +516,23 @@
 
     if (!staleSnapshots.length) return true;
 
-    for (const snapshot of staleSnapshots) {
-      const deleted = await backlog.bulkSync.deleteDraftTaskForSnapshot(snapshot, { silent });
-      if (!deleted) return false;
+    const staleTaskIds = staleSnapshots
+      .map((s) => Number(s.draftTaskId || 0))
+      .filter((id) => id > 0);
+
+    if (staleTaskIds.length) {
+      const resp = await fetch("/api/tasks-panel/bulk-delete", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(staleTaskIds),
+      }).catch(() => null);
+      if (!resp?.ok) {
+        const err = await resp?.json?.().catch(() => null);
+        state._bulkLastSyncError = err?.message || "Nepavyko istrinti juodrascio uzduociu.";
+        if (!silent) window.schedule?.ui?.toast?.showWarning?.(state._bulkLastSyncError);
+        return false;
+      }
     }
 
     await backlog.bulkSync.refreshDraftScheduleTable();
@@ -828,30 +842,38 @@
 
   backlog.planningSession = backlog.planningSession || {};
   backlog.planningSession.prefetchBulkAutoAssignments = async () => {
+    // Clear immediately so in-flight or stale suggestions from a previous queue
+    // are never used while this fetch is in progress.
+    state._bulkPrecomputedSuggestions = null;
     if (!state._bulkQueue.length) return;
     const payload = state._bulkQueue
       .map((_, idx) => backlog.bulkState.buildAutoAssignmentPayload(idx))
       .filter(Boolean);
     if (!payload.length) return;
-    const resp = await fetch("/api/tasks/suggest-auto-assignment/bulk", {
+    // Generation guard: if another prefetch starts before this one resolves,
+    // the stale response is discarded instead of overwriting the fresh result.
+    state._bulkPrefetchSeq = (state._bulkPrefetchSeq || 0) + 1;
+    const seq = state._bulkPrefetchSeq;
+    const resp = await scheduleLogger.fetchWithTrace("/api/tasks/suggest-auto-assignment/bulk", {
       method: "POST",
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-    }).catch(() => null);
+    }, { event: "backlog.bulk-suggest.prefetch" }).catch(() => null);
     const data = await resp?.json?.().catch(() => null);
     if (!resp?.ok || !Array.isArray(data)) return;
+    if (state._bulkPrefetchSeq !== seq) return;
     state._bulkPrecomputedSuggestions = data;
   };
   backlog.planningSession.fetchAutoSuggestionForIndex = async (idx) => {
     const payload = backlog.bulkState.buildAutoAssignmentPayload(idx);
     if (!payload) return null;
-    const resp = await fetch("/api/tasks/suggest-auto-assignment/bulk", {
+    const resp = await scheduleLogger.fetchWithTrace("/api/tasks/suggest-auto-assignment/bulk", {
       method: "POST",
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify([payload]),
-    }).catch(() => null);
+    }, { event: "backlog.bulk-suggest.single" }).catch(() => null);
     const data = await resp?.json?.().catch(() => null);
     if (!resp?.ok || !Array.isArray(data)) return null;
     return data[0] || null;

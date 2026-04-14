@@ -82,6 +82,11 @@ namespace ServiceTaskPlanningSystem.Infrastructure.Logging
                     return;
                 }
 
+                if (_options.SuppressTravelFeasibilityDetails && _category.EndsWith("TaskTravelFeasibilityService"))
+                {
+                    return;
+                }
+
                 var entry = new TraceLogEntry
                 {
                     TraceId = traceObj.ToString() ?? string.Empty,
@@ -95,7 +100,7 @@ namespace ServiceTaskPlanningSystem.Infrastructure.Logging
                 };
 
                 // Optionally deduplicate by span or trace to reduce noise.
-                if (_options.DeduplicatePerSpan && (IsDuplicatePerSpan(spanId, entry) || IsDuplicatePerTrace(entry.TraceId, entry)))
+                if (_options.DeduplicatePerSpan && IsDuplicatePerSpan(spanId, entry))
                 {
                     return;
                 }

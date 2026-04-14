@@ -2,18 +2,25 @@ using ServiceTaskPlanningSystem.Data;
 
 namespace ServiceTaskPlanningSystem.Models.DTOs.Responses.Authentication
 {
+    public enum LoginFailureCode
+    {
+        None = 0,
+        MissingEmail = 1,
+        UserNotFoundOrInactive = 2,
+    }
+
     public class LoginResultDto
     {
         public bool Success { get; set; }
-        public string? ErrorMessage { get; set; }
+        public LoginFailureCode FailureCode { get; set; }
         public UserEntity? User { get; set; }
 
-        public static LoginResultDto Failure(string errorMessage)
+        public static LoginResultDto Failure(LoginFailureCode failureCode)
         {
             return new LoginResultDto
             {
                 Success = false,
-                ErrorMessage = errorMessage,
+                FailureCode = failureCode,
                 User = null
             };
         }
@@ -23,7 +30,7 @@ namespace ServiceTaskPlanningSystem.Models.DTOs.Responses.Authentication
             return new LoginResultDto
             {
                 Success = true,
-                ErrorMessage = null,
+                FailureCode = LoginFailureCode.None,
                 User = user
             };
         }

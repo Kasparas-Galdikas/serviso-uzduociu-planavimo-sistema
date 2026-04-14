@@ -8,6 +8,12 @@ namespace ServiceTaskPlanningSystem.Infrastructure.Logging
         public bool SuppressEfCommands { get; set; } = true;
 
         /// <summary>
+        /// If true, per-check travel feasibility detail logs ([TAV]) will be skipped.
+        /// These are very high-volume and push business-logic logs out of the fixed-size queue.
+        /// </summary>
+        public bool SuppressTravelFeasibilityDetails { get; set; } = true;
+
+        /// <summary>
         /// If true, duplicate messages within the same span will be skipped.
         /// </summary>
         public bool DeduplicatePerSpan { get; set; } = true;

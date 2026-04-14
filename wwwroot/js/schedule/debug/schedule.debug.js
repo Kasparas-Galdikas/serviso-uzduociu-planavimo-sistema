@@ -91,7 +91,13 @@
     }
   };
 
-  refreshBtn?.addEventListener("click", render);
+  refreshBtn?.addEventListener("click", () => {
+    if (state.showServer) {
+      pullServer();
+    } else {
+      render();
+    }
+  });
   copyBtn?.addEventListener("click", copyTrace);
   serverToggle?.addEventListener("change", () => {
     state.showServer = !!serverToggle.checked;
@@ -102,9 +108,15 @@
       render();
     }
   });
-  clearBtn?.addEventListener("click", () => {
+  clearBtn?.addEventListener("click", async () => {
+    const ctx = scheduleLogger.getContext();
     scheduleLogger.clearBuffer();
     render();
+    if (ctx.traceId) {
+      try {
+        await fetch(`/debug/trace/${ctx.traceId}`, { method: "DELETE" });
+      } catch {}
+    }
     if (status) {
       status.textContent = "Logs cleared";
       setTimeout(() => (status.textContent = ""), 1200);

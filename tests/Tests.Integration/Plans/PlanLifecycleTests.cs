@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Json;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -13,10 +14,10 @@ using Xunit;
 namespace Tests.Integration.Plans;
 
 /// <summary>
-/// Integration tests for plan lifecycle rules:
-/// - Draft creation
-/// - Publishing
-/// - Superseding
+/// Integration tests for the current backlog-draft lifecycle:
+/// - Backlog draft creation/refresh
+/// - Applying a backlog draft onto the active plan
+/// - Preserving the active plan identity across publishes
 /// - Role-based access (manager vs technician)
 ///
 /// These tests verify PLAN STATE transitions,
@@ -45,7 +46,7 @@ public sealed class PlanLifecycleTests : IAsyncLifetime
     {
         var client = CreateClient("manager@test.com");
 
-        var response = await client.PostAsync("/api/plans/draft", null);
+        var response = await client.PostAsJsonAsync("/api/plans/backlog-draft/ensure", new { });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -57,7 +58,7 @@ public sealed class PlanLifecycleTests : IAsyncLifetime
     {
         var client = CreateClient("technician@test.com", "technician");
 
-        var response = await client.PostAsync("/api/plans/draft", null);
+        var response = await client.PostAsJsonAsync("/api/plans/backlog-draft/ensure", new { });
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
@@ -72,11 +73,11 @@ public sealed class PlanLifecycleTests : IAsyncLifetime
         var manager = CreateClient("manager@test.com", "manager");
 
         // Create draft
-        var draftResponse = await manager.PostAsync("/api/plans/draft", null);
+        var draftResponse = await manager.PostAsJsonAsync("/api/plans/backlog-draft/ensure", new { });
         draftResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // Publish
-        var publishResponse = await manager.PostAsync("/api/plans/publish", null);
+        // Apply the draft onto the active plan
+        var publishResponse = await manager.PostAsync("/api/plans/backlog-draft/publish", null);
         publishResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
         await AssertSinglePlanWithStatus(PlanStatus.Active);
@@ -86,11 +87,11 @@ public sealed class PlanLifecycleTests : IAsyncLifetime
     public async Task Technician_Cannot_Publish_Plan()
     {
         var manager = CreateClient("manager@test.com", "manager");
-        await manager.PostAsync("/api/plans/draft", null);
+        await manager.PostAsJsonAsync("/api/plans/backlog-draft/ensure", new { });
 
         var technician = CreateClient("technician@test.com", "technician");
 
-        var response = await technician.PostAsync("/api/plans/publish", null);
+        var response = await technician.PostAsync("/api/plans/backlog-draft/publish", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
@@ -100,7 +101,7 @@ public sealed class PlanLifecycleTests : IAsyncLifetime
     {
         var manager = CreateClient("manager@test.com", "manager");
 
-        var response = await manager.PostAsync("/api/plans/publish", null);
+        var response = await manager.PostAsync("/api/plans/backlog-draft/publish", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -110,17 +111,24 @@ public sealed class PlanLifecycleTests : IAsyncLifetime
     // -------------------------
 
     [Fact]
-    public async Task Publishing_New_Plan_Supersedes_Previous_Active_Plan()
+    public async Task Publishing_BacklogDraft_Reuses_ActivePlan_Without_Creating_Superseded_Copy()
     {
         var manager = CreateClient("manager@test.com", "manager");
 
+        using var beforeScope = _fixture.Factory.Services.CreateScope();
+        var beforeDb = beforeScope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
+        var initialActivePlanId = await beforeDb.Plans
+            .Where(p => p.Status == PlanStatus.Active)
+            .Select(p => p.Id)
+            .SingleAsync();
+
         // First plan
-        await manager.PostAsync("/api/plans/draft", null);
-        await manager.PostAsync("/api/plans/publish", null);
+        await manager.PostAsJsonAsync("/api/plans/backlog-draft/ensure", new { });
+        await manager.PostAsync("/api/plans/backlog-draft/publish", null);
 
         // Second plan
-        await manager.PostAsync("/api/plans/draft", null);
-        await manager.PostAsync("/api/plans/publish", null);
+        await manager.PostAsJsonAsync("/api/plans/backlog-draft/ensure", new { });
+        await manager.PostAsync("/api/plans/backlog-draft/publish", null);
 
         using var scope = _fixture.Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ScheduleDbContext>();
@@ -134,12 +142,9 @@ public sealed class PlanLifecycleTests : IAsyncLifetime
             .ToListAsync();
 
         activePlans.Should().HaveCount(1);
-
-        supersededPlans.Should().NotBeEmpty();
-        supersededPlans.Should().OnlyContain(p => p.SupersededByPlanId != null);
-
-        supersededPlans.Select(p => p.SupersededByPlanId)
-            .Should().Contain(activePlans.Single().Id);
+        activePlans.Single().Id.Should().Be(initialActivePlanId);
+        supersededPlans.Should().BeEmpty();
+        await AssertSinglePlanWithStatus(PlanStatus.Draft);
     }
 
     // -------------------------

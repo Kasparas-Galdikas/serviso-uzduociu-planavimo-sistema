@@ -10,6 +10,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Matching;
 
 internal sealed class CandidateSlotGenerator
 {
+    internal sealed record CandidateStartOption(int StartMinutes, string Source);
+
     private readonly IScheduleTimeService _timeService;
 
     public CandidateSlotGenerator(IScheduleTimeService timeService)
@@ -30,6 +32,27 @@ internal sealed class CandidateSlotGenerator
         int durationMinutes,
         ServiceObjectEntity serviceObject,
         IReadOnlyDictionary<(long From, long To), int> routeLookup,
+        IReadOnlyList<(int StartMinutes, int EndMinutes)> blockedWindows) =>
+        GenerateCandidateStartOptions(
+                technician,
+                dayTasks,
+                targetDate,
+                timezoneOffsetMinutes,
+                durationMinutes,
+                serviceObject,
+                routeLookup,
+                blockedWindows)
+            .Select(option => option.StartMinutes)
+            .ToList();
+
+    public IReadOnlyList<CandidateStartOption> GenerateCandidateStartOptions(
+        TechnicianEntity technician,
+        List<TaskEntity> dayTasks,
+        DateTime targetDate,
+        int timezoneOffsetMinutes,
+        int durationMinutes,
+        ServiceObjectEntity serviceObject,
+        IReadOnlyDictionary<(long From, long To), int> routeLookup,
         IReadOnlyList<(int StartMinutes, int EndMinutes)> blockedWindows)
     {
         var slotSize = ScheduleGrid.SlotSizeMinutes;
@@ -43,7 +66,7 @@ internal sealed class CandidateSlotGenerator
         var userLocalNow = _timeService.ConvertUtcToLocal(_timeService.GetCurrentUtcTime(), timezoneOffsetMinutes);
         var isTargetToday = targetDate.Date == userLocalNow.Date;
         var nowLocalMinutes = (int)userLocalNow.TimeOfDay.TotalMinutes;
-        var candidates = new HashSet<int>();
+        var candidates = new Dictionary<int, string>();
         var ordered = dayTasks
             .Where(t => WorkloadCalculator.CountsTowardsWorkload(t.Status))
             .OrderBy(t => t.StartAt)
@@ -64,7 +87,7 @@ internal sealed class CandidateSlotGenerator
             if (FitsWithinWindow(firstStart, durationMinutes, window.EndMinutes) &&
                 !OverlapsAnyBlock(firstStart, durationMinutes, blockedWindows))
             {
-                candidates.Add(firstStart);
+                AddCandidate(candidates, firstStart, "before-first");
             }
 
             AddAfterBlockCandidates(
@@ -72,7 +95,10 @@ internal sealed class CandidateSlotGenerator
                 routeLookup, earliestAllowed, isTargetToday, nowLocalMinutes,
                 timezoneOffsetMinutes, durationMinutes, window.EndMinutes, slotSize);
 
-            return candidates.OrderBy(x => x).ToList();
+            return candidates
+                .OrderBy(kvp => kvp.Key)
+                .Select(kvp => new CandidateStartOption(kvp.Key, kvp.Value))
+                .ToList();
         }
 
         var first = ordered[0];
@@ -96,7 +122,7 @@ internal sealed class CandidateSlotGenerator
                 windowEndMinutes: window.EndMinutes,
                 blockedWindows: blockedWindows))
         {
-            candidates.Add(beforeFirstCandidate);
+            AddCandidate(candidates, beforeFirstCandidate, "before-first");
         }
 
         for (var i = 0; i < ordered.Count; i++)
@@ -138,7 +164,7 @@ internal sealed class CandidateSlotGenerator
                     window.EndMinutes,
                     blockedWindows))
             {
-                candidates.Add(candidateStartMinutes);
+                AddCandidate(candidates, candidateStartMinutes, $"after-task:{previous.Id}");
             }
         }
 
@@ -147,7 +173,10 @@ internal sealed class CandidateSlotGenerator
             routeLookup, earliestAllowed, isTargetToday, nowLocalMinutes,
             timezoneOffsetMinutes, durationMinutes, window.EndMinutes, slotSize);
 
-        return candidates.OrderBy(x => x).ToList();
+        return candidates
+            .OrderBy(kvp => kvp.Key)
+            .Select(kvp => new CandidateStartOption(kvp.Key, kvp.Value))
+            .ToList();
     }
 
     /// <summary>
@@ -157,7 +186,7 @@ internal sealed class CandidateSlotGenerator
     /// even when no existing task borders that gap.
     /// </summary>
     private void AddAfterBlockCandidates(
-        HashSet<int> candidates,
+        Dictionary<int, string> candidates,
         IReadOnlyList<(int StartMinutes, int EndMinutes)> blockedWindows,
         List<TaskEntity> ordered,
         TechnicianEntity technician,
@@ -214,8 +243,16 @@ internal sealed class CandidateSlotGenerator
                     windowEndMinutes,
                     blockedWindows))
             {
-                candidates.Add(candidateStart);
+                AddCandidate(candidates, candidateStart, $"after-block:{block.StartMinutes}-{block.EndMinutes}");
             }
+        }
+    }
+
+    private static void AddCandidate(Dictionary<int, string> candidates, int startMinutes, string source)
+    {
+        if (!candidates.ContainsKey(startMinutes))
+        {
+            candidates[startMinutes] = source;
         }
     }
 

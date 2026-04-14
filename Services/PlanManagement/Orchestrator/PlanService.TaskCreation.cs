@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -23,6 +24,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 {
     internal class PlanServiceTaskCreation
     {
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> DraftCreateGuards = new(StringComparer.Ordinal);
+
         private readonly ScheduleDbContext _db;
         private readonly IEvaluationEngine _evaluationEngine;
         private readonly IScheduleTimeService _timeService;
@@ -168,11 +171,101 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 return targetPlanFailure ?? new TaskCreateResult(TaskCreateError.InvalidWindow, "Nepavyko nustatyti tikslinio plano.");
             }
 
-        
             var normalizedTitle = string.IsNullOrWhiteSpace(title) ? "Nauja uzduotis" : title.Trim();
             var normalizedSkill = string.IsNullOrWhiteSpace(skillLevel) ? string.Empty : skillLevel.Trim();
             var normalizedInstructions = string.IsNullOrWhiteSpace(instructions) ? string.Empty : instructions.Trim();
+            var normalizedObjectName = NormalizeDuplicateIdentityPart(objectName);
+            var normalizedObjectAddress = NormalizeDuplicateIdentityPart(objectAddress);
+            var requestedStartAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, startMinutes, timezoneOffsetMinutes);
+            var requestedEndAtUtc = _timeService.CreateUtcFromDateAndMinutes(targetDate, endMinutes, timezoneOffsetMinutes);
 
+            SemaphoreSlim? draftCreateGuard = null;
+            if (targetScope == CreateTaskTargetScope.Draft)
+            {
+                var duplicateKey = BuildDraftCreateDuplicateKey(
+                    targetPlan.Id,
+                    technicianId,
+                    requestedStartAtUtc,
+                    requestedEndAtUtc,
+                    normalizedObjectName,
+                    normalizedObjectAddress);
+                draftCreateGuard = DraftCreateGuards.GetOrAdd(duplicateKey, static _ => new SemaphoreSlim(1, 1));
+                await draftCreateGuard.WaitAsync(cancellationToken);
+
+                var existingDuplicate = await FindExistingDraftDuplicateAsync(
+                    targetPlan.Id,
+                    technicianId,
+                    requestedStartAtUtc,
+                    requestedEndAtUtc,
+                    normalizedObjectName,
+                    normalizedObjectAddress,
+                    cancellationToken);
+
+                if (existingDuplicate != null)
+                {
+                    _logger.LogInformation(
+                        "svc.plan.create-task.duplicate-suppressed planId={PlanId} taskId={TaskId} technicianId={TechnicianId} startAtUtc={StartAtUtc} endAtUtc={EndAtUtc}",
+                        targetPlan.Id,
+                        existingDuplicate.Id,
+                        technicianId,
+                        requestedStartAtUtc,
+                        requestedEndAtUtc);
+                    return new TaskCreateResult(TaskCreateError.None, Task: existingDuplicate, CurrentVersion: TryReadTaskVersion(existingDuplicate));
+                }
+            }
+
+            try
+            {
+                return await CreateTaskForResolvedPlanAsync(
+                    targetScope,
+                    targetPlan,
+                    taskDate,
+                    technicianId,
+                    targetDate,
+                    startMinutes,
+                    endMinutes,
+                    normalizedTitle,
+                    normalizedSkill,
+                    normalizedInstructions,
+                    normalizedObjectName,
+                    normalizedObjectAddress,
+                    objectName,
+                    objectAddress,
+                    priority,
+                    status,
+                    user,
+                    timezoneOffsetMinutes,
+                    sourceBacklogItemId,
+                    cancellationToken);
+            }
+            finally
+            {
+                draftCreateGuard?.Release();
+            }
+        }
+
+        private async Task<TaskCreateResult> CreateTaskForResolvedPlanAsync(
+            CreateTaskTargetScope targetScope,
+            PlanEntity targetPlan,
+            DateTime taskDate,
+            long technicianId,
+            DateTime targetDate,
+            int startMinutes,
+            int endMinutes,
+            string normalizedTitle,
+            string normalizedSkill,
+            string normalizedInstructions,
+            string normalizedObjectName,
+            string normalizedObjectAddress,
+            string objectName,
+            string objectAddress,
+            TaskPriority priority,
+            ScheduleTaskStatus status,
+            UserContext user,
+            int timezoneOffsetMinutes,
+            long? sourceBacklogItemId,
+            CancellationToken cancellationToken)
+        {
             var placementValidation = await _placementValidator.ValidatePlacementForActionAsync(
                 ignoreTaskIds: null,
                 targetTechnicianId: technicianId,
@@ -190,7 +283,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             {
                 if (placementValidation.IsBlockedByUnavailability)
                 {
-                    // Resolve service object now (needed for repair plan, also needed below if repair succeeds)
                     var preResolvedId = await _locationResolver.FindOrCreateServiceObjectAsync(objectName, objectAddress, placementValidation.City, cancellationToken);
                     var preResolvedMeta = await _db.ServiceObjects
                         .Where(o => o.Id == preResolvedId)
@@ -251,27 +343,46 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                             _db.Tasks.Add(repairedTask);
                             await _db.SaveChangesAsync(cancellationToken);
                             await _routeEvaluationCaller.TriggerRouteEvaluationSafelyAsync(repairedTask.TechnicianId, repairedTask.StartAt.Date, "create", cancellationToken);
-                            if (repairTx != null) await repairTx.CommitAsync(cancellationToken);
+                            if (repairTx != null)
+                            {
+                                await repairTx.CommitAsync(cancellationToken);
+                            }
 
                             var repairVersion = _db.Entry(repairedTask).Property<uint>("xmin").CurrentValue;
                             await _evaluationEngine.RecalculatePlanAsync(targetPlan.Id, cancellationToken);
                             var repairMessage = _placementValidator.BuildRepairAppliedMessage(
                                 "Pasirinktas laikas persidengia su techniko neaktyvumu.",
                                 unavailRepair.PrimaryPlacement, timezoneOffsetMinutes);
-                            var _rUnavail = new TaskCreateResult(TaskCreateError.None, repairMessage, repairedTask, repairVersion);
-                            var (_mUnavail, _oUnavail) = TaskHistoryMessages.ForCreate(_rUnavail, repairedTask.Title);
-                            await _historyWriter.RecordAsync(repairedTask.Id, repairedTask.PlanId, "create", _oUnavail, _mUnavail, user.UserId, user.Role.ToString().ToLower(),
-                                new { technicianId = repairedTask.TechnicianId, startAt = repairedTask.StartAt, endAt = repairedTask.EndAt, unavailabilityRepairApplied = true }, cancellationToken: cancellationToken);
-                            return _rUnavail;
+                            var repairResult = new TaskCreateResult(TaskCreateError.None, repairMessage, repairedTask, repairVersion);
+                            var (historyMessage, historyOutcome) = TaskHistoryMessages.ForCreate(repairResult, repairedTask.Title);
+                            await _historyWriter.RecordAsync(
+                                repairedTask.Id,
+                                repairedTask.PlanId,
+                                "create",
+                                historyOutcome,
+                                historyMessage,
+                                user.UserId,
+                                user.Role.ToString().ToLower(),
+                                new { technicianId = repairedTask.TechnicianId, startAt = repairedTask.StartAt, endAt = repairedTask.EndAt, unavailabilityRepairApplied = true },
+                                cancellationToken: cancellationToken);
+                            return repairResult;
                         }
                     }
                 }
 
-                var _r = SchedulePlacementValidator.MapPlacementErrorForCreate(placementValidation);
-                var (_msg, _out) = TaskHistoryMessages.ForCreate(_r, normalizedTitle);
-                await _historyWriter.RecordAsync(null, targetPlan.Id, "create", _out, _msg, user.UserId, user.Role.ToString().ToLower(),
-                    new { technicianId = technicianId }, cancellationToken: cancellationToken);
-                return _r;
+                var validationFailure = SchedulePlacementValidator.MapPlacementErrorForCreate(placementValidation);
+                var (validationMessage, validationOutcome) = TaskHistoryMessages.ForCreate(validationFailure, normalizedTitle);
+                await _historyWriter.RecordAsync(
+                    null,
+                    targetPlan.Id,
+                    "create",
+                    validationOutcome,
+                    validationMessage,
+                    user.UserId,
+                    user.Role.ToString().ToLower(),
+                    new { technicianId = technicianId },
+                    cancellationToken: cancellationToken);
+                return validationFailure;
             }
 
             var serviceObjectId = await _locationResolver.FindOrCreateServiceObjectAsync(objectName, objectAddress, placementValidation.City, cancellationToken);
@@ -279,6 +390,31 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 .Where(o => o.Id == serviceObjectId)
                 .Select(o => new { o.AddressId })
                 .FirstAsync(cancellationToken);
+
+            if (targetScope == CreateTaskTargetScope.Draft)
+            {
+                var existingDuplicate = await FindExistingDraftDuplicateAsync(
+                    targetPlan.Id,
+                    technicianId,
+                    placementValidation.StartAtUtc,
+                    placementValidation.EndAtUtc,
+                    normalizedObjectName,
+                    normalizedObjectAddress,
+                    cancellationToken,
+                    serviceObjectId);
+
+                if (existingDuplicate != null)
+                {
+                    _logger.LogInformation(
+                        "svc.plan.create-task.duplicate-suppressed planId={PlanId} taskId={TaskId} technicianId={TechnicianId} startAtUtc={StartAtUtc} endAtUtc={EndAtUtc}",
+                        targetPlan.Id,
+                        existingDuplicate.Id,
+                        technicianId,
+                        placementValidation.StartAtUtc,
+                        placementValidation.EndAtUtc);
+                    return new TaskCreateResult(TaskCreateError.None, Task: existingDuplicate, CurrentVersion: TryReadTaskVersion(existingDuplicate));
+                }
+            }
 
             var task = new TaskEntity
             {
@@ -312,9 +448,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 excludeTaskId: task.Id,
                 cancellationToken: cancellationToken,
                 planId: task.PlanId);
+
             if (!timingTravelValidation.IsValid)
             {
-                if (!timingTravelValidation.IsInvalidWindow && await _placementValidator.TryApplyTimingTravelRepairAsync(task, timingTravelValidation, cancellationToken))
+                if (!timingTravelValidation.IsInvalidWindow &&
+                    await _placementValidator.TryApplyTimingTravelRepairAsync(task, timingTravelValidation, cancellationToken))
                 {
                     await _routeEvaluationCaller.TriggerRouteEvaluationSafelyAsync(task.TechnicianId, task.StartAt.Date, "create-repair", cancellationToken);
                     if (transaction != null)
@@ -324,15 +462,26 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                     var repairedVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
                     await _evaluationEngine.RecalculatePlanAsync(targetPlan.Id, cancellationToken);
-                    var _rRepair = new TaskCreateResult(
+                    var repairedResult = new TaskCreateResult(
                         TaskCreateError.None,
-                        _placementValidator.BuildRepairAppliedMessage(timingTravelValidation.Message, timingTravelValidation.RepairPlan?.PrimaryPlacement, timezoneOffsetMinutes),
+                        _placementValidator.BuildRepairAppliedMessage(
+                            timingTravelValidation.Message,
+                            timingTravelValidation.RepairPlan?.PrimaryPlacement,
+                            timezoneOffsetMinutes),
                         task,
                         repairedVersion);
-                    var (_msgRepair, _outRepair) = TaskHistoryMessages.ForCreate(_rRepair, task.Title);
-                    await _historyWriter.RecordAsync(task.Id, task.PlanId, "create", _outRepair, _msgRepair, user.UserId, user.Role.ToString().ToLower(),
-                        new { technicianId = task.TechnicianId, startAt = task.StartAt, endAt = task.EndAt, repairApplied = true }, cancellationToken: cancellationToken);
-                    return _rRepair;
+                    var (repairMessage, repairOutcome) = TaskHistoryMessages.ForCreate(repairedResult, task.Title);
+                    await _historyWriter.RecordAsync(
+                        task.Id,
+                        task.PlanId,
+                        "create",
+                        repairOutcome,
+                        repairMessage,
+                        user.UserId,
+                        user.Role.ToString().ToLower(),
+                        new { technicianId = task.TechnicianId, startAt = task.StartAt, endAt = task.EndAt, repairApplied = true },
+                        cancellationToken: cancellationToken);
+                    return repairedResult;
                 }
 
                 if (transaction != null)
@@ -340,14 +489,23 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     await transaction.RollbackAsync(cancellationToken);
                 }
 
-                var _rFail = new TaskCreateResult(
+                var timingFailure = new TaskCreateResult(
                     timingTravelValidation.IsInvalidWindow ? TaskCreateError.InvalidWindow : TaskCreateError.TravelInfeasible,
                     timingTravelValidation.Message);
-                var (_msgFail, _outFail) = TaskHistoryMessages.ForCreate(_rFail, normalizedTitle);
-                await _historyWriter.RecordAsync(null, targetPlan.Id, "create", _outFail, _msgFail, user.UserId, user.Role.ToString().ToLower(),
-                    new { technicianId = technicianId }, cancellationToken: cancellationToken);
-                return _rFail;
+                var (timingMessage, timingOutcome) = TaskHistoryMessages.ForCreate(timingFailure, normalizedTitle);
+                await _historyWriter.RecordAsync(
+                    null,
+                    targetPlan.Id,
+                    "create",
+                    timingOutcome,
+                    timingMessage,
+                    user.UserId,
+                    user.Role.ToString().ToLower(),
+                    new { technicianId = technicianId },
+                    cancellationToken: cancellationToken);
+                return timingFailure;
             }
+
             if (transaction != null)
             {
                 await transaction.CommitAsync(cancellationToken);
@@ -355,11 +513,87 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
             var version = _db.Entry(task).Property<uint>("xmin").CurrentValue;
             await _evaluationEngine.RecalculatePlanAsync(targetPlan.Id, cancellationToken);
-            var _rOk = new TaskCreateResult(TaskCreateError.None, Task: task, CurrentVersion: version);
-            var (_msgOk, _outOk) = TaskHistoryMessages.ForCreate(_rOk, task.Title);
-            await _historyWriter.RecordAsync(task.Id, task.PlanId, "create", _outOk, _msgOk, user.UserId, user.Role.ToString().ToLower(),
-                new { technicianId = task.TechnicianId, startAt = task.StartAt, endAt = task.EndAt }, cancellationToken: cancellationToken);
-            return _rOk;
+            var createResult = new TaskCreateResult(TaskCreateError.None, Task: task, CurrentVersion: version);
+            var (createMessage, createOutcome) = TaskHistoryMessages.ForCreate(createResult, task.Title);
+            await _historyWriter.RecordAsync(
+                task.Id,
+                task.PlanId,
+                "create",
+                createOutcome,
+                createMessage,
+                user.UserId,
+                user.Role.ToString().ToLower(),
+                new { technicianId = task.TechnicianId, startAt = task.StartAt, endAt = task.EndAt },
+                cancellationToken: cancellationToken);
+            return createResult;
+        }
+
+        private async Task<TaskEntity?> FindExistingDraftDuplicateAsync(
+            long planId,
+            long technicianId,
+            DateTime startAtUtc,
+            DateTime endAtUtc,
+            string normalizedObjectName,
+            string normalizedObjectAddress,
+            CancellationToken cancellationToken,
+            long? serviceObjectId = null)
+        {
+            var candidateTasks = await _db.Tasks
+                .Include(t => t.ServiceObject)
+                    .ThenInclude(o => o.Address)
+                .Where(t => t.PlanId == planId)
+                .Where(t => t.TechnicianId == technicianId)
+                .Where(t => t.Status != ScheduleTaskStatus.Canceled)
+                .Where(t => t.StartAt == startAtUtc && t.EndAt == endAtUtc)
+                .ToListAsync(cancellationToken);
+
+            return candidateTasks.FirstOrDefault(task =>
+            {
+                if (serviceObjectId.HasValue && serviceObjectId.Value > 0 && task.ServiceObjectId == serviceObjectId.Value)
+                {
+                    return true;
+                }
+
+                var existingName = NormalizeDuplicateIdentityPart(task.ServiceObject?.Name);
+                var existingAddress = NormalizeDuplicateIdentityPart(task.ServiceObject?.Address?.FullAddress);
+                return existingName == normalizedObjectName && existingAddress == normalizedObjectAddress;
+            });
+        }
+
+        private static string BuildDraftCreateDuplicateKey(
+            long planId,
+            long technicianId,
+            DateTime startAtUtc,
+            DateTime endAtUtc,
+            string normalizedObjectName,
+            string normalizedObjectAddress)
+            => string.Create(
+                CultureInfo.InvariantCulture,
+                $"{planId}|{technicianId}|{startAtUtc:O}|{endAtUtc:O}|{normalizedObjectName}|{normalizedObjectAddress}");
+
+        private static string NormalizeDuplicateIdentityPart(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return string.Join(
+                " ",
+                value.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+                .ToUpperInvariant();
+        }
+
+        private uint? TryReadTaskVersion(TaskEntity task)
+        {
+            try
+            {
+                return _db.Entry(task).Property<uint>("xmin").CurrentValue;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         public Task<TaskCreateResult> CreateTaskAsync(
@@ -518,7 +752,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             UserContext user,
             BulkCreateContext context,
             CancellationToken cancellationToken,
-            string? planScope = null)
+            string? planScope = null,
+            string? planMode = null)
         {
             var outcome = new BulkValidationOutcome();
             var reservedSlots = new List<(long TechId, DateTime StartUtc, DateTime EndUtc)>();
@@ -611,6 +846,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                 if (!placement.IsValid)
                 {
+                    await LogAutomaticValidationDiagnosticAsync(
+                        "invalid-placement",
+                        dto,
+                        i,
+                        targetDate,
+                        targetPlan,
+                        context,
+                        planMode,
+                        cancellationToken);
                     _logger.LogWarning(
                         "svc.plan.bulk.validate.invalid-placement index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} message={Message}",
                         i,
@@ -632,6 +876,20 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                         r.TechId == dto.TechnicianId &&
                         r.StartUtc < placement.EndAtUtc &&
                         r.EndUtc > placement.StartAtUtc);
+
+                    await LogAutomaticValidationDiagnosticAsync(
+                        "reserved-overlap",
+                        dto,
+                        i,
+                        targetDate,
+                        targetPlan,
+                        context,
+                        planMode,
+                        cancellationToken,
+                        placement.StartAtUtc,
+                        placement.EndAtUtc,
+                        conflictingSlot.StartUtc,
+                        conflictingSlot.EndUtc);
 
                     _logger.LogWarning(
                         "svc.plan.bulk.validate.reserved-overlap index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} timezoneOffsetMinutes={TimezoneOffsetMinutes} localDate={LocalDate} localStartMinutes={LocalStartMinutes} localEndMinutes={LocalEndMinutes} startAtUtc={StartAtUtc} endAtUtc={EndAtUtc} conflictingStartUtc={ConflictingStartUtc} conflictingEndUtc={ConflictingEndUtc}",
@@ -692,6 +950,15 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
                 if (!travelCheck.IsValid)
                 {
+                    await LogAutomaticValidationDiagnosticAsync(
+                        "travel-failed",
+                        dto,
+                        i,
+                        targetDate,
+                        targetPlan,
+                        context,
+                        planMode,
+                        cancellationToken);
                     _logger.LogWarning(
                         "svc.plan.bulk.validate.travel-failed index={Index} backlogItemId={BacklogItemId} technicianId={TechnicianId} message={Message}",
                         i,
@@ -735,6 +1002,152 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     AddressId = stop.AddressId
                 })
                 .ToList();
+        }
+
+        private async Task LogAutomaticValidationDiagnosticAsync(
+            string failureKind,
+            CreateTaskRequestDto dto,
+            int index,
+            DateTime targetDate,
+            PlanEntity? targetPlan,
+            BulkCreateContext context,
+            string? planMode,
+            CancellationToken cancellationToken,
+            DateTime? requestedStartAtUtc = null,
+            DateTime? requestedEndAtUtc = null,
+            DateTime? conflictingStartUtc = null,
+            DateTime? conflictingEndUtc = null)
+        {
+            if (!"automatinis".Equals(planMode, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var clientSimulatedCount = dto.SimulatedAssignments?.Count ?? 0;
+            var currentRequestedStartAtUtc = requestedStartAtUtc
+                ?? _timeService.CreateUtcFromDateAndMinutes(targetDate, dto.StartMinutes, dto.TimezoneOffsetMinutes);
+            var currentRequestedEndAtUtc = requestedEndAtUtc
+                ?? _timeService.CreateUtcFromDateAndMinutes(targetDate, dto.EndMinutes, dto.TimezoneOffsetMinutes);
+
+            if (string.Equals(failureKind, "reserved-overlap", StringComparison.Ordinal))
+            {
+                var conflictVisibleInClientSnapshot = dto.SimulatedAssignments?.Any(assignment =>
+                    assignment.TechnicianId == dto.TechnicianId &&
+                    TryParseSimulatedAssignmentUtc(assignment.StartAt, dto.TimezoneOffsetMinutes, out var simStartAtUtc) &&
+                    TryParseSimulatedAssignmentUtc(assignment.EndAt, dto.TimezoneOffsetMinutes, out var simEndAtUtc) &&
+                    simStartAtUtc < currentRequestedEndAtUtc &&
+                    simEndAtUtc > currentRequestedStartAtUtc) == true;
+
+                _logger.LogWarning(
+                    "svc.plan.bulk.validate.diagnostic index={Index} backlogItemId={BacklogItemId} failureKind={FailureKind} diagnosis={Diagnosis} technicianId={TechnicianId} targetPlanId={TargetPlanId} clientSimulatedCount={ClientSimulatedCount} requestedStartAtUtc={RequestedStartAtUtc} requestedEndAtUtc={RequestedEndAtUtc} conflictingStartUtc={ConflictingStartUtc} conflictingEndUtc={ConflictingEndUtc}",
+                    index,
+                    dto.SourceBacklogItemId,
+                    failureKind,
+                    conflictVisibleInClientSnapshot
+                        ? "client-batch-conflict-visible-before-submit"
+                        : "server-batch-conflict-missing-from-client-snapshot",
+                    dto.TechnicianId,
+                    targetPlan?.Id,
+                    clientSimulatedCount,
+                    currentRequestedStartAtUtc,
+                    currentRequestedEndAtUtc,
+                    conflictingStartUtc,
+                    conflictingEndUtc);
+                return;
+            }
+
+            if (string.Equals(failureKind, "invalid-placement", StringComparison.Ordinal))
+            {
+                var persistedConflicts = await FindPersistedConflictsAsync(
+                    dto.TechnicianId,
+                    currentRequestedStartAtUtc,
+                    currentRequestedEndAtUtc,
+                    targetPlan?.Id,
+                    dto.IgnoreTaskId,
+                    cancellationToken);
+
+                _logger.LogWarning(
+                    "svc.plan.bulk.validate.diagnostic index={Index} backlogItemId={BacklogItemId} failureKind={FailureKind} diagnosis={Diagnosis} technicianId={TechnicianId} targetPlanId={TargetPlanId} persistedConflictCount={PersistedConflictCount} persistedConflictTaskIds={PersistedConflictTaskIds} clientSimulatedCount={ClientSimulatedCount} requestedStartAtUtc={RequestedStartAtUtc} requestedEndAtUtc={RequestedEndAtUtc}",
+                    index,
+                    dto.SourceBacklogItemId,
+                    failureKind,
+                    persistedConflicts.Count > 0
+                        ? "persisted-scope-conflict"
+                        : "planner-validator-mismatch",
+                    dto.TechnicianId,
+                    targetPlan?.Id,
+                    persistedConflicts.Count,
+                    string.Join(",", persistedConflicts.Select(conflict => conflict.TaskId)),
+                    clientSimulatedCount,
+                    currentRequestedStartAtUtc,
+                    currentRequestedEndAtUtc);
+                return;
+            }
+
+            if (string.Equals(failureKind, "travel-failed", StringComparison.Ordinal))
+            {
+                _logger.LogWarning(
+                    "svc.plan.bulk.validate.diagnostic index={Index} backlogItemId={BacklogItemId} failureKind={FailureKind} diagnosis={Diagnosis} technicianId={TechnicianId} targetPlanId={TargetPlanId} clientSimulatedCount={ClientSimulatedCount} simulatedBatchStopCount={SimulatedBatchStopCount}",
+                    index,
+                    dto.SourceBacklogItemId,
+                    failureKind,
+                    "timing-or-travel-final-gate-reject",
+                    dto.TechnicianId,
+                    targetPlan?.Id,
+                    clientSimulatedCount,
+                    context.SimulatedBatchStops.Count(stop => stop.TechnicianId == dto.TechnicianId && stop.StartAt.Date == targetDate.Date));
+            }
+        }
+
+        private async Task<List<(long TaskId, DateTime StartAtUtc, DateTime EndAtUtc)>> FindPersistedConflictsAsync(
+            long technicianId,
+            DateTime startAtUtc,
+            DateTime endAtUtc,
+            long? targetPlanId,
+            long? ignoreTaskId,
+            CancellationToken cancellationToken)
+        {
+            var query = _db.Tasks
+                .AsNoTracking()
+                .Where(task => task.TechnicianId == technicianId)
+                .Where(task => task.Status != ScheduleTaskStatus.Canceled)
+                .Where(task => !ignoreTaskId.HasValue || task.Id != ignoreTaskId.Value)
+                .Where(task => task.StartAt < endAtUtc && task.EndAt > startAtUtc);
+
+            if (targetPlanId.HasValue)
+            {
+                query = query.Where(task => !task.PlanId.HasValue || task.PlanId == targetPlanId.Value);
+            }
+            else
+            {
+                query = query.Where(task => !task.PlanId.HasValue);
+            }
+
+            return await query
+                .OrderBy(task => task.StartAt)
+                .Select(task => new ValueTuple<long, DateTime, DateTime>(task.Id, task.StartAt, task.EndAt))
+                .ToListAsync(cancellationToken);
+        }
+
+        private static bool TryParseSimulatedAssignmentUtc(
+            string? localDateTime,
+            int timezoneOffsetMinutes,
+            out DateTime utcDateTime)
+        {
+            utcDateTime = default;
+            if (string.IsNullOrWhiteSpace(localDateTime) ||
+                !DateTime.TryParseExact(
+                    localDateTime,
+                    "yyyy-MM-dd'T'HH:mm",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var parsedLocal))
+            {
+                return false;
+            }
+
+            utcDateTime = parsedLocal.AddMinutes(timezoneOffsetMinutes);
+            return true;
         }
 
         private async Task<BulkTaskBuildResult> BuildTaskEntitiesAsync(
@@ -1064,7 +1477,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 planScope ?? "active");
 
             var context = await LoadBulkCreateContextAsync(effectiveItems, cancellationToken);
-            var validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken, planScope);
+            var validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken, planScope, planMode);
             return new BulkCreateTaskResponseDto
             {
                 AllSucceeded = !validationOutcome.HasErrors,
@@ -1114,7 +1527,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                     BulkValidationOutcome validationOutcome;
                     await using (var validatePhase = operation.MeasurePhase("validate"))
                     {
-                        validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken);
+                        validationOutcome = await ValidateBulkCreateRequestsAsync(effectiveItems, user, context, cancellationToken, planMode: planMode);
                         validatePhase.Complete();
                     }
 

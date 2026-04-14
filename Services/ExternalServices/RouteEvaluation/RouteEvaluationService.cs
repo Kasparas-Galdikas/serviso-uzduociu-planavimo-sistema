@@ -74,7 +74,10 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 return;
             }
 
-            _logger.LogInformation("route.evaluation.task-impact.started taskId={TaskId}", taskId);
+            _logger.LogInformation(
+                "route.evaluation.task-impact.started taskId={TaskId} scopeKind=route-plan-only planId={PlanId}",
+                taskId,
+                task.PlanId);
 
             var chain = await _routeChainBuilder.BuildDayChainAsync(
                 new RouteChainRequest
@@ -95,9 +98,10 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             var routeAddresses = await LoadAddressPathAsync(chain, cancellationToken);
 
             _logger.LogInformation(
-                "route.evaluation.task-impact.address-chain taskId={TaskId} technicianId={TechnicianId} chain=[{Chain}]",
+                "route.evaluation.task-impact.address-chain taskId={TaskId} technicianId={TechnicianId} scopeKind=route-plan-only planId={PlanId} chain=[{Chain}]",
                 taskId,
                 task.TechnicianId,
+                task.PlanId,
                 string.Join(" -> ", routeAddresses.Select(a => a.FullAddress)));
 
             await EnsureCoordinatesAsync(routeAddresses, cancellationToken);
@@ -111,7 +115,10 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             var missingPairs = await GetMissingSequentialPairsAsync(routeAddresses, cancellationToken);
             if (missingPairs.Count == 0)
             {
-                _logger.LogInformation("route.evaluation.task-impact.skipped taskId={TaskId} reason=routes-already-exist", taskId);
+                _logger.LogInformation(
+                    "route.evaluation.task-impact.completed taskId={TaskId} scopeKind=route-plan-only planId={PlanId} mode=reused-existing-routes",
+                    taskId,
+                    task.PlanId);
                 if (task.PlanId.HasValue)
                 {
                     await _evaluationEngine.RecalculatePlanAsync(task.PlanId.Value, cancellationToken);
@@ -141,7 +148,10 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 await _evaluationEngine.RecalculateTasksAsync(chain.Stops.Where(s => s.TaskId.HasValue).Select(s => s.TaskId!.Value), cancellationToken);
             }
 
-            _logger.LogInformation("route.evaluation.task-impact.completed taskId={TaskId}", taskId);
+            _logger.LogInformation(
+                "route.evaluation.task-impact.completed taskId={TaskId} scopeKind=route-plan-only planId={PlanId} mode=routes-updated",
+                taskId,
+                task.PlanId);
         }
 
         public async Task EvaluateTechnicianDayAsync(long technicianId, DateTime dayUtc, CancellationToken cancellationToken = default)
@@ -166,7 +176,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
             }
 
             _logger.LogInformation(
-                "route.evaluation.technician-day.started technicianId={TechnicianId} day={Day}",
+                "route.evaluation.technician-day.started technicianId={TechnicianId} day={Day} scopeKind=route-day-all-plans",
                 technicianId,
                 dayUtc.Date);
 
@@ -180,7 +190,7 @@ namespace ServiceTaskPlanningSystem.Services.ExternalServices.RouteEvaluation
                 .ToListAsync(cancellationToken);
 
             _logger.LogInformation(
-                "route.evaluation.technician-day.chain technicianId={TechnicianId} day={Day} chain=[{Chain}]",
+                "route.evaluation.technician-day.chain technicianId={TechnicianId} day={Day} scopeKind=route-day-all-plans chain=[{Chain}]",
                 technicianId,
                 dayUtc.Date,
                 string.Join(" -> ", dayTasks.Select(t => $"{t.Id}@{t.StartAt:HH:mm}UTC")));

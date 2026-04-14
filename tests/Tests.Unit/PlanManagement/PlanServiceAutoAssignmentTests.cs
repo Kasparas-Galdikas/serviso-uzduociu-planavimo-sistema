@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -45,7 +46,8 @@ public sealed class PlanServiceAutoAssignmentTests
                 Arg.Any<long?>(),
                 Arg.Any<bool>(),
                 Arg.Any<CancellationToken>(),
-                Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>())
+                Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
             .Returns(new TravelFeasibilityResult
             {
                 IsFeasible = true,
@@ -61,7 +63,8 @@ public sealed class PlanServiceAutoAssignmentTests
         SeedTechnician(db, 1, 100, "Tech One");
         var serviceObject = SeedServiceObject(db, 10, "Obj-1", 200);
         await db.SaveChangesAsync();
-        var service = CreateService(db);
+        var logger = new TestLogger<PlanService>();
+        var service = CreateService(db, logger: logger);
 
         var suggestion = await service.SuggestAutoAssignmentAsync(
             DateTime.UtcNow.Date.AddDays(1),
@@ -88,7 +91,8 @@ public sealed class PlanServiceAutoAssignmentTests
         SeedTechnician(db, 1, 100);
         await db.SaveChangesAsync();
 
-        var service = CreateService(db);
+        var logger = new TestLogger<PlanService>();
+        var service = CreateService(db, logger: logger);
 
         var suggestion = await service.SuggestAutoAssignmentAsync(
             DateTime.UtcNow.Date.AddDays(1),
@@ -265,10 +269,11 @@ public sealed class PlanServiceAutoAssignmentTests
             Arg.Any<DateTime>(),
             200,
             Arg.Any<int>(),
-            null,
+            Arg.Is<long?>(value => value == null),
             true,
             Arg.Any<CancellationToken>(),
-            Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>());
+            Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+            Arg.Is<long?>(value => value == 1));
     }
 
     [Fact]
@@ -335,10 +340,11 @@ public sealed class PlanServiceAutoAssignmentTests
             Arg.Any<DateTime>(),
             200,
             Arg.Any<int>(),
-            null,
+            Arg.Is<long?>(value => value == null),
             true,
             Arg.Any<CancellationToken>(),
-            Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>());
+            Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+            Arg.Is<long?>(value => value == null));
     }
 
     [Fact]
@@ -529,7 +535,281 @@ public sealed class PlanServiceAutoAssignmentTests
         items[0].TechnicianId.Should().Be(999);
     }
 
-    private PlanService CreateService(ScheduleDbContext db, IScheduleTimeService? timeService = null) =>
+    [Fact]
+    public async Task SuggestAutoAssignmentAsync_RepairsInvalidAnchorAndScoresRepairedCandidate()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedPlan(db);
+        var serviceObject = SeedServiceObject(db, 10, "Obj-1", 200);
+        SeedTechnician(db, 1, 100, "Tech One");
+        await db.SaveChangesAsync();
+
+        _travelResolver.GetTravelMinutesAsync(Arg.Any<IEnumerable<long>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new Dictionary<(long From, long To), int>()));
+
+        _travelFeasibility.EvaluatePlacementAsync(
+                Arg.Any<long>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<long>(),
+                Arg.Any<int>(),
+                Arg.Any<long?>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>(),
+                Arg.Any<IReadOnlyList<ServiceTaskPlanningSystem.Services.Travel.RouteChains.ProposedRouteStop>?>(),
+                Arg.Any<long?>())
+            .Returns(call =>
+            {
+                var startAt = (DateTime)call[1];
+                var startMinutes = (int)call[4];
+                return Task.FromResult(startMinutes == 8 * 60
+                    ? new TravelFeasibilityResult
+                    {
+                        IsFeasible = false,
+                        InboundTravelMinutes = 30,
+                        Message = "Nepakanka laiko kelionei."
+                    }
+                    : new TravelFeasibilityResult
+                    {
+                        IsFeasible = true,
+                        InboundTravelMinutes = 0,
+                        OutboundTravelMinutes = 0
+                    });
+            });
+
+        _repairService.BuildPlanAsync(Arg.Any<ScheduleRepairRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var request = call.Arg<ScheduleRepairRequest>();
+                var repairedStart = request.ProposedPlacement!.StartAt.AddMinutes(30);
+                return Task.FromResult(new ScheduleRepairPlan(
+                    true,
+                    null,
+                    ScheduleRepairKind.Shifted,
+                    Array.Empty<DayScheduleFitAdjustment>(),
+                    new ScheduleRepairPlacement(0, request.ProposedPlacement.ServiceAddressId, repairedStart, repairedStart.AddMinutes(60))));
+            });
+
+        var logger = new TestLogger<PlanService>();
+        var service = CreateService(db, logger: logger);
+
+        var suggestion = await service.SuggestAutoAssignmentAsync(
+            day,
+            60,
+            serviceObject.Id,
+            serviceObject.Name,
+            TaskPriority.Medium,
+            0,
+            null,
+            null,
+            CancellationToken.None);
+
+        suggestion.Should().NotBeNull();
+        suggestion!.StartMinutes.Should().Be(8 * 60 + 30);
+        logger.Entries.Should().Contain(entry => entry.Message.Contains("svc.plan.auto-assign.candidate-repaired", StringComparison.Ordinal));
+        logger.Entries.Should().Contain(entry => entry.Message.Contains("svc.plan.auto-assign.decision", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SuggestAutoAssignmentAsync_ExcludesSupersededTasksFromDecisionScope()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        var activePlan = SeedPlan(db);
+        var supersededPlan = new PlanEntity
+        {
+            Id = 2,
+            PeriodStart = activePlan.PeriodStart,
+            PeriodEnd = activePlan.PeriodEnd,
+            Status = PlanStatus.Superseded,
+            Weeks = 1,
+            CreatedAt = DateTime.UtcNow,
+            SupersededByPlanId = activePlan.Id
+        };
+        db.Plans.Add(supersededPlan);
+
+        var serviceObject = SeedServiceObject(db, 10, "Obj-1", 200);
+        SeedTechnician(db, 1, 100, "Tech One");
+
+        db.Tasks.Add(new TaskEntity
+        {
+            Id = 3000,
+            PlanId = supersededPlan.Id,
+            TechnicianId = 1,
+            ServiceObjectId = serviceObject.Id,
+            StartAt = day.AddHours(8),
+            EndAt = day.AddHours(20),
+            Title = "Old superseded day",
+            Priority = TaskPriority.Medium,
+            Status = ScheduleTaskStatus.InProgress,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        _travelResolver.GetTravelMinutesAsync(Arg.Any<IEnumerable<long>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new Dictionary<(long From, long To), int>()));
+
+        var logger = new TestLogger<PlanService>();
+        var service = CreateService(db, logger: logger);
+
+        var suggestion = await service.SuggestAutoAssignmentAsync(
+            day,
+            60,
+            serviceObject.Id,
+            serviceObject.Name,
+            TaskPriority.Medium,
+            0,
+            null,
+            null,
+            CancellationToken.None);
+
+        var diagnosticLog = string.Join(" | ", logger.Entries.Select(entry => entry.Message));
+        suggestion.Should().NotBeNull(diagnosticLog);
+        suggestion!.TargetDate.Should().Be(day, diagnosticLog);
+        suggestion.StartMinutes.Should().Be(8 * 60);
+        logger.Entries.Should().Contain(entry =>
+            entry.Message.Contains("svc.plan.auto-assign.scope", StringComparison.Ordinal) &&
+            entry.Message.Contains("assignment-active+simulated", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SuggestBulkAutoAssignmentsAsync_MergesClientAndServerSimulatedAssignments()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        var plan = SeedPlan(db);
+        plan.PeriodStart = day.AddDays(-1);
+        plan.PeriodEnd = day.AddDays(6);
+
+        var serviceObject = SeedServiceObject(db, 10, "Obj-1", 200);
+        SeedTechnician(db, 1, 100, "Tech One");
+        await db.SaveChangesAsync();
+
+        _travelResolver.GetTravelMinutesAsync(Arg.Any<IEnumerable<long>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new Dictionary<(long From, long To), int>()));
+
+        var logger = new TestLogger<PlanService>();
+        var service = CreateService(db, logger: logger);
+        var suggestions = await service.SuggestBulkAutoAssignmentsAsync(
+            new List<CreateTaskRequestDto>
+            {
+                new()
+                {
+                    TechnicianId = 0,
+                    TargetDate = day.ToString("yyyy-MM-dd"),
+                    StartMinutes = 8 * 60,
+                    EndMinutes = 8 * 60 + 30,
+                    Title = "Task 1",
+                    Priority = TaskPriority.Medium,
+                    Status = ScheduleTaskStatus.InProgress,
+                    SkillLevel = "A",
+                    ObjectId = serviceObject.Id,
+                    ObjectName = serviceObject.Name,
+                    ObjectAddress = "Object 200, City",
+                    TimezoneOffsetMinutes = 0
+                },
+                new()
+                {
+                    TechnicianId = 0,
+                    TargetDate = day.ToString("yyyy-MM-dd"),
+                    StartMinutes = 8 * 60,
+                    EndMinutes = 8 * 60 + 30,
+                    Title = "Task 2",
+                    Priority = TaskPriority.Medium,
+                    Status = ScheduleTaskStatus.InProgress,
+                    SkillLevel = "A",
+                    ObjectId = serviceObject.Id,
+                    ObjectName = serviceObject.Name,
+                    ObjectAddress = "Object 200, City",
+                    TimezoneOffsetMinutes = 0,
+                    SimulatedAssignments = new List<SimulatedTaskAssignmentDto>
+                    {
+                        new()
+                        {
+                            TechnicianId = 1,
+                            StartAt = $"{day:yyyy-MM-dd}T12:00",
+                            EndAt = $"{day:yyyy-MM-dd}T12:30",
+                            AddressId = serviceObject.AddressId,
+                            ServiceObjectId = serviceObject.Id
+                        }
+                    }
+                }
+            },
+            CancellationToken.None);
+
+        var diagnosticLog = string.Join(" | ", logger.Entries.Select(entry => entry.Message));
+        suggestions[0].Should().NotBeNull(diagnosticLog);
+        suggestions[1].Should().NotBeNull(diagnosticLog);
+        suggestions[0]!.TechnicianId.Should().Be(1);
+        suggestions[0]!.StartMinutes.Should().Be(8 * 60);
+        suggestions[1]!.TechnicianId.Should().Be(1);
+        suggestions[1]!.StartMinutes.Should().Be(8 * 60 + 30);
+    }
+
+    [Fact]
+    public async Task BulkValidateTasksAsync_AutomatinisMode_LogsReservedOverlapDiagnosis()
+    {
+        using var db = CreateContext();
+        var day = DateTime.UtcNow.Date.AddDays(1);
+        SeedPlan(db);
+        var serviceObject = SeedServiceObject(db, 10, "Obj-1", 200);
+        SeedTechnician(db, 1, 100, "Tech One");
+        await db.SaveChangesAsync();
+
+        _travelResolver.GetTravelMinutesAsync(Arg.Any<IEnumerable<long>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new Dictionary<(long From, long To), int>()));
+
+        var logger = new TestLogger<PlanService>();
+        var service = CreateService(db, logger: logger);
+        var items = new List<CreateTaskRequestDto>
+        {
+            new()
+            {
+                TechnicianId = 1,
+                TargetDate = day.ToString("yyyy-MM-dd"),
+                StartMinutes = 8 * 60,
+                EndMinutes = 8 * 60 + 30,
+                Title = "Task 1",
+                Priority = TaskPriority.Medium,
+                Status = ScheduleTaskStatus.InProgress,
+                SkillLevel = "A",
+                ObjectId = serviceObject.Id,
+                ObjectName = serviceObject.Name,
+                ObjectAddress = "Object 200, City",
+                TimezoneOffsetMinutes = 0
+            },
+            new()
+            {
+                TechnicianId = 1,
+                TargetDate = day.ToString("yyyy-MM-dd"),
+                StartMinutes = 8 * 60,
+                EndMinutes = 8 * 60 + 30,
+                Title = "Task 2",
+                Priority = TaskPriority.Medium,
+                Status = ScheduleTaskStatus.InProgress,
+                SkillLevel = "A",
+                ObjectId = serviceObject.Id,
+                ObjectName = serviceObject.Name,
+                ObjectAddress = "Object 200, City",
+                TimezoneOffsetMinutes = 0
+            }
+        };
+
+        var result = await service.BulkValidateTasksAsync(
+            items,
+            "automatinis",
+            new UserContext { UserId = 1, Role = UserRole.Manager },
+            null,
+            CancellationToken.None);
+
+        result.AllSucceeded.Should().BeFalse();
+        logger.Entries.Should().Contain(entry =>
+            entry.Message.Contains("svc.plan.bulk.validate.diagnostic", StringComparison.Ordinal) &&
+            entry.Message.Contains("server-batch-conflict-missing-from-client-snapshot", StringComparison.Ordinal));
+    }
+
+    private PlanService CreateService(ScheduleDbContext db, IScheduleTimeService? timeService = null, ILogger<PlanService>? logger = null) =>
         new(
             db,
             _evaluation,
@@ -541,7 +821,7 @@ public sealed class PlanServiceAutoAssignmentTests
             _repairService,
             _travelResolver,
             Substitute.For<ITaskHistoryWriter>(),
-            _logger);
+            logger ?? _logger);
 
     private static ScheduleDbContext CreateContext()
     {
@@ -635,5 +915,90 @@ public sealed class PlanServiceAutoAssignmentTests
         }
 
         public override DateTime GetCurrentUtcTime() => _nowUtc;
+    }
+
+    private sealed record CapturedLogEntry(LogLevel Level, string Message, IReadOnlyDictionary<string, object?> Properties);
+
+    private sealed class TestLogger<T> : ILogger<T>, ILogger
+    {
+        private readonly object _lock = new();
+        private readonly List<CapturedLogEntry> _entries = new();
+        private readonly AsyncLocal<Stack<Dictionary<string, object?>>> _scopes = new();
+
+        public IReadOnlyList<CapturedLogEntry> Entries
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _entries.ToList();
+                }
+            }
+        }
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull
+        {
+            var stack = _scopes.Value ??= new Stack<Dictionary<string, object?>>();
+            stack.Push(ToDictionary(state));
+            return new Scope(stack);
+        }
+
+        IDisposable? ILogger.BeginScope<TState>(TState state) => BeginScope(state);
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            var properties = ToDictionary(state);
+            properties["EventId"] = eventId.Id;
+            if (_scopes.Value is { Count: > 0 })
+            {
+                foreach (var scope in _scopes.Value.Reverse())
+                {
+                    foreach (var pair in scope)
+                    {
+                        properties.TryAdd(pair.Key, pair.Value);
+                    }
+                }
+            }
+
+            var message = formatter(state, exception);
+            if (exception != null)
+            {
+                message = $"{message} :: {exception}";
+            }
+            lock (_lock)
+            {
+                _entries.Add(new CapturedLogEntry(logLevel, message, properties));
+            }
+        }
+
+        private static Dictionary<string, object?> ToDictionary<TState>(TState state)
+        {
+            if (state is IEnumerable<KeyValuePair<string, object?>> kvps)
+            {
+                return kvps.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            }
+
+            return new Dictionary<string, object?>();
+        }
+
+        private sealed class Scope : IDisposable
+        {
+            private readonly Stack<Dictionary<string, object?>> _stack;
+
+            public Scope(Stack<Dictionary<string, object?>> stack)
+            {
+                _stack = stack;
+            }
+
+            public void Dispose()
+            {
+                if (_stack.Count > 0)
+                {
+                    _stack.Pop();
+                }
+            }
+        }
     }
 }
