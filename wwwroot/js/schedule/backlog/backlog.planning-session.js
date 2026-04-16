@@ -10,6 +10,30 @@
       ? logger.fetchWithTrace(url, options, meta)
       : fetch(url, options);
   };
+  const logEvent = (event, data = {}, level = "info") => window.scheduleLogger?.log(level, event, data);
+  const summarizeBulkSnapshot = (snapshot = {}) => ({
+    draftTaskId: Number(snapshot?.draftTaskId || 0) || null,
+    draftTaskVersion: Number(snapshot?.draftTaskVersion || 0) || null,
+    sourceBacklogItemId: Number(snapshot?.sourceBacklogItemId || 0) || null,
+    technicianId: Number(snapshot?.technicianId || 0) || null,
+    startAt: snapshot?.startAt || null,
+    endAt: snapshot?.endAt || null,
+    isMaterialized: snapshot?.isMaterialized === true,
+    isUserLocked: snapshot?.isUserLocked === true,
+    isAutoManaged: snapshot?.isAutoManaged !== false,
+    visited: snapshot?._visited === true,
+    dirty: snapshot?._dirty === true,
+    planningRevision: Number(snapshot?._planningRevision || 0),
+    appliedRevision: Number(snapshot?._appliedPlanningRevision || 0),
+    savedRevision: Number(snapshot?._lastSavedRevision || 0),
+  });
+  const summarizeBulkItem = (item = null) => ({
+    itemId: item?.id ? Number(item.id) : null,
+    itemType: item?.itemType ?? null,
+    title: item?.title || null,
+    objectName: item?.objectName || null,
+    locationText: item?.locationText || null,
+  });
 
   backlog.bulkState = backlog.bulkState || {};
 
@@ -381,13 +405,25 @@
     { force = false } = {},
   ) => {
     const range = backlog.bulkState.getBulkDraftRangeForQueue(queue, snapshots);
+    logEvent("bulk.ensureDraftCoverage.check", {
+      force,
+      queueLength: Array.isArray(queue) ? queue.length : 0,
+      range,
+      context: state.getBulkDraftContext?.() || null,
+    });
     if (!range) return { changed: false, data: state.getBulkDraftContext() };
     const alreadyCovered = state.isBulkDraftRangeCovered(range.startDate, range.endDate);
     if (!force && alreadyCovered) {
+      logEvent("bulk.ensureDraftCoverage.skip", {
+        force,
+        range,
+        context: state.getBulkDraftContext?.() || null,
+      });
       return { changed: false, data: state.getBulkDraftContext() };
     }
 
     const data = await backlog.scheduleBridge.ensureBacklogDraftSandbox(range);
+    logEvent("bulk.ensureDraftCoverage.changed", { force, range, data });
     return { changed: true, data };
   };
   backlog.bulkSync.getBulkEarliestCreatablePlacementForDate = (targetDate) => {
@@ -549,6 +585,14 @@
     const snap = state._bulkScheduledData[idx] || {};
     const taskApi = window.schedule?.tasks?.api;
     state._bulkLastSyncError = null;
+    logEvent("bulk.materialize.start", {
+      idx,
+      refreshSchedule,
+      silent,
+      planMode: backlog.bulkState.getBulkPlanMode?.(),
+      item: summarizeBulkItem(item),
+      snapshot: summarizeBulkSnapshot(snap),
+    });
     if (!item || !taskApi?.createDraftTask || !taskApi?.updateTask) {
       state._bulkLastSyncError = "Nepavyko pasiekti uzduočių API.";
       return false;
@@ -571,6 +615,12 @@
     }
     if (!snap.draftTaskId) {
       const createPayload = backlog.bulkState.buildMaterializedTaskCreatePayload(idx);
+      logEvent("bulk.materialize.create-request", {
+        idx,
+        payload: createPayload,
+        item: summarizeBulkItem(item),
+        snapshot: summarizeBulkSnapshot(snap),
+      });
       if (!createPayload) {
         state._bulkLastSyncError = "Nepavyko suformuoti uzduoties duomenu.";
         return false;
@@ -581,6 +631,7 @@
         if (!silent) window.schedule?.ui?.toast?.showWarning?.(createResult?.error || "Nepavyko sukurti juodrascio uzduoties.");
         return false;
       }
+      logEvent("bulk.materialize.create-result", { idx, createResult, payload: createPayload });
       state._bulkScheduledData[idx] = backlog.bulkState.composeSnapshot({
         base: snap,
         data: {
@@ -593,14 +644,31 @@
       await backlog.bulkSync.fetchAndSyncBulkTask(Number(createResult.id));
       if (refreshSchedule) await backlog.bulkSync.refreshDraftScheduleTable();
       if (state._bulkQueueIdx === idx) await backlog.bulkSync.restoreBulkPanelFromSnapshot(idx);
+      logEvent("bulk.materialize.create-complete", {
+        idx,
+        snapshot: summarizeBulkSnapshot(state._bulkScheduledData[idx] || {}),
+      });
       return true;
     }
-    const updateResult = await taskApi.updateTask(Number(snap.draftTaskId), backlog.bulkState.buildMaterializedTaskUpdatePayload(idx), Number(snap.draftTaskVersion || 0));
+    const updatePayload = backlog.bulkState.buildMaterializedTaskUpdatePayload(idx);
+    logEvent("bulk.materialize.update-request", {
+      idx,
+      taskId: Number(snap.draftTaskId),
+      version: Number(snap.draftTaskVersion || 0),
+      payload: updatePayload,
+      snapshot: summarizeBulkSnapshot(snap),
+    });
+    const updateResult = await taskApi.updateTask(Number(snap.draftTaskId), updatePayload, Number(snap.draftTaskVersion || 0));
     if (!updateResult?.success) {
       state._bulkLastSyncError = updateResult?.error || "Nepavyko atnaujinti juodrascio uzduoties.";
       if (!silent) window.schedule?.ui?.toast?.showWarning?.(updateResult?.error || "Nepavyko atnaujinti juodrascio uzduoties.");
       return false;
     }
+    logEvent("bulk.materialize.update-result", {
+      idx,
+      taskId: Number(snap.draftTaskId),
+      updateResult,
+    });
     state._bulkScheduledData[idx] = backlog.bulkState.composeSnapshot({
       base: state._bulkScheduledData[idx] || {},
       data: {
@@ -612,6 +680,10 @@
     await backlog.bulkSync.fetchAndSyncBulkTask(Number(snap.draftTaskId));
     if (refreshSchedule) await backlog.bulkSync.refreshDraftScheduleTable();
     if (state._bulkQueueIdx === idx) await backlog.bulkSync.restoreBulkPanelFromSnapshot(idx);
+    logEvent("bulk.materialize.update-complete", {
+      idx,
+      snapshot: summarizeBulkSnapshot(state._bulkScheduledData[idx] || {}),
+    });
     return true;
   };
   backlog.bulkSync.taskToBulkSnapshot = (taskData, base = {}) =>
@@ -630,9 +702,24 @@
     return backlog.bulkSync.findBulkIndexBySourceBacklogItemId(taskData.sourceBacklogItemId);
   };
   backlog.bulkSync.syncBulkSnapshotFromTask = (taskData, idx = backlog.bulkSync.findBulkIndexForTask(taskData)) => {
-    if (!taskData || idx < 0) return false;
+    if (!taskData || idx < 0) {
+      logEvent("bulk.sync.task.unmatched", {
+        idx,
+        taskId: Number(taskData?.id || 0) || null,
+        sourceTaskId: Number(taskData?.sourceTaskId || 0) || null,
+        sourceBacklogItemId: Number(taskData?.sourceBacklogItemId || 0) || null,
+      }, "warning");
+      return false;
+    }
     const current = backlog.bulkState.ensurePlanningMetadata(state._bulkScheduledData[idx] || {});
     state._bulkScheduledData[idx] = backlog.bulkSync.taskToBulkSnapshot(taskData, current);
+    logEvent("bulk.sync.task.matched", {
+      idx,
+      taskId: Number(taskData?.id || 0) || null,
+      sourceTaskId: Number(taskData?.sourceTaskId || 0) || null,
+      sourceBacklogItemId: Number(taskData?.sourceBacklogItemId || 0) || null,
+      snapshot: summarizeBulkSnapshot(state._bulkScheduledData[idx] || {}),
+    });
     return true;
   };
   backlog.bulkSync.lockBulkSnapshotFromTask = (taskData, idx = backlog.bulkSync.findBulkIndexForTask(taskData)) => {
@@ -740,6 +827,12 @@
     const opts = { ...state.getDefaultBulkSaveOptions(), ...options };
     const idx = state._bulkQueueIdx;
     backlog.bulkState.persistCurrentBulkSnapshot();
+    logEvent("bulk.flushLiveSave.start", {
+      idx,
+      options: opts,
+      planMode: backlog.bulkState.getBulkPlanMode?.(),
+      snapshot: summarizeBulkSnapshot(state._bulkScheduledData[idx] || {}),
+    });
     if (
       backlog.bulkState.getBulkPlanMode() === "automatinis" &&
       backlog.bulkState.hasPlanningWorkPending(idx)
@@ -749,6 +842,11 @@
         revision: backlog.bulkState.getSnapshotPlanningRevision(idx),
         options: opts,
       };
+      logEvent("bulk.flushLiveSave.deferred", {
+        idx,
+        revision: backlog.bulkState.getSnapshotPlanningRevision(idx),
+        options: opts,
+      });
       if (state._isBulkMode) state.applyDraftBulkFooterState({ busy: state.isBulkOperationBusy() });
       return true;
     }
@@ -835,7 +933,7 @@
     if (state._bulkAutoPlanPromise && state._bulkAutoPlanInFlight?.idx === state._bulkQueueIdx) {
       await state._bulkAutoPlanPromise;
     } else if (shouldReplanCurrentItem || needsPlanningCommit) {
-      await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: false, persist: false });
+      await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: false, persist: true, refreshSchedule: false });
     }
 
     state._bulkScheduledData[state._bulkQueueIdx] = backlog.bulkState.collectMergedBulkSnapshot(panel, state._bulkQueueIdx);
@@ -995,10 +1093,17 @@
     state._bulkAutoPlanTimer = setTimeout(async () => {
       state._bulkAutoPlanTimer = null;
       if (!state._isBulkMode || state._restoringSnapshot || state._autoPlanningInProgress) return;
+      if (state._bulkAutoPlanInFlight) return;
       await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: false, persist: true, refreshSchedule: true });
     }, delay);
   };
   backlog.planningSession.handlePlanModeChanged = async (mode) => {
+    logEvent("bulk.planMode.change", {
+      from: state._bulkPlanMode,
+      to: mode,
+      idx: state._bulkQueueIdx,
+      snapshot: summarizeBulkSnapshot(backlog.bulkState.getCurrentItemState()),
+    });
     backlog.bulkSync.clearPendingBulkTimers();
     backlog.bulkState.persistCurrentBulkSnapshot();
     state._bulkPlanMode = mode === "automatinis" ? "automatinis" : "rankinis";
@@ -1443,6 +1548,13 @@
     // Reopened bulk sessions should preserve the current draft session context and
     // only re-ensure when the queue expands outside the already ensured range.
     const reopeningExistingDraft = state._isBulkMode && state._bulkQueue.length > 0;
+    logEvent("bulk.handleSchedule.start", {
+      reopeningExistingDraft,
+      existingQueueLength: state._bulkQueue.length,
+      nextQueueLength: nextQueue.length,
+      nextQueue: nextQueue.map((item) => summarizeBulkItem(item)),
+      context: state.getBulkDraftContext?.() || null,
+    });
     if (reopeningExistingDraft) {
       backlog.bulkState.persistCurrentBulkSnapshot();
       const reconciled = await backlog.bulkSync.reconcileDeselectedDraftTasks(nextQueue, { silent: false });
@@ -1466,6 +1578,13 @@
     }
     state._isBulkMode = true;
     if (!reopeningExistingDraft) state._bulkPlanMode = "rankinis";
+    logEvent("bulk.handleSchedule.ready", {
+      reopeningExistingDraft,
+      queueLength: state._bulkQueue.length,
+      bulkQueueIdx: state._bulkQueueIdx,
+      context: state.getBulkDraftContext?.() || null,
+      snapshot: summarizeBulkSnapshot(state._bulkScheduledData[state._bulkQueueIdx] || {}),
+    });
     backlog.bulkFlow.hideBulkConfirmView();
     const initialPlacement = state.getEarliestCreatableRangeForScheduleDate?.() || {};
     await window.schedule?.tasks?.openTaskPanel?.({

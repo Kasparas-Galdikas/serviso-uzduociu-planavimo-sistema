@@ -49,23 +49,6 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
             });
         }
 
-        [HttpPost("publish")]
-        [Authorize(Policy = "RequireManager")]
-        public async Task<IActionResult> PublishDraft(CancellationToken cancellationToken)
-        {
-            try
-            {
-                await _planService.PublishDraftAsync(cancellationToken);
-                _logger.LogInformation("api.plan.publish.ok");
-                Response.Headers["X-Trace-Summary"] = "plan.publish.ok";
-                return Ok();
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogWarning(ex, "api.plan.publish.failed");
-                return BadRequest(new { message = ex.Message });
-            }
-        }
 
         [HttpPost("discard")]
         [Authorize(Policy = "RequireManager")]

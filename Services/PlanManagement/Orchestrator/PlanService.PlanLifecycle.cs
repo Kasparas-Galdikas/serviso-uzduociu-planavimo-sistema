@@ -65,6 +65,16 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 .Include(p => p.Tasks)
                 .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
 
+            _logger.LogInformation(
+                "svc.plan.backlog-draft.ensure.start requestedStart={RequestedStart} requestedEnd={RequestedEnd} requestedWeeks={RequestedWeeks} activePlanId={ActivePlanId} activeTasks={ActiveTaskCount} existingDraftId={ExistingDraftId} existingDraftTasks={ExistingDraftTaskCount}",
+                requestedStart,
+                requestedEnd,
+                requestedWeeks,
+                activePlan.Id,
+                activePlan.Tasks.Count,
+                existingDraft?.Id,
+                existingDraft?.Tasks.Count ?? 0);
+
             await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
             PlanEntity draftPlan;
@@ -106,6 +116,18 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             var seededTasks = generatedTasks
                 .Where(t => !t.SourceTaskId.HasValue || !existingSourceTaskIds.Contains(t.SourceTaskId.Value))
                 .ToList();
+
+            _logger.LogInformation(
+                "svc.plan.backlog-draft.ensure.seed-check draftPlanId={DraftPlanId} requestedRange={RequestedStart}-{RequestedEnd} ensuredRange={EnsuredStart}-{EnsuredEnd} existingDraftTaskCount={ExistingDraftTaskCount} existingSourceTaskCount={ExistingSourceTaskCount} generatedTaskCount={GeneratedTaskCount} seededTaskCount={SeededTaskCount}",
+                draftPlan.Id,
+                requestedRangeStart,
+                requestedRangeEnd,
+                ensuredStart,
+                ensuredEnd,
+                draftPlan.Tasks.Count,
+                existingSourceTaskIds.Count,
+                generatedTasks.Count,
+                seededTasks.Count);
 
             if (seededTasks.Count > 0)
             {
@@ -269,67 +291,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             _db.Plans.Update(plan);
             await _db.SaveChangesAsync(cancellationToken);
             _logger.LogInformation("svc.plan.span.adjust planId={PlanId} start={Start} end={End} weeks={Weeks}", plan.Id, plan.PeriodStart, plan.PeriodEnd, plan.Weeks);
-        }
-
-        public async Task PublishDraftAsync(CancellationToken cancellationToken = default)
-        {
-            var draft = await _db.Plans
-                .Include(p => p.Tasks)
-                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
-
-            if (draft == null)
-            {
-                throw new InvalidOperationException("No draft plan to publish.");
-            }
-
-            var active = await _db.Plans
-                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Active, cancellationToken);
-
-            // Validation hook: place draft validation here before flipping states.
-
-            try
-            {
-                await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to recalculate evaluations for draft plan {PlanId} during publish.", draft.Id);
-                throw;
-            }
-
-            var draftTasksCount = draft.Tasks.Count;
-            var draftTaskIds = draft.Tasks.Select(t => t.Id).ToList();
-            var draftEvalCount = draftTaskIds.Count == 0
-                ? 0
-                : await _db.TaskEvaluations.CountAsync(e => draftTaskIds.Contains(e.TaskId), cancellationToken);
-
-            if (draftTasksCount > 0 && draftEvalCount < draftTasksCount)
-            {
-                // Try one more recalculation in case evaluations were stale.
-                await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
-                draftEvalCount = await _db.TaskEvaluations.CountAsync(e => draftTaskIds.Contains(e.TaskId), cancellationToken);
-                if (draftEvalCount < draftTasksCount)
-                {
-                    _logger.LogWarning("Draft plan {PlanId} has {EvalCount}/{TaskCount} evaluations; proceeding with publish.", draft.Id, draftEvalCount, draftTasksCount);
-                }
-            }
-
-            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-
-            _logger.LogInformation("svc.plan.publish draftId={DraftId} draftTasks={DraftTasks} draftEvals={DraftEvals} activeId={ActiveId}", draft.Id, draftTasksCount, draftEvalCount, active?.Id);
-
-            if (active != null)
-            {
-                active.Status = PlanStatus.Superseded;
-                active.SupersededByPlanId = draft.Id;
-                _db.Plans.Update(active);
-            }
-
-            draft.Status = PlanStatus.Active;
-            _db.Plans.Update(draft);
-            await _db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-            _logger.LogInformation("svc.plan.publish.ok draftId={DraftId} superseded={ActiveId}", draft.Id, active?.Id);
         }
 
         public async Task ApplyDraftToActiveAsync(CancellationToken cancellationToken = default)
