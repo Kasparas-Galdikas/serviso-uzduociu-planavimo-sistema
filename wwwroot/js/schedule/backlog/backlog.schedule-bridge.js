@@ -4,6 +4,8 @@
   window.schedule = window.schedule || {};
   const backlog = window.schedule.backlog = window.schedule.backlog || {};
   const state = backlog.state;
+  const logger = window.scheduleLogger;
+  const logEvent = (event, data = {}, level = "info") => logger?.log(level, event, data);
 
   backlog.scheduleBridge = backlog.scheduleBridge || {};
   backlog.interop = backlog.scheduleBridge;
@@ -84,6 +86,10 @@
       endDate: request?.endDate || null,
       weeks: Number.isFinite(Number(request?.weeks)) ? Number(request.weeks) : null,
     };
+    logEvent("bulk.ensureDraftSandbox.request", {
+      payload,
+      currentContext: state.getBulkDraftContext?.() || null,
+    });
     const resp = await fetch("/api/plans/backlog-draft/ensure", {
       method: "POST",
       credentials: "same-origin",
@@ -96,6 +102,11 @@
       draftPlanId: data?.draftPlanId ?? null,
       periodStart: data?.periodStart ?? "",
       periodEnd: data?.periodEnd ?? "",
+    });
+    logEvent("bulk.ensureDraftSandbox.response", {
+      payload,
+      response: data,
+      newContext: state.getBulkDraftContext?.() || null,
     });
     return data;
   };

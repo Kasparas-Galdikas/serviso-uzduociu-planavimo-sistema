@@ -204,10 +204,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 if (existingDuplicate != null)
                 {
                     _logger.LogInformation(
-                        "svc.plan.create-task.duplicate-suppressed planId={PlanId} taskId={TaskId} technicianId={TechnicianId} startAtUtc={StartAtUtc} endAtUtc={EndAtUtc}",
+                        "svc.plan.create-task.duplicate-suppressed planId={PlanId} taskId={TaskId} technicianId={TechnicianId} sourceBacklogItemId={SourceBacklogItemId} startAtUtc={StartAtUtc} endAtUtc={EndAtUtc}",
                         targetPlan.Id,
                         existingDuplicate.Id,
                         technicianId,
+                        sourceBacklogItemId,
                         requestedStartAtUtc,
                         requestedEndAtUtc);
                     return new TaskCreateResult(TaskCreateError.None, Task: existingDuplicate, CurrentVersion: TryReadTaskVersion(existingDuplicate));
@@ -406,10 +407,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 if (existingDuplicate != null)
                 {
                     _logger.LogInformation(
-                        "svc.plan.create-task.duplicate-suppressed planId={PlanId} taskId={TaskId} technicianId={TechnicianId} startAtUtc={StartAtUtc} endAtUtc={EndAtUtc}",
+                        "svc.plan.create-task.duplicate-suppressed planId={PlanId} taskId={TaskId} technicianId={TechnicianId} sourceBacklogItemId={SourceBacklogItemId} startAtUtc={StartAtUtc} endAtUtc={EndAtUtc}",
                         targetPlan.Id,
                         existingDuplicate.Id,
                         technicianId,
+                        sourceBacklogItemId,
                         placementValidation.StartAtUtc,
                         placementValidation.EndAtUtc);
                     return new TaskCreateResult(TaskCreateError.None, Task: existingDuplicate, CurrentVersion: TryReadTaskVersion(existingDuplicate));

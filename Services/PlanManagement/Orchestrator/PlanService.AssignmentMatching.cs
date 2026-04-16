@@ -688,13 +688,21 @@ internal sealed class PlanServiceAssignmentMatching
                 ? sharedContext.PersistedWeekTasks
                     .Where(t => t.StartAt >= loadRangeStart && t.StartAt < loadRangeEndExclusive)
                     .ToList()
-                : await _db.Tasks
-                    .AsNoTracking()
-                    .Include(t => t.ServiceObject)
-                    .Include(t => t.Technician)
-                        .ThenInclude(t => t.User)
-                    .Where(t => t.StartAt >= loadRangeStart &&
-                                t.StartAt < loadRangeEndExclusive)
+                : await _planScopeResolver.ApplyCurrentWorkScope(
+                        _db.Tasks
+                            .AsNoTracking()
+                            .Include(t => t.ServiceObject)
+                            .Include(t => t.Technician)
+                                .ThenInclude(t => t.User)
+                            .Where(t => t.StartAt >= loadRangeStart &&
+                                        t.StartAt < loadRangeEndExclusive),
+                        sharedContext?.DecisionScope ?? new PlanScopeResolver.CurrentWorkScope(
+                            "assignment-current-work+simulated",
+                            null,
+                            null,
+                            Array.Empty<long>(),
+                            Array.Empty<long>(),
+                            IncludeUnplanned: true))
                     .ToListAsync(cancellationToken);
 
             var simulatedTasks = await BuildSimulatedTasks(

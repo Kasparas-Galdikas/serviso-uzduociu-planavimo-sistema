@@ -148,8 +148,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator.Shared
 
             var supersededPlan = await _db.Plans
                 .Where(p => p.Status == PlanStatus.Superseded)
-                .Where(p => p.SupersededByPlanId == activePlan.Id)
-                .OrderByDescending(p => p.CreatedAt)
+                .OrderBy(p => p.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
 
             if (supersededPlan == null)

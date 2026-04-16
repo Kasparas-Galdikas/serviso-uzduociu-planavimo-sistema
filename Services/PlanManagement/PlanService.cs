@@ -356,9 +356,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             CancellationToken cancellationToken = default)
             => _planLifecycle.EnsureBacklogDraftAsync(requestedStart, requestedEnd, requestedWeeks, cancellationToken);
 
-        public Task PublishDraftAsync(CancellationToken cancellationToken = default)
-            => _planLifecycle.PublishDraftAsync(cancellationToken);
-
         public Task ApplyDraftToActiveAsync(CancellationToken cancellationToken = default)
             => _planLifecycle.ApplyDraftToActiveAsync(cancellationToken);
 

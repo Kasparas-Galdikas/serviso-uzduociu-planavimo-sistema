@@ -202,9 +202,9 @@
                 publishBtn.setAttribute('aria-busy', 'true');
                 const logger = window.scheduleLogger;
                 try {
-                    const resp = await (logger?.fetchWithTrace('/api/plans/publish', {
+                    const resp = await (logger?.fetchWithTrace('/api/plans/backlog-draft/apply-to-active', {
                         method: 'POST'
-                    }, { event: 'ui.plan.publish' }) || fetch('/api/plans/publish', {
+                    }, { event: 'ui.plan.publish' }) || fetch('/api/plans/backlog-draft/apply-to-active', {
                         method: 'POST',
                         headers: { 'X-Requested-With': 'XMLHttpRequest' }
                     }));
