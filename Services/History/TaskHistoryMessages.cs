@@ -123,6 +123,7 @@ namespace ServiceTaskPlanningSystem.Services.History
             TechnicianUpdateError.InvalidStatus => ("Neteisingas statusas.", "failure"),
             TechnicianUpdateError.Stale => ("Techniko atnaujinimas nepavyko – versijų konfliktas.", "warning"),
             TechnicianUpdateError.TaskNotFound => ("Techniko atnaujinimas nepavyko – užduotis nerasta.", "warning"),
+            TechnicianUpdateError.TooEarly => ("Negalima keisti statuso prieš prasidedant užduočiai.", "failure"),
             _ => (r.Message ?? "Techniko atnaujinimas nepavyko.", "failure")
         };
 

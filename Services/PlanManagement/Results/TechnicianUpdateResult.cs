@@ -9,7 +9,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
         NotOwner,
         NotEditable,
         InvalidStatus,
-        Stale
+        Stale,
+        TooEarly
     }
 
     public sealed record TechnicianUpdateResult(

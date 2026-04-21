@@ -221,6 +221,7 @@ public sealed class TasksAuthorizationTests : IAsyncLifetime
         var techId = await GetTechnicianIdAsync("technician@test.com");
         var managerClient = CreateClient("manager@test.com", timezoneOffsetMinutes: 0);
         var task = await CreateTaskAsync(managerClient, techId, DateTime.UtcNow.Date.AddDays(10));
+        await UpdateTaskTimestampsAsync(task.Id, DateTime.UtcNow.AddMinutes(-30), DateTime.UtcNow.AddMinutes(30));
         var version = await GetTaskVersionAsync(task.Id);
 
         var techClient = CreateClient("technician@test.com", timezoneOffsetMinutes: 0, technicianId: techId);

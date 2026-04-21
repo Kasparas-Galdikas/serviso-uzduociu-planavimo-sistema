@@ -1236,6 +1236,18 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
                 return _r2;
             }
 
+            // Gate: technician cannot mark a task done before it has started
+            var nowUtc = _timeService.GetCurrentUtcTime();
+            if (nowUtc < task.StartAt)
+            {
+                var _r = new TechnicianUpdateResult(TechnicianUpdateError.TooEarly,
+                    "Negalima keisti statuso prieš prasidedant užduočiai.");
+                var (_msg, _out) = TaskHistoryMessages.ForTechnicianUpdate(_r, status.ToString());
+                await _historyWriter.RecordAsync(taskId, task.PlanId, "technician_update", _out, _msg,
+                    user.UserId, user.Role.ToString().ToLower(), cancellationToken: cancellationToken);
+                return _r;
+            }
+
             // Check version
             var currentVersion = _db.Entry(task).Property<uint>("xmin").CurrentValue;
             if (currentVersion != expectedVersion)
@@ -1249,6 +1261,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
             // Update task
             task.Status = status;
             task.TechnicianComment = comment ?? string.Empty;
+            task.ActualEndAt = nowUtc; // server time only — not client-supplied
 
             try
             {await _db.SaveChangesAsync(cancellationToken);

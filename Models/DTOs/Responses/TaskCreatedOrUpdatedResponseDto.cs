@@ -28,4 +28,11 @@ public class TaskCreatedOrUpdatedResponseDto
     /// Snapshot of technician load after the operation.
     /// </summary>
     public LoadSnapshotDto? Load { get; set; }
+
+    /// <summary>
+    /// Minutes saved vs. scheduled end time when technician completed early.
+    /// Null if not a technician status update. Zero or negative if on-time/overran (shouldn't happen
+    /// since status change is blocked after EndAt, but kept as int? for safety).
+    /// </summary>
+    public int? SavedMinutes { get; set; }
 }

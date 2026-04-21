@@ -38,10 +38,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
         // task is locked in the UI but still shows InProgress.
         private static readonly TimeSpan GracePeriod = TimeSpan.Zero;
 
-        // How far back to look. Prevents the query from scanning unbounded history.
-        // Any InProgress task older than this was either already expired or is a data anomaly.
-        private static readonly TimeSpan LookbackWindow = TimeSpan.FromDays(2);
-
         public TaskAutoExpirationService(IServiceScopeFactory scopeFactory, ILogger<TaskAutoExpirationService> logger)
         {
             _scopeFactory = scopeFactory;
@@ -51,7 +47,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             // Wait a bit before first run to let the app fully start
-            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
 
             var timer = new PeriodicTimer(Interval);
             while (await timer.WaitForNextTickAsync(stoppingToken))
@@ -81,13 +77,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
             var timeService = scope.ServiceProvider.GetRequiredService<IScheduleTimeService>();
 
             var cutoffTime = timeService.GetCurrentUtcTime() - GracePeriod;
-            var windowStart = cutoffTime - LookbackWindow;
 
             // Step 1: collect distinct plan IDs before mutating — lean projection, no tracking.
             // The partial index ix_tasks_inprogress_end_at covers this predicate directly.
             var planIds = await db.Tasks
                 .Where(t => t.Status == ScheduleTaskStatus.InProgress
-                         && t.EndAt > windowStart
                          && t.EndAt < cutoffTime)
                 .Select(t => t.PlanId)
                 .Where(id => id.HasValue)
@@ -99,7 +93,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
             // Returns the number of rows actually updated.
             var expired = await db.Tasks
                 .Where(t => t.Status == ScheduleTaskStatus.InProgress
-                         && t.EndAt > windowStart
                          && t.EndAt < cutoffTime)
                 .ExecuteUpdateAsync(
                     s => s.SetProperty(t => t.Status, ScheduleTaskStatus.Canceled),

@@ -32,6 +32,13 @@ namespace ServiceTaskPlanningSystem.Data
         /// <summary>Pre-repair end time. Populated alongside SourceUnavailabilityId.</summary>
         public DateTime? OriginalEndAt { get; set; }
 
+        /// <summary>
+        /// Set when a technician changes the task status (Completed or Conflict).
+        /// Represents the real-world moment the task ended, as recorded by the server.
+        /// Null for tasks still in progress or auto-expired without technician action.
+        /// </summary>
+        public DateTime? ActualEndAt { get; set; }
+
         public PlanEntity? Plan { get; set; }
         public TechnicianEntity Technician { get; set; } = default!;
         public ServiceObjectEntity ServiceObject { get; set; } = default!;
