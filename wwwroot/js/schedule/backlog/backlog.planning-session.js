@@ -488,7 +488,7 @@
 
     const suggestion = await backlog.planningSession.fetchAutoSuggestionForIndex(idx);
     if (!suggestion) {
-      state._bulkLastSyncError = "Nepavyko perskaiciuoti automatines uzduoties laiko.";
+      state._bulkLastSyncError = "Pasiūlytas laikas praėjo ir naujas laikas nerastas.";
       return false;
     }
 
@@ -598,7 +598,9 @@
       return false;
     }
     if (!backlog.bulkState.isBulkSnapshotSchedulable(snap, item)) {
-      state._bulkLastSyncError = "Nepakanka planavimo duomenu.";
+      state._bulkLastSyncError = "Trūksta planavimo duomenų: nepaskirtas technikas arba laikas.";
+      logEvent("bulk.materialize.failed", { idx, reason: "not-schedulable" }, "warn");
+      backlog.planningSession.setConfirmItemStatus(idx, "error", state._bulkLastSyncError);
       return false;
     }
     const normalized = await backlog.bulkSync.normalizeBulkSnapshotPlacementForMaterialization(idx);
@@ -627,8 +629,10 @@
       }
       const createResult = await taskApi.createDraftTask(createPayload);
       if (!createResult?.success || !createResult.id) {
-        state._bulkLastSyncError = createResult?.error || "Nepavyko sukurti juodrascio uzduoties.";
-        if (!silent) window.schedule?.ui?.toast?.showWarning?.(createResult?.error || "Nepavyko sukurti juodrascio uzduoties.");
+        state._bulkLastSyncError = createResult?.error || "Ryšio klaida kuriant juodraštį — bandykite dar kartą.";
+        logEvent("bulk.materialize.failed", { idx, reason: "create-api-failed", error: createResult?.error }, "error");
+        backlog.planningSession.setConfirmItemStatus(idx, "error", state._bulkLastSyncError);
+        if (!silent) window.schedule?.ui?.toast?.showWarning?.(state._bulkLastSyncError);
         return false;
       }
       logEvent("bulk.materialize.create-result", { idx, createResult, payload: createPayload });
@@ -660,8 +664,10 @@
     });
     const updateResult = await taskApi.updateTask(Number(snap.draftTaskId), updatePayload, Number(snap.draftTaskVersion || 0));
     if (!updateResult?.success) {
-      state._bulkLastSyncError = updateResult?.error || "Nepavyko atnaujinti juodrascio uzduoties.";
-      if (!silent) window.schedule?.ui?.toast?.showWarning?.(updateResult?.error || "Nepavyko atnaujinti juodrascio uzduoties.");
+      state._bulkLastSyncError = updateResult?.error || "Ryšio klaida atnaujinant juodraštį — bandykite dar kartą.";
+      logEvent("bulk.materialize.failed", { idx, reason: "update-api-failed", error: updateResult?.error }, "error");
+      backlog.planningSession.setConfirmItemStatus(idx, "error", state._bulkLastSyncError);
+      if (!silent) window.schedule?.ui?.toast?.showWarning?.(state._bulkLastSyncError);
       return false;
     }
     logEvent("bulk.materialize.update-result", {
@@ -930,14 +936,40 @@
       !Number(currentSnapshot.draftTaskId || 0) &&
       currentSnapshot.isMaterialized !== true;
 
+    let planningAttempted = false;
     if (state._bulkAutoPlanPromise && state._bulkAutoPlanInFlight?.idx === state._bulkQueueIdx) {
       await state._bulkAutoPlanPromise;
     } else if (shouldReplanCurrentItem || needsPlanningCommit) {
+      planningAttempted = true;
       await backlog.planningSession.runAutomaticPlanningForCurrentItem({ usePrefetch: false, persist: true, refreshSchedule: false });
     }
 
     state._bulkScheduledData[state._bulkQueueIdx] = backlog.bulkState.collectMergedBulkSnapshot(panel, state._bulkQueueIdx);
-    return await backlog.bulkSync.flushCurrentBulkLiveSave({ refreshSchedule, silent: true });
+    const snap = state._bulkScheduledData[state._bulkQueueIdx];
+    const alreadyMaterialized = Number(snap?.draftTaskId || 0) > 0 && snap?.isMaterialized === true;
+
+    if (alreadyMaterialized) {
+      // Task was created by the planning step — skip the redundant flush
+      if (refreshSchedule) await backlog.bulkSync.refreshDraftScheduleTable();
+      return true;
+    }
+
+    if (planningAttempted) {
+      // Planning already tried (and failed) to create the task.
+      // applyAutomaticSuggestion called materializeOrUpdateBulkItem with silent:false → toast already shown.
+      // Calling flushCurrentBulkLiveSave again would fail identically and show a second toast.
+      logEvent("bulk.commitForNavigation.plan-failed", { idx: state._bulkQueueIdx, reason: state._bulkLastSyncError }, "warn");
+      return true;
+    }
+
+    // No planning step ran — attempt flush directly, surface any error
+    const saved = await backlog.bulkSync.flushCurrentBulkLiveSave({ refreshSchedule, silent: true });
+    if (!saved && state._bulkLastSyncError) {
+      const item = state._bulkQueue[state._bulkQueueIdx];
+      const label = item?.title || item?.objectName || `#${state._bulkQueueIdx + 1}`;
+      backlog.planningSession.setConfirmItemStatus(state._bulkQueueIdx, "error", state._bulkLastSyncError);
+    }
+    return true; // Never block navigation
   };
 
   // ============================================================================

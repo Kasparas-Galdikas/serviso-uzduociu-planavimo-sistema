@@ -390,6 +390,10 @@ namespace ServiceTaskPlanningSystem.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<DateTime?>("ActualEndAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("actual_end_at");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamptz")

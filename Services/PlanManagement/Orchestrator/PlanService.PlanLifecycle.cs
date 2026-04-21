@@ -309,6 +309,43 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
             await EnsureDraftEvaluationsAsync(draft, cancellationToken);
 
+            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
+            // Ensure draft period window covers all tasks in draft before applying
+            var draftTaskDates = draft.Tasks?
+                .Select(t => t.StartAt.Date)
+                .Distinct()
+                .ToList() ?? new List<DateTime>();
+
+            if (draftTaskDates.Count > 0)
+            {
+                var minTaskDate = draftTaskDates.Min();
+                var maxTaskDate = draftTaskDates.Max();
+                var needsUpdate = false;
+
+                if (minTaskDate < draft.PeriodStart.Date)
+                {
+                    draft.PeriodStart = minTaskDate;
+                    needsUpdate = true;
+                }
+                if (maxTaskDate > draft.PeriodEnd.Date)
+                {
+                    draft.PeriodEnd = maxTaskDate;
+                    var totalDays = (draft.PeriodEnd.Date - draft.PeriodStart.Date).Days + 1;
+                    draft.Weeks = Math.Max(1, (int)Math.Ceiling(totalDays / 7.0));
+                    needsUpdate = true;
+                }
+
+                if (needsUpdate)
+                {
+                    _db.Plans.Update(draft);
+                    await _db.SaveChangesAsync(cancellationToken);
+                    _logger.LogInformation(
+                        "svc.plan.apply-draft.window-extended draftId={DraftId} newStart={NewStart} newEnd={NewEnd}",
+                        draft.Id, minTaskDate, maxTaskDate);
+                }
+            }
+
             var nowUtc = _timeService.GetCurrentUtcTime();
             var replacementStartDate = draft.PeriodStart.Date;
             var currentLocalToday = _timeService.GetLocalToday();
@@ -319,8 +356,6 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
             var replacementStartUtc = DateTime.SpecifyKind(replacementStartDate, DateTimeKind.Utc);
             var replacementEndUtcExclusive = DateTime.SpecifyKind(draft.PeriodEnd.Date.AddDays(1), DateTimeKind.Utc);
-
-            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
             var deletedActiveTasks = 0;
             PlanEntity targetActivePlan;

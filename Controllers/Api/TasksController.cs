@@ -784,10 +784,16 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                     "api.task.technician-update.success userId={UserId} taskId={TaskId} status={Status}",
                     user.UserId, id, dto.Status);
 
+                var t = result.Task;
+                var savedMinutes = t.ActualEndAt.HasValue
+                    ? (int)(t.EndAt - t.ActualEndAt.Value).TotalMinutes
+                    : (int?)null;
+
                 return Ok(new TaskCreatedOrUpdatedResponseDto
                 {
                     Id = id,
                     Version = result.CurrentVersion ?? 0,
+                    SavedMinutes = savedMinutes,
                 });
             }
 
@@ -801,6 +807,7 @@ namespace ServiceTaskPlanningSystem.Controllers.Api
                 TechnicianUpdateError.NotOwner => StatusCode(403, new { message = result.Message }),
                 TechnicianUpdateError.NotEditable => StatusCode(403, new { message = result.Message }),
                 TechnicianUpdateError.InvalidStatus => UnprocessableEntity(new { message = result.Message }),
+                TechnicianUpdateError.TooEarly => UnprocessableEntity(new { message = result.Message }),
                 TechnicianUpdateError.Stale => Conflict(new { message = result.Message, version = result.CurrentVersion }),
                 _ => StatusCode(500, new { message = "Nepavyko atnaujinti uzduoties." })
             };

@@ -12,7 +12,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
 {
     public sealed class PlanScopeSegregationBackgroundService : BackgroundService
     {
-        private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(45);
+        private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(40);
         private static readonly TimeSpan Interval = TimeSpan.FromMinutes(10);
 
         private readonly IServiceScopeFactory _scopeFactory;
@@ -29,6 +29,8 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.BackgroundServices
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             await Task.Delay(StartupDelay, stoppingToken);
+
+            await SegregateAsync(stoppingToken);
 
             var timer = new PeriodicTimer(Interval);
             while (await timer.WaitForNextTickAsync(stoppingToken))
