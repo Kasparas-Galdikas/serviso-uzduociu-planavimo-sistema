@@ -2,17 +2,44 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using ServiceTaskPlanningSystem.Data;
+using ServiceTaskPlanningSystem.Data.Enums;
 
 namespace ServiceTaskPlanningSystem.Services.PlanManagement.Matching;
 
+// SCORING DESIGN
+// OneDayUnit (100) is the cost of delaying a task by one scheduling day.
+// Every soft penalty below is expressed as a multiple of OneDayUnit so that
+// relative importance can be reasoned about in "day-equivalent" terms.
+//
+// Bands by magnitude:
+//   0–50     Assignment quality  (load balance, spread, start-time tiebreaker)
+//   50–150   Logistics           (travel, nearby-city admission)
+//   150–300  Location mismatch   (global fallback)
+//   < 0      Hard violations     (daily/weekly overload — always disqualify)
+
 internal sealed class CandidateScoreCalculator
 {
-    internal const double BatchBalancePenaltyPerAssignment = 20.0;
-    internal const double TravelPenaltyPerHour = 15.0;
-    internal const double DelayPenaltyPerDay = 100.0;
-    internal const double GlobalFallbackPenalty = 250.0;
-    internal const double DayTaskCountPenaltyPerTask = 25.0;
-    internal const double LateStartPenaltyPerMinute = 0.05;
+    // === Scoring anchor ===
+    internal const double OneDayUnit = 100.0;
+
+    // === Time fit ===
+    internal const double DelayPenaltyPerDay          = OneDayUnit;           // 100 — the anchor
+    internal const double LateStartPenaltyPerMinute   = OneDayUnit / 2000.0; //  0.05 — tiebreaker only
+
+    // === Logistics ===
+    internal const double TravelPenaltyPerHour        = OneDayUnit * 0.15;   //  15
+    internal const double NearbyCityPenalty           = OneDayUnit * 0.75;   //  75
+    internal const double GlobalFallbackPenalty       = OneDayUnit * 2.5;    // 250
+
+    // === Assignment quality ===
+    internal const double DayTaskCountPenaltyPerTask       = OneDayUnit * 0.25; //  25
+    internal const double BatchBalancePenaltyPerAssignment = OneDayUnit * 0.20; //  20 (applied as n²)
+
+    // === Skill / experience (soft — never blocks, only nudges) ===
+    internal const double ExperiencePenaltyHighJunior = OneDayUnit * 1.2; // 120
+    internal const double ExperiencePenaltyHighMid    = OneDayUnit * 0.6; //  60
+    internal const double ExperiencePenaltyMedJunior  = OneDayUnit * 0.3; //  30
+
     private static readonly LoadScoreWeights AssignmentWeights = new()
     {
         ConflictPenalty = 0.0,
@@ -66,10 +93,23 @@ internal sealed class CandidateScoreCalculator
             ? 0
             : batchAssignmentCount * batchAssignmentCount * BatchBalancePenaltyPerAssignment;
         var delayPenalty = Math.Max(0, (candidateDate.Date - requestedDate.Date).Days) * DelayPenaltyPerDay;
-        var localityPenalty = localityTier == CandidateLocalityTier.GlobalFallback ? GlobalFallbackPenalty : 0;
+        var localityPenalty = localityTier switch
+        {
+            CandidateLocalityTier.SameCity       => 0.0,
+            CandidateLocalityTier.NearestCity    => NearbyCityPenalty,
+            CandidateLocalityTier.GlobalFallback => GlobalFallbackPenalty,
+            _                                    => GlobalFallbackPenalty
+        };
         var existingDayTaskCount = dayTasks.Count;
         var spreadPenalty = existingDayTaskCount * DayTaskCountPenaltyPerTask;
         var startTimePenalty = startMinutes * LateStartPenaltyPerMinute;
+        var experiencePenalty = (extraTask.Priority, technician.ExperienceLevel) switch
+        {
+            (TaskPriority.High,   ExperienceLevel.Junior) => ExperiencePenaltyHighJunior,
+            (TaskPriority.High,   ExperienceLevel.Mid)    => ExperiencePenaltyHighMid,
+            (TaskPriority.Medium, ExperienceLevel.Junior) => ExperiencePenaltyMedJunior,
+            _                                              => 0.0
+        };
 
         return new RankedTechnicianCandidate(
             technician,
@@ -77,7 +117,7 @@ internal sealed class CandidateScoreCalculator
             startMinutes,
             endMinutes,
             localityTier,
-            new CandidateScoreBreakdown(loadScore, travelPenalty, batchPenalty, delayPenalty, localityPenalty, SpreadPenalty: spreadPenalty, StartTimePenalty: startTimePenalty),
+            new CandidateScoreBreakdown(loadScore, travelPenalty, batchPenalty, delayPenalty, localityPenalty, SkillPenalty: experiencePenalty, SpreadPenalty: spreadPenalty, StartTimePenalty: startTimePenalty),
             candidateSource,
             wasRepaired,
             originalStartMinutes);

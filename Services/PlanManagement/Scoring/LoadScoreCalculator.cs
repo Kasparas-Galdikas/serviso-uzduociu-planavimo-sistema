@@ -29,7 +29,11 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             weights ??= LoadScoreWeights.CreateDefault();
             double score = 0.0;
 
-            // Apply hard constraint penalties
+            // === Hard constraint penalties ===
+            // Negative and large enough that an overloaded slot can never be rescued
+            // by any combination of soft bonuses (max soft ≈ +400).
+            // ConflictPenalty, DailyOverPenalty, WeeklyOverPenalty must stay below -500
+            // to remain safely outside the soft scoring range.
             if (context.HasConflict)
             {
                 score += weights.ConflictPenalty;
@@ -38,50 +42,43 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
             if (context.IsDailyLimitExceeded)
             {
                 score += weights.DailyOverPenalty;
-                // Additional proportional penalty for degree of violation
                 score += context.DailyOverHours * weights.DailyOverHoursPenalty;
             }
 
             if (context.IsWeeklyLimitExceeded)
             {
                 score += weights.WeeklyOverPenalty;
-                // Additional proportional penalty for degree of violation
                 score += context.WeeklyOverHours * weights.WeeklyOverHoursPenalty;
             }
 
-            // If hard constraints are violated, return immediately
-            // (soft constraints don't matter when hard constraints fail)
+            // Hard violations short-circuit — soft constraints do not apply
             if (score < 0)
             {
                 return score;
             }
 
-            // Soft constraints: utilization penalties (only when within hard limits)
+            // === Soft utilization tiers ===
+            // Calibrated so no utilization signal alone crosses OneDayUnit (100),
+            // keeping workload pressure below the cost of a one-day scheduling delay.
             double dailyPenalty = ComputeUtilizationPenalty(context.DailyUtilization, weights);
             double weeklyPenalty = ComputeUtilizationPenalty(context.WeeklyUtilization, weights);
 
-            // Apply weights
             score += (dailyPenalty * weights.DailyLoadWeight) +
                      (weeklyPenalty * weights.WeeklyLoadWeight);
 
-            // Ensure non-negative for soft constraints only
             return System.Math.Max(0.0, score);
         }
 
-        /// Computes utilization-based penalty (soft constraint).
-        /// Higher utilization = higher penalty (worse score).
         private static double ComputeUtilizationPenalty(double utilization, LoadScoreWeights weights)
         {
-            if (utilization <= 0.3) 
-                return weights.LowUtilizationPenalty;  // Underutilized
-            if (utilization <= 0.5) 
-                return 0.0;                             // Optimal
-            if (utilization <= 0.75) 
-                return weights.MediumUtilizationPenalty; // Moderate
-            if (utilization <= 0.9) 
-                return weights.HighUtilizationPenalty;   // High
-            
-            // Over 100% but within hard limits (shouldn't happen)
+            if (utilization <= 0.3)
+                return weights.LowUtilizationPenalty;
+            if (utilization <= 0.5)
+                return 0.0;
+            if (utilization <= 0.75)
+                return weights.MediumUtilizationPenalty;
+            if (utilization <= 0.9)
+                return weights.HighUtilizationPenalty;
             return weights.VeryHighUtilizationPenalty;
         }
 

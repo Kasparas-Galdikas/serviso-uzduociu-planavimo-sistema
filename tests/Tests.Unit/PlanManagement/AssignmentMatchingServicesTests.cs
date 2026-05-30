@@ -362,7 +362,7 @@ public sealed class AssignmentMatchingServicesTests
     [Fact]
     public void CandidateLocalitySelector_PrefersSameCityTechnicians()
     {
-        var selector = new CandidateLocalitySelector();
+        var selector = new CandidateLocalitySelector(Microsoft.Extensions.Logging.Abstractions.NullLogger<CandidateLocalitySelector>.Instance);
         var pool = selector.SelectPool(
             new[]
             {

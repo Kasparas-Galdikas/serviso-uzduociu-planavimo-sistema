@@ -614,28 +614,6 @@ internal sealed class PlanServiceAssignmentMatching
             return null;
         }
 
-        var localityPool = _localitySelector.SelectPool(eligibleTechnicians, serviceObject);
-        var poolFallbackReason = (string?)null;
-        if (localityPool.Tier == CandidateLocalityTier.GlobalFallback)
-        {
-            var targetCity = serviceObject.Address?.City?.Trim();
-            poolFallbackReason = string.IsNullOrWhiteSpace(targetCity)
-                ? "no-city-on-object"
-                : eligibleTechnicians.Any(t => string.Equals(
-                      t.WorkplaceAddress?.City?.Trim(), targetCity,
-                      StringComparison.OrdinalIgnoreCase))
-                    ? "unknown"
-                    : "no-same-city-technicians";
-        }
-
-        _logger.LogInformation(
-            "svc.plan.auto-assign.pool objectName={ObjectName} locality={Locality} localityTier={LocalityTier} technicianCount={TechnicianCount} technicianIds={TechnicianIds} fallbackReason={FallbackReason}",
-            objectName,
-            localityPool.Label,
-            localityPool.Tier,
-            localityPool.Technicians.Count,
-            string.Join(",", localityPool.Technicians.Select(t => t.Id)),
-            poolFallbackReason);
         var candidateDates = _dateWindowGenerator.GenerateDates(
             requestedDate,
             requestedDate.AddDays(SearchHorizonDays - 1),
@@ -716,7 +694,7 @@ internal sealed class PlanServiceAssignmentMatching
             var addressIds = builtAllWeekTasks
                 .Where(t => t.ServiceObject != null)
                 .Select(t => t.ServiceObject.AddressId)
-                .Concat(localityPool.Technicians.Select(t => t.WorkplaceAddressId))
+                .Concat(eligibleTechnicians.Select(t => t.WorkplaceAddressId))
                 .Append(serviceObject.AddressId)
                 .Where(id => id > 0)
                 .Distinct()
@@ -758,6 +736,29 @@ internal sealed class PlanServiceAssignmentMatching
             var candidateProposals = new List<CandidateProposal>();
             var earlierRejectedCount = 0;
             var repairedCandidateCount = 0;
+
+            var availableForDate = eligibleTechnicians
+                .Where(t => !IsAtCapacityForDate(t, dayStart, durationMinutes, getWorkloadTasks, weekTasksByTechnician))
+                .ToList();
+
+            var localityPool = _localitySelector.SelectPool(availableForDate, serviceObject);
+
+            _logger.LogInformation(
+                "svc.plan.auto-assign.pool date={Date} locality={Locality} localityTier={LocalityTier} technicianCount={TechnicianCount} availableCount={AvailableCount} eligibleCount={EligibleCount}",
+                dayStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                localityPool.Label,
+                localityPool.Tier,
+                localityPool.Technicians.Count,
+                availableForDate.Count,
+                eligibleTechnicians.Count);
+
+            if (localityPool.Technicians.Count == 0)
+            {
+                _logger.LogInformation(
+                    "svc.plan.auto-assign.pool-empty date={Date} reason=all-at-capacity",
+                    dayStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                continue;
+            }
 
             foreach (var technician in localityPool.Technicians)
             {
@@ -1017,11 +1018,10 @@ internal sealed class PlanServiceAssignmentMatching
         }
 
         _logger.LogWarning(
-            "svc.plan.auto-assign.no-match object={ObjectName} requestedDate={RequestedDate} horizonDays={HorizonDays} locality={Locality}",
+            "svc.plan.auto-assign.no-match object={ObjectName} requestedDate={RequestedDate} horizonDays={HorizonDays}",
             objectName,
             requestedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            SearchHorizonDays,
-            localityPool.Label);
+            SearchHorizonDays);
 
         return null;
     }
@@ -1820,6 +1820,28 @@ internal sealed class PlanServiceAssignmentMatching
         }
 
         parsedUtc = default;
+        return false;
+    }
+
+    private static bool IsAtCapacityForDate(
+        TechnicianEntity technician,
+        DateTime date,
+        int durationMinutes,
+        Func<long, DateTime, List<TaskEntity>> getWorkloadTasks,
+        Dictionary<long, List<TaskEntity>> weekTasksByTechnician)
+    {
+        var newTaskHours = durationMinutes / 60.0;
+
+        var dayTasks = getWorkloadTasks(technician.Id, date);
+        var dayHours = dayTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+        if (dayHours + newTaskHours > (double)technician.DailyLimit)
+            return true;
+
+        var weekTasks = weekTasksByTechnician.GetValueOrDefault(technician.Id) ?? new List<TaskEntity>();
+        var weekHours = weekTasks.Sum(t => (t.EndAt - t.StartAt).TotalHours);
+        if (weekHours + newTaskHours > (double)technician.WeeklyLimit)
+            return true;
+
         return false;
     }
 }

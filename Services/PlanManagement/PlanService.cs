@@ -267,7 +267,7 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement
                 _placementValidator,
                 travelResolver,
                 new CandidateEligibilityEvaluator(),
-                new CandidateLocalitySelector(),
+                new CandidateLocalitySelector(new ForwardingLogger<CandidateLocalitySelector>(logger)),
                 new CandidateDateWindowGenerator(),
                 new CandidateSlotGenerator(timeService),
                 new CandidateScoreCalculator(),
