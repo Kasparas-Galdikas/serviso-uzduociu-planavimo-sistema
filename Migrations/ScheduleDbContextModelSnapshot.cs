@@ -558,6 +558,12 @@ namespace ServiceTaskPlanningSystem.Migrations
                         .HasDefaultValue(8m)
                         .HasColumnName("daily_limit");
 
+                    b.Property<int>("ExperienceLevel")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("experience_level");
+
                     b.Property<long?>("UserId")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");

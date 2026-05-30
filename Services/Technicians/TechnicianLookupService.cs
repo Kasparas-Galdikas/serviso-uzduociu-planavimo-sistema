@@ -32,7 +32,8 @@ namespace ServiceTaskPlanningSystem.Services.Technicians
                 Name = t.User != null
                     ? (!string.IsNullOrWhiteSpace(t.User.Name) ? t.User.Name : t.User.Email)
                     : $"Technician #{t.Id}",
-                City = t.WorkplaceAddress?.City
+                City = t.WorkplaceAddress?.City,
+                ExperienceLevel = t.ExperienceLevel
             }).ToList();
         }
     }

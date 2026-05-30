@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using ServiceTaskPlanningSystem.Data.Enums;
 
 namespace ServiceTaskPlanningSystem.Data.Seed
 {
@@ -23,6 +24,7 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             public decimal DailyLimit { get; set; }
             public decimal WeeklyLimit { get; set; }
             public string WorkplaceAddress { get; set; } = string.Empty;
+            public ExperienceLevel ExperienceLevel { get; set; } = ExperienceLevel.Mid;
         }
 
         public class MockObject
@@ -69,22 +71,22 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
         public static List<MockTechnician> GetTechnicians() => new()
         {
-            new() { Name = "Austeja J.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Gedimino pr. 1, Vilnius" },
-            new() { Name = "Dovydas K.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, WorkplaceAddress = "Laisves al. 10, Kaunas" },
-            new() { Name = "Gabija P.", City = "Siauliai", DailyLimit = 8, WeeklyLimit = 42, WorkplaceAddress = "Vilniaus g. 100, Siauliai" },
-            new() { Name = "Lukas V.", City = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "H. Manto g. 5, Klaipeda" },
-            new() { Name = "Monika S.", City = "Panevezys", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Respublikos g. 2, Panevezys" },
-            new() { Name = "Rokas M.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 35, WorkplaceAddress = "Ozo g. 25, Vilnius" },
-            new() { Name = "Greta B.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, WorkplaceAddress = "Savanoriu pr. 255, Kaunas" },
-            new() { Name = "Mantas P.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Ukmerges g. 369, Vilnius" },
-            new() { Name = "Ieva Z.", City = "Alytus", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Naujoji g. 50, Alytus" },
-            new() { Name = "Paulius T.", City = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Taikos pr. 141, Klaipeda" },
-            new() { Name = "Jurate R.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Pilies g. 10, Vilnius" },
-            new() { Name = "Tomas G.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "K. Donelaicio g. 50, Kaunas" },
-            new() { Name = "Elze K.", City = "Siauliai", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Tilzes g. 50, Siauliai" },
-            new() { Name = "Vaidotas L.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Zalgirio g. 90, Vilnius" },
-            new() { Name = "Karolina N.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Kestucio g. 15, Kaunas" },
-            new() { Name = "Technician", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Vytauto pr. 24, Kaunas" }
+            new() { Name = "Austeja J.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Gedimino pr. 1, Vilnius", ExperienceLevel = ExperienceLevel.Senior },
+            new() { Name = "Dovydas K.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, WorkplaceAddress = "Laisves al. 10, Kaunas", ExperienceLevel = ExperienceLevel.Senior },
+            new() { Name = "Gabija P.", City = "Siauliai", DailyLimit = 8, WeeklyLimit = 42, WorkplaceAddress = "Vilniaus g. 100, Siauliai", ExperienceLevel = ExperienceLevel.Mid },
+            new() { Name = "Lukas V.", City = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "H. Manto g. 5, Klaipeda", ExperienceLevel = ExperienceLevel.Senior },
+            new() { Name = "Monika S.", City = "Panevezys", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Respublikos g. 2, Panevezys", ExperienceLevel = ExperienceLevel.Junior },
+            new() { Name = "Rokas M.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 35, WorkplaceAddress = "Ozo g. 25, Vilnius", ExperienceLevel = ExperienceLevel.Mid },
+            new() { Name = "Greta B.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 45, WorkplaceAddress = "Savanoriu pr. 255, Kaunas", ExperienceLevel = ExperienceLevel.Mid },
+            new() { Name = "Mantas P.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Ukmerges g. 369, Vilnius", ExperienceLevel = ExperienceLevel.Mid },
+            new() { Name = "Ieva Z.", City = "Alytus", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Naujoji g. 50, Alytus", ExperienceLevel = ExperienceLevel.Junior },
+            new() { Name = "Paulius T.", City = "Klaipeda", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Taikos pr. 141, Klaipeda", ExperienceLevel = ExperienceLevel.Mid },
+            new() { Name = "Jurate R.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Pilies g. 10, Vilnius", ExperienceLevel = ExperienceLevel.Senior },
+            new() { Name = "Tomas G.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "K. Donelaicio g. 50, Kaunas", ExperienceLevel = ExperienceLevel.Mid },
+            new() { Name = "Elze K.", City = "Siauliai", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Tilzes g. 50, Siauliai", ExperienceLevel = ExperienceLevel.Junior },
+            new() { Name = "Vaidotas L.", City = "Vilnius", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Zalgirio g. 90, Vilnius", ExperienceLevel = ExperienceLevel.Mid },
+            new() { Name = "Karolina N.", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Kestucio g. 15, Kaunas", ExperienceLevel = ExperienceLevel.Mid },
+            new() { Name = "Technician", City = "Kaunas", DailyLimit = 8, WeeklyLimit = 40, WorkplaceAddress = "Vytauto pr. 24, Kaunas", ExperienceLevel = ExperienceLevel.Junior }
         };
 
         public static List<MockObject> GetObjects() => new()

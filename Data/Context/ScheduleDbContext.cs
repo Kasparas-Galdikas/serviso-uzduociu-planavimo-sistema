@@ -120,6 +120,11 @@ namespace ServiceTaskPlanningSystem.Data
                 .HasColumnType("numeric(6,2)")
                 .HasDefaultValue(40)
                 .IsRequired();
+            entity.Property(e => e.ExperienceLevel)
+                .HasColumnName("experience_level")
+                .HasDefaultValue(Enums.ExperienceLevel.Mid)
+                .HasSentinel((Enums.ExperienceLevel)(-1))
+                .IsRequired();
             entity.Property(e => e.CreatedAt)
                 .HasColumnType("timestamptz")
                 .HasDefaultValueSql("NOW()");

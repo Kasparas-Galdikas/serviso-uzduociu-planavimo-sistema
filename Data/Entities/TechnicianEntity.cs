@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using ServiceTaskPlanningSystem.Data.Enums;
 
 namespace ServiceTaskPlanningSystem.Data
 {
@@ -11,6 +12,7 @@ namespace ServiceTaskPlanningSystem.Data
         public AddressEntity WorkplaceAddress { get; set; } = default!;
         public decimal DailyLimit { get; set; }
         public decimal WeeklyLimit { get; set; }
+        public ExperienceLevel ExperienceLevel { get; set; } = ExperienceLevel.Mid;
         public DateTime CreatedAt { get; set; }
 
         public UserEntity? User { get; set; }

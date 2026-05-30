@@ -56,6 +56,8 @@ namespace ServiceTaskPlanningSystem.Data.Seed
 
         public async Task SeedAsync()
         {
+            await SyncTechnicianExperienceLevelsAsync();
+
             if (await _db.Plans.AnyAsync())
             {
                 return; // already seeded
@@ -142,6 +144,32 @@ namespace ServiceTaskPlanningSystem.Data.Seed
             return userLookup.ToDictionary(kv => kv.Value.Name, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
         }
 
+        private async Task SyncTechnicianExperienceLevelsAsync()
+        {
+            var mockTechnicians = MockSeedData.GetTechnicians();
+            var mockByName = mockTechnicians.ToDictionary(m => m.Name, StringComparer.OrdinalIgnoreCase);
+
+            var existingTechs = await _db.Technicians
+                .Include(t => t.User)
+                .Where(t => t.User != null)
+                .ToListAsync();
+
+            var changed = false;
+            foreach (var tech in existingTechs)
+            {
+                if (!mockByName.TryGetValue(tech.User!.Name, out var mock)) continue;
+                if (tech.ExperienceLevel == mock.ExperienceLevel) continue;
+
+                tech.ExperienceLevel = mock.ExperienceLevel;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                await _db.SaveChangesAsync();
+            }
+        }
+
         private async Task<Dictionary<string, TechnicianEntity>> SeedTechniciansAsync(
             Dictionary<string, UserEntity> userLookup,
             Dictionary<string, AddressEntity> addressLookup)
@@ -169,6 +197,7 @@ namespace ServiceTaskPlanningSystem.Data.Seed
                     WorkplaceAddressId = address.Id,
                     DailyLimit = mockTech.DailyLimit,
                     WeeklyLimit = mockTech.WeeklyLimit,
+                    ExperienceLevel = mockTech.ExperienceLevel,
                     CreatedAt = DateTime.UtcNow
                 };
 
