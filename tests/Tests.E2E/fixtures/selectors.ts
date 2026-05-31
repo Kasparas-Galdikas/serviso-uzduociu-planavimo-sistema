@@ -49,23 +49,26 @@ export function taskModal(page: Page): Locator {
 // --- Plan lifecycle ---
 
 export function draftBadge(page: Page): Locator {
-  return page.locator('.badge.bg-warning').filter({ hasText: "Juodrastis" });
+  return first(page, [
+    '.badge.bg-warning:has-text("Generavimo perziura")',
+    '.badge.bg-warning:has-text("Juodrastis")'
+  ]);
 }
 
 export function createPlanBtn(page: Page): Locator {
-  return page.locator('[data-edit-action][data-bs-target="#createTaskModal"]').first();
+  return page.locator("#backlogPanelContent");
 }
 
 export function createPlanEndDateInput(page: Page): Locator {
-  return page.locator('#createEndDate');
+  return page.locator("#backlogDueDate");
 }
 
 export function createPlanNextBtn(page: Page): Locator {
-  return page.locator('#createTaskModal .modal-footer button').filter({ hasText: "Toliau" });
+  return page.locator("#taskBulkNext");
 }
 
 export function summaryConfirmBtn(page: Page): Locator {
-  return page.locator('#summaryConfirmBtn');
+  return page.locator("#taskBulkNext");
 }
 
 export function discardPlanBtn(page: Page): Locator {
@@ -77,7 +80,43 @@ export function publishPlanBtn(page: Page): Locator {
 }
 
 export function previewBanner(page: Page): Locator {
-  return page.locator('.alert-warning').filter({ hasText: "Planavimo rezimas" });
+  return first(page, [
+    "#draftModeBanner",
+    '.alert-warning:has-text("planavimo")',
+    '.alert-warning:has-text("rezimas")'
+  ]);
+}
+
+export function backlogPanel(page: Page): Locator {
+  return page.locator("#backlogPanelContent");
+}
+
+export function backlogSelectToggle(page: Page): Locator {
+  return page.locator("#backlogSelectToggle");
+}
+
+export function backlogBulkScheduleBtn(page: Page): Locator {
+  return page.locator("#backlogBulkSchedule");
+}
+
+export function backlogAutoModeRadio(page: Page): Locator {
+  return page.locator("#taskPlanModeAutomatinis");
+}
+
+export function backlogManualModeRadio(page: Page): Locator {
+  return page.locator("#taskPlanModeRankinis");
+}
+
+export function backlogNextBtn(page: Page): Locator {
+  return page.locator("#taskBulkNext");
+}
+
+export function backlogBackBtn(page: Page): Locator {
+  return page.locator("#taskBulkBack");
+}
+
+export function backlogItemsList(page: Page): Locator {
+  return page.locator("#backlogItemsList");
 }
 
 // --- Task panel ---
@@ -99,7 +138,11 @@ export function taskEndInput(page: Page): Locator {
 }
 
 export function taskSaveBtn(page: Page): Locator {
-  return page.locator('#taskDetailSave');
+  return first(page, [
+    'button[data-panel-footer-action="task-save"]:not(.d-none)',
+    '#taskDetailFooter #taskDetailSave:not(.d-none)',
+    '#taskDetailSave:not(.d-none)'
+  ]);
 }
 
 export function taskDeleteModalConfirm(page: Page): Locator {
@@ -190,4 +233,8 @@ export function successToasts(page: Page): Locator {
 
 export function errorToasts(page: Page): Locator {
   return page.locator('.schedule-toast--error');
+}
+
+export function warningToasts(page: Page): Locator {
+  return page.locator('.schedule-toast--warning');
 }

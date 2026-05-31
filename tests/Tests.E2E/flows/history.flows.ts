@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 import { authenticateAsManager } from "../actions/auth.actions";
 import {
   closeHistoryPanel,
@@ -16,6 +16,65 @@ type PlanState = {
 type HistoryMutationContext = {
   targetDate?: string;
 };
+
+async function getCurrentPagePlanId(page: Page): Promise<number | null> {
+  const rawPlanId = await page.locator("#scheduleTables").getAttribute("data-plan-id");
+  if (!rawPlanId) {
+    return null;
+  }
+
+  const planId = Number(rawPlanId);
+  return Number.isFinite(planId) && planId > 0 ? planId : null;
+}
+
+async function waitForPlanHistoryEntries(page: Page, planId: number | null, minimumCount = 1): Promise<void> {
+  if (planId === null) {
+    return;
+  }
+
+  await page.waitForFunction(
+    async ({ currentPlanId, expectedMinimumCount }) => {
+      const response = await fetch(`/api/plans/${currentPlanId}/history?limit=50&includeBacklog=true`, {
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        return false;
+      }
+
+      const entries = await response.json().catch(() => []);
+      return Array.isArray(entries) && entries.length >= expectedMinimumCount;
+    },
+    { currentPlanId: planId, expectedMinimumCount: minimumCount },
+    { timeout: 10_000 }
+  );
+}
+
+async function openHistoryPanelForCurrentPagePlan(page: Page): Promise<void> {
+  const currentPagePlanId = await getCurrentPagePlanId(page);
+  if (currentPagePlanId === null) {
+    await openHistoryPanel(page);
+    return;
+  }
+
+  const stateRoutePattern = "**/api/plans/state";
+  const stateOverride = async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        activePlanId: currentPagePlanId,
+        draftPlanId: null,
+      }),
+    });
+  };
+
+  await page.route(stateRoutePattern, stateOverride);
+  try {
+    await openHistoryPanel(page);
+  } finally {
+    await page.unroute(stateRoutePattern, stateOverride);
+  }
+}
 
 async function getPlanState(page: Page): Promise<PlanState> {
   const stateResponse = await page.request.get("/api/plans/state");
@@ -126,7 +185,9 @@ export async function openManagerHistoryAfterTaskMutation(
 
   await page.goto(targetUrl);
   await page.waitForLoadState("networkidle");
-  await openHistoryPanel(page);
+  const currentPagePlanId = await getCurrentPagePlanId(page);
+  await waitForPlanHistoryEntries(page, currentPagePlanId).catch(() => null);
+  await openHistoryPanelForCurrentPagePlan(page);
 }
 
 export async function expandFirstSuccessfulHistoryEntry(page: Page): Promise<Locator> {

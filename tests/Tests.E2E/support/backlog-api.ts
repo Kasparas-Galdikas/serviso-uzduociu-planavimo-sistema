@@ -21,7 +21,7 @@ export async function createBacklogItemViaApi(
       priority: input.priority ?? 2,
       itemType: input.itemType ?? 1,
       skillLevel: input.skillLevel ?? "Advanced",
-      objectId: "",
+      objectId: null,
       objectName: input.objectName ?? "Vilniaus prekybos centras",
       objectAddress: input.objectAddress ?? "Konstitucijos pr. 16, Vilnius",
       instructions: input.instructions ?? "Backlog drag instructions",

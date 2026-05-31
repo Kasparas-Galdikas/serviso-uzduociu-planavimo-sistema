@@ -335,6 +335,35 @@ function isRetryableTaskCreationError(status: number, responseText: string, hasE
   return status === 500 && /pk_task_evaluations|dbupdateconcurrencyexception|deadlock detected|transient failure|40P01/i.test(responseText);
 }
 
+async function getSuggestedSlot(
+  page: Page,
+  technicianId: number,
+  targetDate: string
+): Promise<ScheduleSlotContext | null> {
+  const response = await page.request.get(
+    `/api/tasks/suggest-start?technicianId=${technicianId}&targetDate=${targetDate}&appendAfterLastTask=true`
+  );
+
+  if (!response.ok()) {
+    return null;
+  }
+
+  const body = await response.json().catch(() => null);
+  const suggestedDate = typeof body?.targetDate === "string" ? body.targetDate : targetDate;
+  const startAt = typeof body?.startAt === "string" ? body.startAt : "";
+  const endAt = typeof body?.endAt === "string" ? body.endAt : "";
+  if (!startAt || !endAt) {
+    return null;
+  }
+
+  return {
+    technicianId,
+    targetDate: suggestedDate,
+    startMinutes: parseMinutesFromDateTime(startAt),
+    endMinutes: parseMinutesFromDateTime(endAt),
+  };
+}
+
 export async function createTaskViaApi(
   page: Page,
   overrides: Record<string, unknown> = {},
@@ -357,23 +386,28 @@ export async function createTaskViaApi(
       minTargetDate,
     }).catch(() => null);
     const normalizedSlot = visibleSlot ? normalizeImplicitScheduleToSafeFuture(visibleSlot, { minTargetDate }) : null;
+    const suggestedSlot =
+      !hasExplicitSchedule && normalizedSlot
+        ? await getSuggestedSlot(page, normalizedSlot.technicianId, normalizedSlot.targetDate).catch(() => null)
+        : null;
+    const selectedSlot = suggestedSlot ?? normalizedSlot;
 
     const technicianId =
       typeof overrides.technicianId === "number"
         ? overrides.technicianId
-        : normalizedSlot?.technicianId;
+        : selectedSlot?.technicianId;
     const targetDate =
       typeof overrides.targetDate === "string"
         ? overrides.targetDate
-        : normalizedSlot?.targetDate ?? minTargetDate;
+        : selectedSlot?.targetDate ?? minTargetDate;
     const startMinutes =
       typeof overrides.startMinutes === "number"
         ? overrides.startMinutes
-        : normalizedSlot?.startMinutes ?? 1110;
+        : selectedSlot?.startMinutes ?? 1110;
     const endMinutes =
       typeof overrides.endMinutes === "number"
         ? overrides.endMinutes
-        : normalizedSlot?.endMinutes ?? 1140;
+        : selectedSlot?.endMinutes ?? 1140;
 
     if (!technicianId) {
       throw new Error("No visible technician slot available in the rendered schedule");

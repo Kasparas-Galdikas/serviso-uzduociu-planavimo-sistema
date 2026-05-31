@@ -153,12 +153,19 @@ export async function createTaskForTechnicianAndOpenAsTechnician(
   const { taskId, schedule } = await createTaskForTechnicianWithSlotRetry(page, technicianId, overrides, options);
 
   await switchToTechnician(page);
-  const card = await openExistingTaskPanelForRole(page, {
-    role: "technician",
-    taskId,
-    technicianId,
-    date: options?.draft ? targetDate : schedule.targetDate,
-  });
+  let card: Locator;
+  if (options?.draft) {
+    await page.goto(`/Schedule?view=day&date=${targetDate}&technicianId=${technicianId}&planScope=draft`);
+    card = await openTaskCardById(page, taskId);
+    await waitForTaskPanel(page);
+  } else {
+    card = await openExistingTaskPanelForRole(page, {
+      role: "technician",
+      taskId,
+      technicianId,
+      date: schedule.targetDate,
+    });
+  }
 
   return {
     taskId,

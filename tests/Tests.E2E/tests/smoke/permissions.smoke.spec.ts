@@ -1,16 +1,26 @@
 import { expect, test } from "@playwright/test";
 
-import { authenticateAsManager, authenticateAsTechnician, switchToManager } from "../../actions/auth.actions";
+import {
+  authenticateAsManager,
+  authenticateAsTechnician,
+  switchToManager,
+  switchToTechnician,
+} from "../../actions/auth.actions";
 import { openDaySchedule, openSchedule } from "../../actions/schedule.actions";
-import { taskSaveBtn } from "../../fixtures/selectors";
+import { backlogPanel, taskPanel, taskSaveBtn } from "../../fixtures/selectors";
 import {
   createManagerTaskAndOpenPanel,
   createManagerTaskViaApi,
-  createTaskForTechnicianAndOpenAsTechnician,
 } from "../../flows/task-access.flows";
+import { openBacklogPlanningFlow } from "../../flows/plan.flows";
 import { getCurrentUserContext } from "../../support/auth-api";
-import { createPlanBtn } from "../../fixtures/selectors";
-import { cleanupTaskViaApi } from "../../support/task-api";
+import { defaultPlanningDate } from "../../support/date";
+import { openDraftDaySchedule } from "../../flows/task.flows";
+import {
+  cleanupTaskViaApi,
+  createTaskViaApi,
+  getVisibleScheduleSlotForTechnician,
+} from "../../support/task-api";
 
 test.describe("manager permissions", () => {
   let taskIdToCleanup: number | null = null;
@@ -26,9 +36,12 @@ test.describe("manager permissions", () => {
     }
   });
 
-  test("manager sees the create-plan button on the schedule page", async ({ page }) => {
+  test("manager sees the backlog/templates planning entry on the schedule page", async ({ page }) => {
     await openSchedule(page);
-    await expect(createPlanBtn(page)).toBeVisible();
+    await expect(page.getByRole("button", { name: /Darb.*ablon/i }).first()).toBeVisible();
+
+    await openBacklogPlanningFlow(page);
+    await expect(backlogPanel(page)).toBeVisible();
   });
 
   test("manager can create a task via the API", async ({ page }) => {
@@ -61,15 +74,19 @@ test.describe("technician permissions", () => {
     }
   });
 
-  test("technician is forbidden from creating a draft plan via the API (403)", async ({ page }) => {
-    const response = await page.request.post("/api/plans/draft", {
-      data: { weeks: 2 },
+  test("technician is forbidden from creating a backlog draft plan via the API (403)", async ({ page }) => {
+    const response = await page.request.post("/api/plans/backlog-draft/ensure", {
+      data: {
+        startDate: "2099-01-05",
+        endDate: "2099-01-18",
+        weeks: 2,
+      },
     });
     expect([403, 404]).toContain(response.status());
   });
 
-  test("technician is forbidden from publishing a plan via the API (403)", async ({ page }) => {
-    const response = await page.request.post("/api/plans/publish");
+  test("technician is forbidden from applying a draft plan via the API (403)", async ({ page }) => {
+    const response = await page.request.post("/api/plans/backlog-draft/apply-to-active");
     expect([403, 404]).toContain(response.status());
   });
 
@@ -98,27 +115,34 @@ test.describe("technician permissions", () => {
     expect([403, 404]).toContain(response.status());
   });
 
-  test("technician does NOT see the create-plan button on the schedule page", async ({ page }) => {
+  test("technician does not see the backlog/templates planning entry on the schedule page", async ({ page }) => {
     await openSchedule(page);
-    const button = createPlanBtn(page);
-    const isVisible = await button.isVisible().catch(() => false);
-    const isEnabled = await button.isEnabled().catch(() => false);
-    expect(isVisible && isEnabled).toBe(false);
+    await expect(page.getByRole("button", { name: /Darb.*ablon/i })).toHaveCount(0);
+    await expect(backlogPanel(page)).toBeHidden();
   });
 
-  test("technician sees read-only controls when opening an assigned draft task", async ({ page }) => {
+  test("technician does not see an assigned draft task in draft scope", async ({ page }) => {
     const currentUser = await getCurrentUserContext(page);
     test.skip(!currentUser.technicianId, "Current seeded technician user has no technician id.");
 
-    const result = await createTaskForTechnicianAndOpenAsTechnician(
-      page,
-      currentUser.technicianId!,
-      { title: "ReadOnlyTask" },
-      { draft: true }
-    );
-    taskIdToCleanup = result.taskId;
+    await switchToManager(page);
+    await openDraftDaySchedule(page, defaultPlanningDate());
+    const draftSlot = await getVisibleScheduleSlotForTechnician(page, currentUser.technicianId!, {
+      minTargetDate: defaultPlanningDate(),
+    });
 
-    await expect(taskSaveBtn(page)).toBeDisabled();
+    taskIdToCleanup = await createTaskViaApi(page, {
+      technicianId: draftSlot.technicianId,
+      targetDate: draftSlot.targetDate,
+      startMinutes: draftSlot.startMinutes,
+      endMinutes: draftSlot.endMinutes,
+      title: "ReadOnlyTask",
+    });
+
+    await switchToTechnician(page);
+    await page.goto(`/Schedule?view=day&date=${draftSlot.targetDate}&technicianId=${currentUser.technicianId}&planScope=draft`);
+    await expect(page.locator(`.task-card[data-task-id="${taskIdToCleanup}"]`)).toHaveCount(0);
+    await expect(taskPanel(page)).not.toHaveClass(/show/);
   });
 
   test("technician is in view-only mode (no edit mode toggle enabled)", async ({ page }) => {

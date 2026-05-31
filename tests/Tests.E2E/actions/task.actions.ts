@@ -8,6 +8,13 @@ export type TaskFormInput = {
   priority?: string;
 };
 
+export type SlotSelectionContext = {
+  technicianId: number;
+  targetDate: string;
+  startMinutes: number;
+  endMinutes: number;
+};
+
 export async function waitForTaskPanel(page: Page): Promise<void> {
   await page.waitForFunction(() => document.getElementById("taskDetailModal") !== null, { timeout: 5_000 });
 
@@ -32,19 +39,58 @@ export async function waitForTaskPanelToClose(page: Page): Promise<void> {
   await expect(taskPanel(page)).not.toHaveClass(/show/, { timeout: 30_000 });
 }
 
-export async function openFirstScheduleSlot(page: Page): Promise<void> {
+export async function openFirstScheduleSlot(page: Page): Promise<SlotSelectionContext> {
   const slots = scheduleSlots(page);
   const count = await slots.count();
   if (count === 0) {
     throw new Error("No empty schedule slots on the rendered schedule.");
   }
 
-  await slots.first().click();
+  const slot = slots.first();
+  const slotContext = await slot.evaluate((element) => {
+    const technicianId = Number(element.getAttribute("data-tech-id"));
+    const targetDate = element.getAttribute("data-date") ?? "";
+    const startMinutes = Number(element.getAttribute("data-slot-start-minutes"));
+    return {
+      technicianId,
+      targetDate,
+      startMinutes,
+      endMinutes: startMinutes + 30,
+    };
+  });
+
+  await slot.click();
+  return slotContext;
 }
 
-export async function chooseCreateTaskFromSlot(page: Page): Promise<void> {
-  const selectionAction = page.getByRole("button", { name: /Veiksmai: kurti uzduoti arba priskirti/i }).first();
-  await selectionAction.click();
+export async function chooseCreateTaskFromSlot(page: Page, slotContext: SlotSelectionContext): Promise<void> {
+  const selectionHit = page.locator(".slot-selection-bar [data-slot-hit]").first();
+  await expect(selectionHit).toBeVisible({ timeout: 5_000 });
+
+  // Draft task creation reuses the same offcanvas shell as backlog planning.
+  // If an old backlog scheduling context is still hanging around, the real UI
+  // path will legitimately switch the shell back to backlog-create. Clear only
+  // that stale context, then use the same second-click behavior as a user.
+  await page.evaluate(() => {
+    window.schedule?.backlog?.state?.clearSchedulingContext?.();
+  });
+
+  await selectionHit.click();
+
+  await page.waitForFunction(() => {
+    const panel = document.getElementById("taskDetailModal");
+    return panel?.classList.contains("show") &&
+      panel.dataset.panelVariant === "task-create" &&
+      panel.dataset.mode === "create";
+  }, { timeout: 10_000 });
+
+  await page.waitForFunction((selection) => {
+    const panel = document.getElementById("taskDetailModal");
+    return panel?.dataset.technicianId === String(selection.technicianId) &&
+      panel?.dataset.targetDate === selection.targetDate &&
+      panel?.dataset.startMinutes === String(selection.startMinutes) &&
+      panel?.dataset.endMinutes === String(selection.endMinutes);
+  }, slotContext, { timeout: 10_000 });
 }
 
 async function selectFirstNonEmptyOption(locator: Locator): Promise<string> {
@@ -79,7 +125,41 @@ export async function fillTaskForm(page: Page, input: TaskFormInput): Promise<vo
 }
 
 export async function saveTask(page: Page): Promise<void> {
-  await taskSaveBtn(page).click({ force: true });
+  await taskSaveBtn(page).click();
+}
+
+export async function saveTaskAndWaitForCreateResult(
+  page: Page,
+): Promise<{ ok: boolean; status: number; id: number | null; body: unknown }> {
+  const responsePromise = page.waitForResponse((resp) => {
+    if (resp.request().method() !== "POST") {
+      return false;
+    }
+
+    try {
+      const pathname = new URL(resp.url()).pathname;
+      return pathname === "/api/tasks" || pathname === "/api/tasks/draft";
+    } catch {
+      return false;
+    }
+  }, { timeout: 15_000 });
+
+  await saveTask(page);
+
+  const response = await responsePromise;
+  const body = await response.json().catch(() => null);
+  const id = typeof body?.id === "number"
+    ? body.id
+    : typeof body?.taskId === "number"
+      ? body.taskId
+      : null;
+
+  return {
+    ok: response.ok(),
+    status: response.status(),
+    id,
+    body,
+  };
 }
 
 export async function saveTaskAndWaitForClose(page: Page): Promise<void> {
@@ -108,7 +188,9 @@ export async function saveTaskAndWaitForVersionChange(page: Page): Promise<void>
 
   // Use evaluate to dispatch the click directly on the element, bypassing any z-index overlays.
   await page.evaluate(() => {
-    document.getElementById("taskDetailSave")?.click();
+    document
+      .querySelector('button[data-panel-footer-action="task-save"]:not(.d-none), #taskDetailFooter #taskDetailSave:not(.d-none)')
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
 
   await responsePromise;

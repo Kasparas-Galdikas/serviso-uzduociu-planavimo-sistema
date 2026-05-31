@@ -6,10 +6,8 @@ import {
   saveTask,
 } from "../../actions/task.actions";
 import {
-  successToasts,
-  taskSaveBtn,
-  taskStatusSelect,
-  taskTechnicianCommentInput,
+  taskPanel,
+  warningToasts,
 } from "../../fixtures/selectors";
 import {
   createTaskForOtherTechnician,
@@ -19,9 +17,13 @@ import { discardDraftIfExists } from "../../support/plan-api";
 import { getCurrentUserContext } from "../../support/auth-api";
 import {
   cleanupTaskViaApi,
+  createTaskViaApi,
+  getVisibleScheduleSlotForTechnician,
   getTaskDetailViaApi,
   updateTaskAsTechnicianViaApi,
 } from "../../support/task-api";
+import { openDraftDaySchedule } from "../../flows/task.flows";
+import { defaultPlanningDate } from "../../support/date";
 
 test.describe("technician task workflows", () => {
   test.describe.configure({ mode: "serial" });
@@ -39,7 +41,7 @@ test.describe("technician task workflows", () => {
     await discardDraftIfExists(page);
   });
 
-  test("technician marks own active task as completed and the comment persists", async ({ page }) => {
+  test("technician cannot mark own active task as completed before the task starts", async ({ page }) => {
     await switchToTechnician(page);
     const currentUser = await getCurrentUserContext(page);
     test.skip(!currentUser.technicianId, "Current seeded technician user has no technician id.");
@@ -56,15 +58,16 @@ test.describe("technician task workflows", () => {
     await editTechnicianComment(page, comment);
     await saveTask(page);
 
-    await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
+    await expect(warningToasts(page).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/Negalima keisti statuso prieš prasidedant užduočiai/i)).toBeVisible({ timeout: 10_000 });
 
     const updated = await getTaskDetailViaApi(page, result.taskId);
-    expect(updated.status).toBe(1);
-    expect(updated.technicianComment).toBe(comment);
-    expect(updated.isEditable).toBe(false);
+    expect(updated.status).not.toBe(1);
+    expect(updated.technicianComment ?? "").not.toBe(comment);
+    expect(updated.isEditable).toBeTruthy();
   });
 
-  test("technician marks own active task as problem and the comment persists", async ({ page }) => {
+  test("technician cannot mark own active task as problem before the task starts", async ({ page }) => {
     await switchToTechnician(page);
     const currentUser = await getCurrentUserContext(page);
     test.skip(!currentUser.technicianId, "Current seeded technician user has no technician id.");
@@ -82,12 +85,13 @@ test.describe("technician task workflows", () => {
     await editTechnicianComment(page, comment);
     await saveTask(page);
 
-    await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
+    await expect(warningToasts(page).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/Negalima keisti statuso prieš prasidedant užduočiai/i)).toBeVisible({ timeout: 10_000 });
 
     const updated = await getTaskDetailViaApi(page, result.taskId);
-    expect(updated.status).toBe(2);
-    expect(updated.technicianComment).toBe(comment);
-    expect(updated.isEditable).toBe(false);
+    expect(updated.status).not.toBe(2);
+    expect(updated.technicianComment ?? "").not.toBe(comment);
+    expect(updated.isEditable).toBeTruthy();
   });
 
   test("technician cannot update another technician's active task via the technician endpoint", async ({ page }) => {
@@ -110,21 +114,28 @@ test.describe("technician task workflows", () => {
     expect(String((response.body as { message?: string } | null)?.message ?? response.body ?? "")).toMatch(/savo|redaguoti|teisiu/i);
   });
 
-  test("technician sees an assigned draft task as read-only", async ({ page }) => {
+  test("technician does not see an assigned draft task in draft scope", async ({ page }) => {
     await switchToTechnician(page);
     const currentUser = await getCurrentUserContext(page);
     test.skip(!currentUser.technicianId, "Current seeded technician user has no technician id.");
 
-    const result = await createTaskForTechnicianAndOpenAsTechnician(
-      page,
-      currentUser.technicianId!,
-      { title: "DraftTech" },
-      { draft: true }
-    );
-    taskIdsToCleanup.push(result.taskId);
+    await switchToManager(page);
+    await openDraftDaySchedule(page, defaultPlanningDate());
+    const draftSlot = await getVisibleScheduleSlotForTechnician(page, currentUser.technicianId!, {
+      minTargetDate: defaultPlanningDate(),
+    });
+    const taskId = await createTaskViaApi(page, {
+      technicianId: draftSlot.technicianId,
+      targetDate: draftSlot.targetDate,
+      startMinutes: draftSlot.startMinutes,
+      endMinutes: draftSlot.endMinutes,
+      title: "DraftTech",
+    });
+    taskIdsToCleanup.push(taskId);
 
-    await expect(taskSaveBtn(page)).toBeDisabled();
-    await expect(taskStatusSelect(page)).toBeDisabled();
-    await expect(taskTechnicianCommentInput(page)).toBeDisabled();
+    await switchToTechnician(page);
+    await page.goto(`/Schedule?view=day&date=${draftSlot.targetDate}&technicianId=${currentUser.technicianId}&planScope=draft`);
+    await expect(page.locator(`.task-card[data-task-id="${taskId}"]`)).toHaveCount(0);
+    await expect(taskPanel(page)).not.toHaveClass(/show/);
   });
 });

@@ -1,27 +1,37 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import {
-  createPlanBtn,
-  createPlanEndDateInput,
-  createPlanNextBtn,
+  backlogAutoModeRadio,
+  backlogBulkScheduleBtn,
+  backlogNextBtn,
+  backlogPanel,
+  backlogSelectToggle,
   discardPlanBtn,
   publishPlanBtn,
-  summaryConfirmBtn,
 } from "../fixtures/selectors";
 
-export async function clickCreatePlan(page: Page): Promise<void> {
-  await createPlanBtn(page).click();
+export async function openBacklogPlanningPanel(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.schedule?.backlog?.openBacklogPanel?.();
+  });
+
+  await backlogPanel(page).waitFor({ state: "visible", timeout: 10_000 });
 }
 
-export async function setCreatePlanEndDate(page: Page, endDate: string): Promise<void> {
-  await createPlanEndDateInput(page).fill(endDate);
+export async function enterBacklogSelectionMode(page: Page): Promise<void> {
+  await backlogSelectToggle(page).click();
 }
 
-export async function continuePlanCreation(page: Page): Promise<void> {
-  await createPlanNextBtn(page).click();
+export async function startBulkPlanning(page: Page): Promise<void> {
+  await backlogBulkScheduleBtn(page).click();
 }
 
-export async function confirmPlanSummary(page: Page): Promise<void> {
-  await summaryConfirmBtn(page).click();
+export async function selectAutomaticPlanningMode(page: Page): Promise<void> {
+  await page.locator('label[for="taskPlanModeAutomatinis"]').click();
+  await expect(backlogAutoModeRadio(page)).toBeChecked();
+}
+
+export async function continueBulkPlanning(page: Page): Promise<void> {
+  await backlogNextBtn(page).click();
 }
 
 export async function publishDraft(page: Page): Promise<void> {

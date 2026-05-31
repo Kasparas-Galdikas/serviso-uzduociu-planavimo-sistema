@@ -423,32 +423,34 @@ namespace ServiceTaskPlanningSystem.Services.PlanManagement.Orchestrator
 
         public async Task DiscardDraftAsync(CancellationToken cancellationToken = default)
         {
-            var draft = await _db.Plans
-                .Include(p => p.Tasks)
-                .FirstOrDefaultAsync(p => p.Status == PlanStatus.Draft, cancellationToken);
+            var draftId = await _db.Plans
+                .Where(p => p.Status == PlanStatus.Draft)
+                .Select(p => (long?)p.Id)
+                .FirstOrDefaultAsync(cancellationToken);
 
-            if (draft == null)
+            if (!draftId.HasValue)
             {
                 return;
             }
 
-            await _evaluationEngine.RecalculatePlanAsync(draft.Id, cancellationToken);
-
             await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
-            if (draft.Tasks.Any())
-            {
-                _db.Tasks.RemoveRange(draft.Tasks);
-            }
+            var removedTasks = await _db.Tasks
+                .Where(t => t.PlanId == draftId.Value)
+                .ExecuteDeleteAsync(cancellationToken);
 
             var today = _timeService.GetLocalToday();
-            draft.PeriodStart = today;
-            draft.PeriodEnd = today;
-            draft.Weeks = 1;
-            _db.Plans.Update(draft);
-            await _db.SaveChangesAsync(cancellationToken);
+            await _db.Plans
+                .Where(p => p.Id == draftId.Value)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(p => p.PeriodStart, today)
+                        .SetProperty(p => p.PeriodEnd, today)
+                        .SetProperty(p => p.Weeks, 1),
+                    cancellationToken);
+
             await transaction.CommitAsync(cancellationToken);
-            _logger.LogInformation("svc.plan.discard draftId={DraftId} removedTasks={Tasks} preservedDraftPlan=true", draft.Id, draft.Tasks.Count);
+            _logger.LogInformation("svc.plan.discard draftId={DraftId} removedTasks={Tasks} preservedDraftPlan=true", draftId.Value, removedTasks);
         }
 
         public async Task<(long? ActivePlanId, long? DraftPlanId)> RecalculateCurrentPlansAsync(CancellationToken cancellationToken = default)

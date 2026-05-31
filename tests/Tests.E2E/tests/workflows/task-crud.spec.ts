@@ -12,9 +12,9 @@ import {
 } from "../../actions/task.actions";
 import { successToasts, taskPanel, taskPrioritySelect, taskSkillSelect, taskTitleInput } from "../../fixtures/selectors";
 import {
-  createDraftTaskAndOpenPanel,
-  createDraftTaskAndReturnCard,
-  openDraftDayScheduleAndTaskCreatePanel,
+  createActiveTaskAndOpenPanel,
+  createActiveTaskAndReturnCard,
+  openActiveDayScheduleAndTaskCreatePanel,
 } from "../../flows/task.flows";
 import { discardDraftIfExists } from "../../support/plan-api";
 import { cleanupTaskViaApi } from "../../support/task-api";
@@ -46,7 +46,7 @@ test.describe("task CRUD workflows", () => {
 
   test("creates a task by clicking an empty slot, filling the panel, and saving", async ({ page }) => {
     const title = `E2E${Date.now().toString().slice(-6)}`;
-    const { card } = await createDraftTaskAndReturnCard(page, { title });
+    const { card } = await createActiveTaskAndReturnCard(page, { title });
 
     await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
     await expect(card).toBeVisible({ timeout: 10_000 });
@@ -57,7 +57,7 @@ test.describe("task CRUD workflows", () => {
 
   test("updates a task title via the task panel and persists the change", async ({ page }) => {
     const initialTitle = `E2E${Date.now().toString().slice(-6)}`;
-    const { card } = await createDraftTaskAndOpenPanel(page, { title: initialTitle });
+    const { card } = await createActiveTaskAndOpenPanel(page, { title: initialTitle });
 
     await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
     await expect(card).toBeVisible({ timeout: 10_000 });
@@ -74,7 +74,7 @@ test.describe("task CRUD workflows", () => {
 
   test("deletes a task via the card delete button and removes it from the grid", async ({ page }) => {
     const title = `D${Date.now().toString().slice(-6)}`;
-    const { card } = await createDraftTaskAndReturnCard(page, { title });
+    const { card } = await createActiveTaskAndReturnCard(page, { title });
 
     await expect(successToasts(page).first()).toBeVisible({ timeout: 10_000 });
     await expect(card).toBeVisible({ timeout: 10_000 });
@@ -91,7 +91,7 @@ test.describe("task CRUD workflows", () => {
   });
 
   test("shows an error message when saving a task with no title", async ({ page }) => {
-    await openDraftDayScheduleAndTaskCreatePanel(page);
+    await openActiveDayScheduleAndTaskCreatePanel(page);
 
     await taskTitleInput(page).fill("");
     await saveTask(page);
@@ -102,7 +102,7 @@ test.describe("task CRUD workflows", () => {
 
   test("updates task priority via the panel and persists the change", async ({ page }) => {
     const title = `P${Date.now().toString().slice(-6)}`;
-    const { card } = await createDraftTaskAndOpenPanel(page, { title, priority: "1" });
+    const { card } = await createActiveTaskAndOpenPanel(page, { title, priority: "1" });
 
     await expect(card).toBeVisible({ timeout: 10_000 });
     const taskId = Number(await card.getAttribute("data-task-id"));
@@ -118,7 +118,7 @@ test.describe("task CRUD workflows", () => {
 
   test("updates task skill level via the panel and persists the change", async ({ page }) => {
     const title = `S${Date.now().toString().slice(-6)}`;
-    const { card } = await createDraftTaskAndOpenPanel(page, { title, skill: "Basic" });
+    const { card } = await createActiveTaskAndOpenPanel(page, { title, skill: "Basic" });
 
     await expect(card).toBeVisible({ timeout: 10_000 });
     const taskId = Number(await card.getAttribute("data-task-id"));
@@ -134,7 +134,7 @@ test.describe("task CRUD workflows", () => {
 
   test("updates task instructions via the panel and persists the change", async ({ page }) => {
     const title = `I${Date.now().toString().slice(-6)}`;
-    const { card } = await createDraftTaskAndOpenPanel(page, { title });
+    const { card } = await createActiveTaskAndOpenPanel(page, { title });
 
     await expect(card).toBeVisible({ timeout: 10_000 });
     const taskId = Number(await card.getAttribute("data-task-id"));
